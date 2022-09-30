@@ -1,0 +1,6 @@
+edition = "2021" # Included to simplify non-cargo fmt runs.
+max_width = 100
+use_small_heuristics = "Max"
+use_try_shorthand = true
+wrap_comments = true
+use_field_init_shorthand = true
