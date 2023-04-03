@@ -11,7 +11,7 @@
 //pub mod msg;
 //pub mod sasl;
 //pub mod state;
-//mod string;
+pub mod string;
 
 //pub use crate::string::strmap;
 //pub use crate::string::*;
