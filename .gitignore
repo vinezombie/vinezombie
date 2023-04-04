@@ -1,3 +1,3 @@
 /target
 Cargo.lock
-/img
+/doc/*.d2.svg

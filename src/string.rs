@@ -1,14 +1,25 @@
 //! Byte strings and string manipulation utilities.
 //!
-//! The core primitive of vinezombie is an immutable byte string type
+//! The core primitive of vinezombie is [an immutable byte string type][Bytes]
 //! that can either borrow or have shared ownership of its contents.
+//! This primitive also features optimizations for checking UTF-8 validity.
+//!
+//! There are several newtypes based around this primitive,
+//! each with progressively greater restrictions.
+//!
+//! Accompanying `Bytes` and its newtypes are a family of [`Transformation`]s
+//! which allow for rich string manipulation while upholding the newtypes' invariants.
+
+// TODO: SVG link.
 
 //#[cfg(feature = "base64")]
 //pub mod base64;
 mod bytes;
+mod subtypes;
 //pub mod strmap;
 
 pub use bytes::Bytes;
+pub use subtypes::*;
 //pub use ircstr::IrcStr;
 //pub use ircword::IrcWord;
 

@@ -1,0 +1,16 @@
+Bytes <- Line: "No CR, LF, or NUL"
+Line <- Word: "No spaces"
+Word <- Arg: "Non-empty; no leading :"
+Arg <- Nick: "No ! or @"
+Arg <- User: "No @ or %"
+Arg <- Kind: "Only ASCII uppercase alphanumerics"
+Word <- TagKey: "Non-empty; no +, =, /, or ;"
+
+Bytes.shape: class
+Line.shape: class 
+Word.shape: class 
+Arg.shape: class 
+Nick.shape: class 
+User.shape: class 
+Kind.shape: class 
+TagKey.shape: class
