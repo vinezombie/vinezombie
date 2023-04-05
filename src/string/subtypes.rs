@@ -1,5 +1,6 @@
-use std::{borrow::Borrow, num::NonZeroUsize};
+#![allow(clippy::derivable_impls)]
 
+use std::{borrow::Borrow, num::NonZeroUsize};
 use super::{Bytes, Transform};
 
 macro_rules! impl_subtype {

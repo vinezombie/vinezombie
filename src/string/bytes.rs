@@ -101,7 +101,7 @@ impl<'a> Bytes<'a> {
                         self.utf8.store(tfed.utf8 as i8, Relaxed);
                     }
                 }
-                self.value = s
+                self.value = s;
             }
             Cow::Owned(o) => {
                 let utf8 = match tfed.utf8 {
@@ -231,7 +231,7 @@ impl Ord for Bytes<'_> {
 
 impl std::hash::Hash for Bytes<'_> {
     fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
-        self.value.hash(hasher)
+        self.value.hash(hasher);
     }
 }
 
