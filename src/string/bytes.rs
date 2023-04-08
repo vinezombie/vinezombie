@@ -22,6 +22,14 @@ pub struct Bytes<'a> {
 }
 
 impl<'a> Bytes<'a> {
+    /// Cheaply converts a byte slice into a `Bytes`.
+    pub const fn from_bytes(value: &'a [u8]) -> Bytes<'a> {
+        Bytes { value, ownership: None, utf8: AtomicI8::new(0) }
+    }
+    /// Cheaply converts an `str` into a `Bytes`.
+    pub const fn from_str(value: &'a str) -> Bytes<'a> {
+        Bytes { value: value.as_bytes(), ownership: None, utf8: AtomicI8::new(1) }
+    }
     /// Return an owning version of this string.
     ///
     /// If this string already owns its data, this method only extends its lifetime.

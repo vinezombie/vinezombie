@@ -3,6 +3,9 @@
 use super::{Bytes, Transform};
 use std::{borrow::Borrow, num::NonZeroUsize};
 
+/// # Safety
+/// Here be transmutes. $ssuper must be either Bytes
+/// or a an $sname from a previous use of this macro.
 macro_rules! impl_subtype {
     (
         $doc:literal
@@ -30,7 +33,7 @@ macro_rules! impl_subtype {
         #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
         pub struct $sname<'a>(Bytes<'a>);
 
-        #[doc = concat!("Marker for [`", stringify!($sname), "`]-safe [`Transform`]s'.")]
+        #[doc = concat!("Marker for [`", stringify!($sname), "`]-safe [`Transform`]s.")]
         #[doc = ""]
         #[doc = "# Safety"]
         #[doc = "[`Transform::transform()`]' must return a byte string that maintains"]
@@ -40,6 +43,7 @@ macro_rules! impl_subtype {
 
         impl<'a> $sname<'a> {
             /// Returns the first byte and its index that violate this type's guarantees.
+            #[inline]
             pub fn find_invalid(bytes: impl AsRef<[u8]>) -> Option<InvalidByte> {
                 // Optimization: the block here can also do a test for ASCII-validity
                 // and use that to infer UTF-8 validity.
@@ -74,8 +78,8 @@ macro_rules! impl_subtype {
             ///
             /// # Safety
             /// This function assumes that this type's guarantees are upheld by `bytes`.
-            pub unsafe fn from_bytes_unchecked(bytes: impl Into<Bytes<'a>>) -> Self {
-                $sname(bytes.into())
+            pub const unsafe fn from_unchecked(bytes: Bytes<'a>) -> Self {
+                $sname(bytes)
             }
             /// Transforms `self` using the provided [`Transform`]
             /// that upholds `self`'s invariant.
@@ -83,28 +87,28 @@ macro_rules! impl_subtype {
                 self.0.transform(tf)
             }
             /// Cheaply converts `self` into the next more-general type in the string hierarchy.
-            pub fn into_super(self) -> $ssuper<'a> {
+            pub const fn into_super(self) -> $ssuper<'a> {
+                // Can't use `$ssuper(self.0)` because Line's $ssuper is Bytes.
                 unsafe { std::mem::transmute(self) }
             }
             /// Cheaply converts `self` into the underlying byte string.
-            pub fn into_bytes(self) -> Bytes<'a> {
-                self.0
+            pub const fn into_bytes(self) -> Bytes<'a> {
+                // Can't use `self.0` for non-const destructor reasons.
+                unsafe { std::mem::transmute(self) }
             }
         }
-        // TODO: More TryFrom/From impls for downcasting/upcasting?
-        // The into_super one is probably the most generally-useful
-        // due to Nick/User/Kind needing upcasts to Arg.
-        impl<'a> From<$sname<'a>> for $ssuper<'a> {
-            fn from(value: $sname<'a>) -> $ssuper<'a> {
-                value.into_super()
+        // TODO: Downcasting TryFrom impls?
+        impl<'a> From<$sname<'a>> for Bytes<'a> {
+            fn from(value: $sname<'a>) -> Bytes<'a> {
+                value.into_bytes()
             }
         }
-        impl<'a> AsRef<[u8]> for $sname<'a> {
+        impl AsRef<[u8]> for $sname<'_> {
             fn as_ref(&self) -> &[u8] {
                 self.0.as_ref()
             }
         }
-        impl<'a> Borrow<[u8]> for $sname<'a> {
+        impl Borrow<[u8]> for $sname<'_> {
             fn borrow(&self) -> &[u8] {
                 self.0.borrow()
             }
@@ -113,7 +117,23 @@ macro_rules! impl_subtype {
             type Target = $ssuper<'a>;
 
             fn deref(&self) -> &Self::Target {
-                unsafe { std::mem::transmute(self) }
+                unsafe { &*(self as *const Self as *const Self::Target) }
+            }
+        }
+        impl std::fmt::Display for $sname<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.fmt(f)
+            }
+        }
+    };
+}
+
+macro_rules! transmute_from {
+    ($sname: ident: $ssuper: ident) => {
+        // TODO: Downcasting TryFrom impls?
+        impl<'a> From<$sname<'a>> for $ssuper<'a> {
+            fn from(value: $sname<'a>) -> $ssuper<'a> {
+                unsafe { std::mem::transmute(value) }
             }
         }
     };
@@ -158,6 +178,7 @@ impl_subtype! {
         check_bytes(bytes, word_byte_check)
     }
 }
+transmute_from!(Word: Line);
 
 impl<'a> Default for Word<'a> {
     fn default() -> Self {
@@ -185,6 +206,8 @@ impl_subtype! {
         arg_first_check(bytes)
     }
 }
+transmute_from!(Arg: Line);
+transmute_from!(Arg: Word);
 
 #[inline]
 fn tagkey_byte_check(byte: &u8) -> bool {
@@ -203,6 +226,8 @@ impl_subtype! {
         }
     }
 }
+transmute_from!(TagKey: Line);
+transmute_from!(TagKey: Word);
 
 #[inline]
 fn nick_byte_check(byte: &u8) -> bool {
@@ -225,6 +250,9 @@ impl_subtype! {
         check_bytes(bytes, nick_byte_check)
     }
 }
+transmute_from!(Nick: Line);
+transmute_from!(Nick: Word);
+transmute_from!(Nick: Arg);
 
 impl_subtype! {
     "An [`Arg`] that does not contain `@` or `%`.\nIntended for use with usernames."
@@ -237,6 +265,9 @@ impl_subtype! {
         check_bytes(bytes, user_byte_check)
     }
 }
+transmute_from!(User: Line);
+transmute_from!(User: Word);
+transmute_from!(User: Arg);
 
 #[inline]
 fn kind_byte_check(byte: &u8) -> bool {
@@ -258,6 +289,9 @@ impl_subtype! {
         check_bytes(bytes, kind_byte_check)
     }
 }
+transmute_from!(Kind: Line);
+transmute_from!(Kind: Word);
+transmute_from!(Kind: Arg);
 
 /// Error indicating that the invariant of a [`Bytes`] newtype has been violated.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -303,7 +337,7 @@ impl From<InvalidByte> for std::io::Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{Line, Word, Arg};
+    use super::{Arg, Line, Word};
 
     #[test]
     pub fn line() {
