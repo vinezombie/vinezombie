@@ -1,11 +1,9 @@
 //! Minimally-processed IRC messages.
 
 mod args;
-//mod client;
-//mod server;
+mod client;
+mod server;
 //#[cfg(test)]
 //mod tests;
 
-pub use self::args::*;
-
-//pub use self::{client::*, server::*, args::*};
+pub use self::{args::*, client::*, server::*};

@@ -11,7 +11,7 @@ unsafe fn downcast_line_slice<'a, 's>(lines: &'s [Line<'a>]) -> &'s [Arg<'a>] {
 ///
 /// This type enforces the invariant that
 /// only the last argument may be longer than one word.
-#[derive(Clone, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Default, Debug)]
 pub struct Args<'a>(Vec<Line<'a>>, bool);
 
 impl<'a> Args<'a> {
