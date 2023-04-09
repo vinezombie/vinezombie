@@ -1,23 +1,29 @@
 //! IRC message argument utilities.
 
-use crate::{IrcStr, IrcWord};
+use crate::string::{Arg, Line};
+
+#[inline(always)]
+unsafe fn downcast_line_slice<'a, 's>(lines: &'s [Line<'a>]) -> &'s [Arg<'a>] {
+    &*(lines as *const [Line<'a>] as *const [Arg<'a>])
+}
 
 /// IRC message argument array.
 ///
 /// This type enforces the invariant that
 /// only the last argument may be longer than one word.
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
-pub struct Args<'a>(Vec<IrcStr<'a>>, bool);
+pub struct Args<'a>(Vec<Line<'a>>, bool);
 
 impl<'a> Args<'a> {
     /// Creates a new empty argument array.
-    pub fn new() -> Args<'a> {
-        Default::default()
+    pub const fn new() -> Args<'a> {
+        Args(Vec::new(), false)
     }
+    /*
     /// Parses an argument array from a string.
-    pub fn parse(s: impl Into<IrcStr<'a>>) -> Args<'a> {
+    pub fn parse(s: impl Into<Line<'a>>) -> Args<'a> {
         let mut s = s.into();
-        let mut args = Args::default();
+        let mut args = Args::new();
         loop {
             s.slice(str::trim_start);
             if s.lex_char(|c| *c == ':').is_some() {
@@ -31,13 +37,14 @@ impl<'a> Args<'a> {
         }
         args
     }
+    */
     /// Clears the argument array.
     pub fn clear(&mut self) {
         self.0.clear();
         self.1 = false;
     }
-    /// Removes the last argument and returns it, or None is the argument array is empty.
-    pub fn pop(&mut self) -> Option<IrcStr<'a>> {
+    /// Removes the last argument and returns it, or `None` is the argument array is empty.
+    pub fn pop(&mut self) -> Option<Line<'a>> {
         self.1 = false;
         self.0.pop()
     }
@@ -45,8 +52,8 @@ impl<'a> Args<'a> {
     ///
     /// The word will be added to the end of the argument array unless the last argument is long,
     /// in which case it will be added just before it.
-    pub fn add_word<'b: 'a>(&mut self, w: impl Into<IrcWord<'b>>) {
-        let mut s: IrcStr<'a> = w.into().into();
+    pub fn add<'b: 'a>(&mut self, w: impl Into<Arg<'b>>) {
+        let mut s: Line = w.into().into();
         if self.1 {
             std::mem::swap(&mut s, self.0.last_mut().unwrap());
         }
@@ -56,8 +63,8 @@ impl<'a> Args<'a> {
     ///
     /// If the argument array is empty, just adds the word.
     /// Use this when the last argument in the array has special meaning.
-    pub fn add_word_before_last<'b: 'a>(&mut self, w: impl Into<IrcWord<'b>>) {
-        let mut s: IrcStr<'a> = w.into().into();
+    pub fn add_before_last<'b: 'a>(&mut self, w: impl Into<Arg<'b>>) {
+        let mut s: Line = w.into().into();
         if let Some(last) = self.0.last_mut() {
             std::mem::swap(&mut s, last);
         }
@@ -66,9 +73,9 @@ impl<'a> Args<'a> {
     /// Adds a string to the end of this argument array.
     ///
     /// If the last string in the argument array is long, it will be replaced.
-    pub fn add<'b: 'a>(&mut self, s: impl Into<IrcStr<'b>>) {
+    pub fn add_long<'b: 'a>(&mut self, s: impl Into<Line<'b>>) {
         let s = s.into();
-        let long = !s.is_word();
+        let long = Arg::find_invalid(&s).is_some();
         if self.1 {
             *self.0.last_mut().unwrap() = s;
         } else {
@@ -85,31 +92,30 @@ impl<'a> Args<'a> {
         self.1
     }
     /// Returns a slice of all of the arguments.
-    pub fn all(&self) -> &[IrcStr<'a>] {
+    pub fn all(&self) -> &[Line<'a>] {
         self.0.as_slice()
     }
     /// Returns a slice of arguments that are single-word arguments.
-    pub fn words(&self) -> &[IrcWord<'a>] {
+    pub fn args(&self) -> &[Arg<'a>] {
         match self.0.split_last() {
-            Some((l, rest)) if !l.is_word() => unsafe {
-                // IrcWord and IrcStr are transmutable between each other.
-                IrcWord::cast_slice(rest)
+            Some((l, rest)) if Arg::find_invalid(l).is_some() => unsafe {
+                downcast_line_slice(rest)
             },
-            _ => unsafe { IrcWord::cast_slice(self.0.as_slice()) },
+            _ => unsafe { downcast_line_slice(&self.0) },
         }
     }
     /// Returns the arguments with the last argument split off.
-    pub fn split_last(&self) -> (&[IrcWord<'a>], Option<&IrcStr<'a>>) {
+    pub fn split_last(&self) -> (&[Arg<'a>], Option<&Line<'a>>) {
         if let Some((last, rest)) = self.0.split_last() {
-            (unsafe { IrcWord::cast_slice(rest) }, Some(last))
+            (unsafe { downcast_line_slice(rest) }, Some(last))
         } else {
             (Default::default(), None)
         }
     }
     /// Returns the arguments with the last argument split off and mutable.
-    pub fn split_last_mut(&mut self) -> (&[IrcWord<'a>], Option<&mut IrcStr<'a>>) {
+    pub fn split_last_mut(&mut self) -> (&[Arg<'a>], Option<&mut Line<'a>>) {
         if let Some((last, rest)) = self.0.split_last_mut() {
-            (unsafe { IrcWord::cast_slice(rest) }, Some(last))
+            (unsafe { downcast_line_slice(rest) }, Some(last))
         } else {
             (Default::default(), None)
         }
@@ -120,7 +126,7 @@ impl std::fmt::Display for Args<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut pad = false;
         let (words, long) =
-            if self.is_last_long() { self.split_last() } else { (self.words(), None) };
+            if self.is_last_long() { self.split_last() } else { (self.args(), None) };
         for arg in words {
             if pad {
                 write!(f, " ")?;
@@ -128,11 +134,11 @@ impl std::fmt::Display for Args<'_> {
             write!(f, "{}", arg)?;
             pad = true;
         }
-        if let Some(c) = long {
+        if let Some(last) = long {
             if pad {
                 write!(f, " ")?;
             }
-            write!(f, ":{}", c)?;
+            write!(f, ":{}", last)?;
         }
         Ok(())
     }

@@ -16,8 +16,7 @@
 //pub mod init;
 //#[cfg(feature = "graveseed")]
 //pub mod io;
-//pub mod known;
-//pub mod msg;
+pub mod msg;
 //pub mod sasl;
 //pub mod state;
 pub mod string;
