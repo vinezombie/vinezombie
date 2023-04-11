@@ -9,20 +9,6 @@ use std::{borrow::Borrow, num::NonZeroUsize};
 macro_rules! impl_subtype {
     (
         $doc:literal
-        $sname:ident: $ssuper:ident
-        $tname:ident: $tsuper:ident
-        |$targ:ident| $tbody:block
-    ) => {
-        impl_subtype! {
-            $doc
-            $sname: $ssuper
-            $tname: $tsuper
-            |$targ| $tbody
-            |$targ| $tbody
-        }
-    };
-    (
-        $doc:literal
         $sname: ident: $ssuper: ident
         $tname:ident: $tsuper:ident
         |$targ:ident| $tbody:block
@@ -157,6 +143,9 @@ impl_subtype! {
     |bytes| {
         check_bytes(bytes, line_byte_check)
     }
+    |bytes| {
+        check_bytes(bytes, line_byte_check)
+    }
 }
 
 impl<'a> Default for Line<'a> {
@@ -166,8 +155,8 @@ impl<'a> Default for Line<'a> {
 }
 
 #[inline]
-fn word_byte_check(byte: &u8) -> bool {
-    *byte == b' ' || line_byte_check(byte)
+fn word_byte_check<const CHAIN: bool>(byte: &u8) -> bool {
+    *byte == b' ' || if CHAIN { line_byte_check(byte) } else { false }
 }
 
 impl_subtype! {
@@ -175,7 +164,10 @@ impl_subtype! {
     Word: Line
     WordSafe: LineSafe
     |bytes| {
-        check_bytes(bytes, word_byte_check)
+        check_bytes(bytes, word_byte_check::<true>)
+    }
+    |bytes| {
+        check_bytes(bytes, word_byte_check::<false>)
     }
 }
 transmute_from!(Word: Line);
@@ -200,7 +192,7 @@ impl_subtype! {
     Arg: Word
     ArgSafe: WordSafe
     |bytes| {
-        arg_first_check(bytes).or_else(|| check_bytes(bytes, word_byte_check))
+        arg_first_check(bytes).or_else(|| check_bytes(bytes, word_byte_check::<true>))
     }
     |bytes| {
         arg_first_check(bytes)
@@ -210,33 +202,48 @@ transmute_from!(Arg: Line);
 transmute_from!(Arg: Word);
 
 #[inline]
-fn tagkey_byte_check(byte: &u8) -> bool {
-    matches!(*byte, b'+' | b'=' | b'/' | b';') || word_byte_check(byte)
+fn tagkey_byte_check<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(*byte, b'=' | b';') || if CHAIN { word_byte_check::<true>(byte) } else { false }
 }
 
 impl_subtype! {
-    "A non-empty [`Word`] that does not contain any of `+`, `=`, `/`, or `;`."
+    "A non-empty [`Word`] that does not contain `=` or `;`."
     TagKey: Word
     TagKeySafe: WordSafe
     |bytes| {
         if bytes.is_empty() {
             Some(InvalidByte::new_empty())
         } else {
-            check_bytes(bytes, tagkey_byte_check)
+            check_bytes(bytes, tagkey_byte_check::<true>)
+        }
+    }
+    |bytes| {
+        if bytes.is_empty() {
+            Some(InvalidByte::new_empty())
+        } else {
+            check_bytes(bytes, tagkey_byte_check::<false>)
         }
     }
 }
 transmute_from!(TagKey: Line);
 transmute_from!(TagKey: Word);
 
-#[inline]
-fn nick_byte_check(byte: &u8) -> bool {
-    matches!(*byte, b'!' | b'@') || word_byte_check(byte)
+impl TagKey<'_> {
+    /// Returns `true` if this is a client tag.
+    pub fn is_client(&self) -> bool {
+        // SAFE: TagKey is non-empty.
+        unsafe { *self.0.get_unchecked(0) == b'+' }
+    }
 }
 
 #[inline]
-fn user_byte_check(byte: &u8) -> bool {
-    matches!(*byte, b'@' | b'%') || word_byte_check(byte)
+fn nick_byte_check<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(*byte, b'!' | b'@') || if CHAIN { word_byte_check::<true>(byte) } else { false }
+}
+
+#[inline]
+fn user_byte_check<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(*byte, b'@' | b'%') || if CHAIN { word_byte_check::<true>(byte) } else { false }
 }
 
 impl_subtype! {
@@ -244,10 +251,10 @@ impl_subtype! {
     Nick: Arg
     NickSafe: ArgSafe
     |bytes| {
-        arg_first_check(bytes).or_else(|| check_bytes(bytes, nick_byte_check))
+        arg_first_check(bytes).or_else(|| check_bytes(bytes, nick_byte_check::<true>))
     }
     |bytes| {
-        check_bytes(bytes, nick_byte_check)
+        check_bytes(bytes, nick_byte_check::<false>)
     }
 }
 transmute_from!(Nick: Line);
@@ -259,10 +266,10 @@ impl_subtype! {
     User: Arg
     UserSafe: ArgSafe
     |bytes| {
-        arg_first_check(bytes).or_else(|| check_bytes(bytes, user_byte_check))
+        arg_first_check(bytes).or_else(|| check_bytes(bytes, user_byte_check::<true>))
     }
     |bytes| {
-        check_bytes(bytes, user_byte_check)
+        check_bytes(bytes, user_byte_check::<false>)
     }
 }
 transmute_from!(User: Line);
@@ -271,7 +278,7 @@ transmute_from!(User: Arg);
 
 #[inline]
 fn kind_byte_check(byte: &u8) -> bool {
-    !byte.is_ascii_digit() && !byte.is_ascii_uppercase()
+    !(byte.is_ascii_digit() || byte.is_ascii_uppercase())
 }
 
 impl_subtype! {
