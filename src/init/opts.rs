@@ -1,6 +1,5 @@
 use crate::{
-    sasl::{External, Plain},
-    IrcStr, IrcWord,
+    auth::{External, Plain}, string::{User, Line},
 };
 
 /// Enum of included SASL mechanisms and options for them.
@@ -32,9 +31,9 @@ pub struct Register<N, S> {
     /// The nickname generator.
     pub nicks: N,
     /// The username, historically one's local account name.
-    pub username: IrcWord<'static>,
+    pub username: User<'static>,
     /// The realname, also sometimes known as the gecos.
-    pub realname: IrcStr<'static>,
+    pub realname: Line<'static>,
     /// A list of SASL authenticators.
     pub sasl: Vec<AnySasl<S>>,
 }
@@ -42,17 +41,17 @@ pub struct Register<N, S> {
 impl<N, S> Register<N, S> {
     /// Creates a new `Register` using the provided nickname generator.
     pub fn new(nicks: N) -> Self {
-        let username: IrcWord<'static> = unsafe { IrcWord::new_unchecked("user") };
+        let username: User<'static> = unsafe { User::from_unchecked("user".into()) };
         #[cfg(feature = "whoami")]
-        let username: IrcWord<'static> = IrcWord::new(whoami::username()).unwrap_or(username);
-        let realname: IrcStr<'static> = "???".into();
+        let username: User<'static> = User::from_bytes(whoami::username()).unwrap_or(username);
+        let realname: Line<'static> = unsafe { Line::from_unchecked("???".into()) };
         #[cfg(feature = "whoami")]
-        let realname: IrcStr<'static> = whoami::realname().try_into().unwrap_or(realname);
+        let realname: Line<'static> = Line::from_bytes(whoami::realname()).unwrap_or(realname);
         Register { nicks, username, realname, sasl: Vec::new() }
     }
     /// Adds a SASL authenticator.
     pub fn add_sasl(&mut self, sasl: impl Into<AnySasl<S>>) {
-        self.sasl.push(sasl.into())
+        self.sasl.push(sasl.into());
     }
 }
 

@@ -11,13 +11,13 @@
 #![deny(rustdoc::invalid_rust_codeblocks)]
 #![deny(rustdoc::private_intra_doc_links)]
 
+pub mod auth;
 //#[cfg(feature = "graveseed")]
 //pub mod handlers;
-//pub mod init;
+pub mod init;
 //#[cfg(feature = "graveseed")]
 //pub mod io;
 pub mod msg;
-//pub mod sasl;
 //pub mod state;
 pub mod string;
 

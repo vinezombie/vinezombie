@@ -1,13 +1,15 @@
 //! SASL mechanisms and related types.
 
-use std::{error::Error, ffi::CString, sync::Arc};
+use std::{ffi::CString, sync::Arc};
 
-/// Types that can store sensitive byte strings.
+type BoxedErr = Box<dyn std::error::Error + Send + Sync>;
+
+/// Trait for types that can store sensitive byte strings.
 pub trait Secret {
     /// Appends the secret's bytes to the provided string.
     ///
     /// This method may fail if retrieving the secret fails.
-    fn append_to(&self, data: &mut Vec<u8>) -> Result<(), Box<dyn Error>>;
+    fn append_to(&self, data: &mut Vec<u8>) -> Result<(), BoxedErr>;
     /// Returns a hint for how many bytes should be preallocated for this secret.
     fn len_hint(&self) -> usize {
         0
@@ -15,9 +17,9 @@ pub trait Secret {
 }
 
 /// Zero-added-security implementation of `Secret`.
-impl Secret for String {
-    fn append_to(&self, data: &mut Vec<u8>) -> Result<(), Box<dyn Error>> {
-        data.extend(self.as_bytes());
+impl Secret for Vec<u8> {
+    fn append_to(&self, data: &mut Vec<u8>) -> Result<(), BoxedErr> {
+        data.extend(self.as_slice());
         Ok(())
     }
     fn len_hint(&self) -> usize {
@@ -25,36 +27,18 @@ impl Secret for String {
     }
 }
 
-/// The type used for [SaslLogic] replies.
-///
-/// Bundles the body of the reply with a continuation for the logic.
-type SaslReply = (Vec<u8>, Box<dyn SaslLogic>);
-
 /// The logic of a SASL mechanism.
-///
-/// This trait uses a similar pattern to [crate::handler::Handler],
-/// where every state change is explicitly modeled but
-/// the state may change types during execution.
 pub trait SaslLogic {
     /// Handles data sent by the server.
-    fn reply(self: Box<Self>, data: Vec<u8>) -> Result<SaslReply, Box<dyn Error>>;
-}
-
-/// [SaslLogic] that marks the end of expected server messages.
-pub struct SaslLogicDone;
-
-impl SaslLogic for SaslLogicDone {
-    fn reply(self: Box<Self>, _: Vec<u8>) -> Result<SaslReply, Box<dyn Error>> {
-        Err("unexpected reply from server".into())
-    }
+    fn reply<'a>(&'a mut self, data: &[u8]) -> Result<&'a [u8], BoxedErr>;
 }
 
 /// SASL mechanisms.
 pub trait Sasl: std::fmt::Debug {
     /// The name of this mechanism, as the client requests it.
     fn name(&self) -> &'static str;
-    /// Returns the logic for this mechanism as a [SaslLogic].
-    fn logic(&self) -> Box<dyn SaslLogic>;
+    /// Returns the logic for this mechanism as a [`SaslLogic]`.
+    fn logic(&self) -> Result<Box<dyn SaslLogic>, BoxedErr>;
 }
 
 /// The [EXTERNAL SASL mechanism](https://www.rfc-editor.org/rfc/rfc4422#appendix-A).
@@ -67,9 +51,9 @@ pub struct External;
 struct ExternalLogic;
 
 impl SaslLogic for ExternalLogic {
-    fn reply(self: Box<Self>, _: Vec<u8>) -> Result<SaslReply, Box<dyn Error>> {
+    fn reply<'a>(&'a mut self, _: &[u8]) -> Result<&'a [u8], BoxedErr> {
         // TODO: Strictness?
-        Ok((Vec::new(), Box::new(SaslLogicDone)))
+        Ok(Default::default())
     }
 }
 
@@ -77,14 +61,16 @@ impl Sasl for External {
     fn name(&self) -> &'static str {
         "EXTERNAL"
     }
-    fn logic(&self) -> Box<dyn SaslLogic> {
-        Box::new(ExternalLogic)
+    fn logic(&self) -> Result<Box<dyn SaslLogic>, BoxedErr> {
+        Ok(Box::new(ExternalLogic))
     }
 }
 
 /// The [PLAIN SASL mechanism](https://www.rfc-editor.org/rfc/rfc4616).
 ///
 /// This is what is used for typical username/password authentication.
+/// It transmits the password in the clear;
+/// do not use this without some form of secure transport, like TLS.
 #[derive(Clone)]
 pub struct Plain<S> {
     authzid: Arc<CString>,
@@ -93,7 +79,7 @@ pub struct Plain<S> {
 }
 
 impl<S: Secret> Plain<S> {
-    /// Creates a [Plain] that logs in to the specified account.
+    /// Creates a `Plain` that logs in to the specified account.
     /// The authzid is left empty; compliant implementations should infer it.
     ///
     /// `passwd` should be UTF-8 encoded and not contain a null character,
@@ -105,7 +91,7 @@ impl<S: Secret> Plain<S> {
             passwd: Arc::new(passwd),
         }
     }
-    /// Creates a [Plain] that logs into the account specified by authzid
+    /// Creates a `Plain` that logs into the account specified by authzid
     /// using the credentials for the account specified by authcid.
     ///
     /// `passwd` should be UTF-8 encoded and not contain a null character,
@@ -125,23 +111,12 @@ impl<S> std::fmt::Debug for Plain<S> {
     }
 }
 
-struct PlainLogic<S> {
-    authzid: Arc<CString>,
-    authcid: Arc<CString>,
-    passwd: Arc<S>,
-}
+struct PlainLogic(Vec<u8>);
 
-impl<S: Secret> SaslLogic for PlainLogic<S> {
-    fn reply(self: Box<Self>, mut data: Vec<u8>) -> Result<SaslReply, Box<dyn Error>> {
+impl SaslLogic for PlainLogic {
+    fn reply<'a>(&'a mut self, _: &[u8]) -> Result<&'a [u8], BoxedErr> {
         // TODO: Strictness?
-        data.clear();
-        let authzid = self.authzid.as_bytes_with_nul();
-        let authcid = self.authcid.as_bytes_with_nul();
-        data.reserve(self.passwd.len_hint() + authcid.len() + authzid.len());
-        data.extend(authzid);
-        data.extend(authcid);
-        self.passwd.append_to(&mut data)?;
-        Ok((data, Box::new(SaslLogicDone)))
+        Ok(self.0.as_slice())
     }
 }
 
@@ -149,11 +124,13 @@ impl<S: Secret + 'static> Sasl for Plain<S> {
     fn name(&self) -> &'static str {
         "PLAIN"
     }
-    fn logic(&self) -> Box<dyn SaslLogic> {
-        Box::new(PlainLogic {
-            authzid: self.authzid.clone(),
-            authcid: self.authcid.clone(),
-            passwd: self.passwd.clone(),
-        })
+    fn logic(&self) -> Result<Box<dyn SaslLogic>, BoxedErr> {
+        let authzid = self.authzid.as_bytes_with_nul();
+        let authcid = self.authcid.as_bytes_with_nul();
+        let mut data = Vec::with_capacity(self.passwd.len_hint() + authcid.len() + authzid.len());
+        data.extend(authzid);
+        data.extend(authcid);
+        self.passwd.append_to(&mut data)?;
+        Ok(Box::new(PlainLogic(data)))
     }
 }
