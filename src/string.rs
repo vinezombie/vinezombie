@@ -16,12 +16,11 @@
 //pub mod base64;
 mod bytes;
 mod subtypes;
+pub mod tf;
 //pub mod strmap;
 
 pub use bytes::Bytes;
 pub use subtypes::*;
-//pub use ircstr::IrcStr;
-//pub use ircword::IrcWord;
 
 use std::borrow::Cow;
 
