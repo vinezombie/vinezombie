@@ -1,15 +1,19 @@
-use super::Args;
-use crate::string::{Kind, Word};
+//! Minimally-processed IRC messages.
 
-/// Representation of the source of a server message.
-pub type Source<'a> = Option<Word<'a>>;
+mod args;
+mod source;
+pub mod tags;
+//#[cfg(test)]
+//mod tests;
+
+use crate::string::Kind;
+
+pub use self::{args::*, source::*, tags::Tags};
 
 /// Error type when parsing a [`ServerMsg`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum MsgParseError {
+pub enum ParseError {
     /// Message exceeds permissible length limits.
-    ///
-    /// [`ServerMsg::parse`] does not return this, but an I/O step may.
     TooLong,
     /// Expected tags but none were provided.
     NoTags,
@@ -21,35 +25,37 @@ pub enum MsgParseError {
     InvalidKind,
 }
 
-impl std::fmt::Display for MsgParseError {
+impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MsgParseError::TooLong => write!(f, "invalid msg: length limits exceeded"),
-            MsgParseError::NoTags => write!(f, "invalid msg: no tags after @"),
-            MsgParseError::NoSource => write!(f, "invalid msg: no source after :"),
-            MsgParseError::NoKind => write!(f, "invalid msg: missing kind/command"),
-            MsgParseError::InvalidKind => write!(f, "invalid msg: non-alphanumeric kind/command"),
+            ParseError::TooLong => write!(f, "invalid msg: length limits exceeded"),
+            ParseError::NoTags => write!(f, "invalid msg: no tags after @"),
+            ParseError::NoSource => write!(f, "invalid msg: no source after :"),
+            ParseError::NoKind => write!(f, "invalid msg: missing kind/command"),
+            ParseError::InvalidKind => write!(f, "invalid msg: non-alphanumeric kind/command"),
         }
     }
 }
 
-impl std::error::Error for MsgParseError {}
+impl std::error::Error for ParseError {}
 
-/// Message sent by an IRC server.
-#[derive(Clone, Debug)]
-pub struct ServerMsg<'a> {
+/// An IRC message.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct IrcMsg<'a> {
+    /// This message's tags, if any.
+    pub tags: Tags<'a>,
     /// The sender of this message.
-    pub source: Source<'a>,
+    pub source: Option<Source<'a>>,
     /// What kind of message this is, usually a command or numeric reply.
     pub kind: Kind<'a>,
     /// This message's arguments.
     pub args: Args<'a>,
 }
 
-impl<'a> ServerMsg<'a> {
+impl<'a> IrcMsg<'a> {
     /// Creates a new `ServerMsg` with no source or arguments.
     pub const fn new(kind: Kind<'a>) -> Self {
-        ServerMsg { source: None, kind, args: Args::new() }
+        IrcMsg { tags: Tags::new(), source: None, kind, args: Args::new() }
     }
     /*
     /// Parses a message from a string.
@@ -72,11 +78,35 @@ impl<'a> ServerMsg<'a> {
         Ok(ServerMsg { source, kind, data })
     }
     */
+    /// The number of bytes of space remaining in this message excluding tags.
+    ///
+    /// When calculating this, it is strongly recommended to have [`source`][Msg::source]
+    /// set.
+    ///
+    /// If either of the returned values are negative, this message is too long
+    /// to guarantee that it will be delivered in whole.
+    pub fn bytes_left(&self) -> isize {
+        let mut size = self.kind.len() + 2; // Newline.
+        if let Some(ref src) = self.source {
+            size += 2 + src.len();
+        }
+        for arg in self.args.all() {
+            size += arg.len() + 1; // Space.
+        }
+        if self.args.is_last_long() {
+            size += 1; // Colon.
+        }
+        let size: isize = size.try_into().unwrap_or(isize::MAX);
+        512 - size
+    }
 }
 
-impl std::fmt::Display for ServerMsg<'_> {
+impl std::fmt::Display for IrcMsg<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO: Tags.
+        if !self.tags.is_empty() {
+            // Tags' Display impl includes the leading @.
+            write!(f, "{} ", self.tags)?;
+        }
         if let Some(ref src) = self.source {
             write!(f, ":{} ", src)?;
         }

@@ -17,7 +17,7 @@ pub mod auth;
 pub mod init;
 //#[cfg(feature = "graveseed")]
 //pub mod io;
-pub mod msg;
+pub mod ircmsg;
 //pub mod state;
 pub mod string;
 
