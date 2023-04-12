@@ -1,5 +1,6 @@
 use crate::string::{
-    ArgSafe, KindSafe, LineSafe, NickSafe, TagKeySafe, Transform, UserSafe, Utf8Policy, WordSafe,
+    ArgSafe, Bytes, KindSafe, LineSafe, NickSafe, TagKeySafe, Transform, Transformation, UserSafe,
+    Utf8Policy, WordSafe,
 };
 
 /// ASCII casemapping, generic over whether it's uppercase or lowercase.
@@ -12,10 +13,11 @@ use crate::string::{
 pub struct AsciiCasemap<const UPPERCASE: bool>;
 
 unsafe impl<const UPPERCASE: bool> Transform for AsciiCasemap<UPPERCASE> {
-    type Value = ();
+    type Value<'a> = ();
 
-    fn transform<'a>(&self, bytes: &'a [u8]) -> crate::string::Transformation<'a, Self::Value> {
+    fn transform<'a>(&self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
+            let bytes = bytes.as_slice_unsafe();
             if UPPERCASE {
                 super::map_bytes(bytes, Utf8Policy::PreserveStrict, u8::to_ascii_uppercase)
             } else {
@@ -79,12 +81,13 @@ fn rfc1459(byte: &u8) -> u8 {
 }
 
 unsafe impl Transform for IrcCasemap {
-    type Value = ();
+    type Value<'a> = ();
 
-    fn transform<'a>(&self, bytes: &'a [u8]) -> crate::string::Transformation<'a, Self::Value> {
+    fn transform<'a>(&self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         use super::map_bytes;
         use Utf8Policy::PreserveStrict as U8Pol;
         unsafe {
+            let bytes = bytes.as_slice_unsafe();
             match self {
                 IrcCasemap::Ascii => map_bytes(bytes, U8Pol, u8::to_ascii_lowercase),
                 IrcCasemap::Rfc1459Strict => map_bytes(bytes, U8Pol, rfc1459_strict),

@@ -34,17 +34,21 @@ impl<'a> Bytes<'a> {
     pub const fn from_str(value: &'a str) -> Bytes<'a> {
         Bytes { value: value.as_bytes(), ownership: None, utf8: AtomicI8::new(1) }
     }
+    /// Returns `true` if `self` is not borrowing its data.
+    pub const fn is_owning(&self) -> bool {
+        self.ownership.is_some()
+    }
     /// Return an owning version of this string.
     ///
     /// If this string already owns its data, this method only extends its lifetime.
     pub fn owning(&self) -> Bytes<'static> {
-        if self.ownership.is_some() {
+        if self.is_owning() {
             // Lifetime extension.
             unsafe { std::mem::transmute(self.clone()) }
         } else {
             unsafe {
-                let (owned, value) = OwnedBytes::from_vec(self.value.to_vec());
-                Bytes { value, ownership: Some(owned), utf8: self.utf8.load(Relaxed).into() }
+                let (ownership, value) = OwnedBytes::from_vec(self.value.to_vec());
+                Bytes { value, ownership, utf8: self.utf8.load(Relaxed).into() }
             }
         }
     }
@@ -99,9 +103,43 @@ impl<'a> Bytes<'a> {
             Cow::Owned(o) => o.into(),
         }
     }
+    fn utf8_for_policy(&self, utf8: Utf8Policy) -> i8 {
+        match utf8 {
+            Utf8Policy::PreserveStrict => self.utf8.load(Relaxed),
+            Utf8Policy::Preserve => (self.utf8.load(Relaxed) == 1) as i8,
+            Utf8Policy::Invalid | Utf8Policy::Recheck | Utf8Policy::Valid => utf8 as i8,
+        }
+    }
+    /// Returns `self`'s value as a slice with lifetime `'a`.
+    ///
+    /// # Safety
+    /// If `self [is owning][Bytes::is_owning], then
+    /// the returned slice must not outlive `self`.
+    pub unsafe fn as_slice_unsafe(&self) -> &'a [u8] {
+        self.value
+    }
+    /// Creates a clone of `self` using `value` as the value.
+    ///
+    /// # Safety
+    /// If `self [is owning][Bytes::is_owning], then
+    /// `value` must either point to data owned by `self` or an immutable static variable.
+    /// A valid value can be obtained using [`as_slice_unsafe`][Bytes::as_slice_unsafe].
+    ///
+    /// The `utf8` parameter is trusted to be correct,
+    /// and byte slices may be incorrectly cast unchecked to `str`s otherwise.
+    pub unsafe fn using_value(&self, value: &'a [u8], utf8: Utf8Policy) -> Self {
+        let utf8 = self.utf8_for_policy(utf8);
+        let ownership = if !value.is_empty() { None } else { self.ownership.clone() };
+        Bytes {
+            // SAFETY: Lifetime extension.
+            value,
+            ownership,
+            utf8: utf8.into(),
+        }
+    }
     /// Updates `self` using the provided [`Transform`].
-    pub fn transform<T: Transform + ?Sized>(&mut self, tf: &T) -> T::Value {
-        let tfed = tf.transform(self.value);
+    pub fn transform<T: Transform + ?Sized>(&mut self, tf: &T) -> T::Value<'a> {
+        let tfed = tf.transform(self);
         match tfed.transformed {
             Cow::Borrowed(s) => {
                 match tfed.utf8 {
@@ -113,19 +151,16 @@ impl<'a> Bytes<'a> {
                         self.utf8.store(tfed.utf8 as i8, Relaxed);
                     }
                 }
+                if s.is_empty() {
+                    self.ownership = None;
+                }
                 self.value = s;
             }
             Cow::Owned(o) => {
-                let utf8 = match tfed.utf8 {
-                    Utf8Policy::PreserveStrict => self.utf8.load(Relaxed),
-                    Utf8Policy::Preserve => (self.utf8.load(Relaxed) == 1) as i8,
-                    Utf8Policy::Invalid | Utf8Policy::Recheck | Utf8Policy::Valid => {
-                        tfed.utf8 as i8
-                    }
-                };
+                let utf8 = self.utf8_for_policy(tfed.utf8);
                 unsafe {
-                    let (owned, value) = OwnedBytes::from_vec(o);
-                    *self = Bytes { value, ownership: Some(owned), utf8: utf8.into() };
+                    let (ownership, value) = OwnedBytes::from_vec(o);
+                    *self = Bytes { value, ownership, utf8: utf8.into() };
                 }
             }
         }
@@ -158,8 +193,8 @@ impl std::borrow::Borrow<[u8]> for Bytes<'_> {
 impl From<Vec<u8>> for Bytes<'static> {
     fn from(value: Vec<u8>) -> Self {
         unsafe {
-            let (owned, value) = OwnedBytes::from_vec(value);
-            Bytes { value, ownership: Some(owned), utf8: 0i8.into() }
+            let (ownership, value) = OwnedBytes::from_vec(value);
+            Bytes { value, ownership, utf8: 0i8.into() }
         }
     }
 }
@@ -167,8 +202,8 @@ impl From<Vec<u8>> for Bytes<'static> {
 impl From<String> for Bytes<'static> {
     fn from(value: String) -> Self {
         unsafe {
-            let (owned, value) = OwnedBytes::from_vec(value.into_bytes());
-            Bytes { value, ownership: Some(owned), utf8: 1i8.into() }
+            let (ownership, value) = OwnedBytes::from_vec(value.into_bytes());
+            Bytes { value, ownership, utf8: 1i8.into() }
         }
     }
 }
@@ -284,9 +319,14 @@ impl OwnedBytes {
     /// Converts a Vec into Self (which owns the data)
     /// and a slice with an unbound lifetime (which does not).
     ///
+    /// Returns `None` and an empty slice if `value` is empty.
+    ///
     /// # Safety
     /// Unbound lifetimes are the devil.
-    pub unsafe fn from_vec<'a>(mut value: Vec<u8>) -> (Self, &'a [u8]) {
+    pub unsafe fn from_vec<'a>(mut value: Vec<u8>) -> (Option<Self>, &'a [u8]) {
+        if value.is_empty() {
+            return (None, Default::default());
+        }
         // We're at the mercy of what the global allocator does here,
         // but at least this potentially does NOT copy.
         value.shrink_to_fit();
@@ -301,7 +341,7 @@ impl OwnedBytes {
         // https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw
         let rc = NonNull::new_unchecked(Box::into_raw(Box::new(AtomicUsize::new(1))));
         let retval = OwnedBytes { rc, data, size };
-        (retval, std::slice::from_raw_parts(data.as_ptr().cast_const(), len))
+        (Some(retval), std::slice::from_raw_parts(data.as_ptr().cast_const(), len))
     }
 }
 
