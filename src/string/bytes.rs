@@ -22,6 +22,10 @@ pub struct Bytes<'a> {
 }
 
 impl<'a> Bytes<'a> {
+    /// Returns a new empty `Bytes`.
+    pub const fn empty() -> Bytes<'a> {
+        Bytes { value: &[], ownership: None, utf8: AtomicI8::new(1) }
+    }
     /// Cheaply converts a byte slice into a `Bytes`.
     pub const fn from_bytes(value: &'a [u8]) -> Bytes<'a> {
         Bytes { value, ownership: None, utf8: AtomicI8::new(0) }

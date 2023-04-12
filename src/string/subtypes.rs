@@ -9,10 +9,44 @@ use std::{borrow::Borrow, num::NonZeroUsize};
 macro_rules! impl_subtype {
     (
         $doc:literal
-        $sname: ident: $ssuper: ident
+        $sname:ident: $ssuper:ident
         $tname:ident: $tsuper:ident
         |$targ:ident| $tbody:block
         |$uarg:ident| $ubody:block
+    ) => {
+        impl_subtype! {
+            $doc
+            $sname: $ssuper
+            $tname: $tsuper
+            |$targ| $tbody
+        }
+        impl<'a> $sname<'a> {
+            /// Tries to convert `sup` into an instance of this type.
+            /// Errors if `sup` does not uphold this type's guarantees.
+            pub fn from_super(sup: impl Into<$ssuper<'a>>) -> Result<Self, InvalidByte> {
+                let sup = sup.into();
+                #[inline]
+                fn check($uarg: &[u8]) -> Option<InvalidByte> {
+                    $ubody
+                }
+                if let Some(e) = check(sup.as_ref()) {
+                    Err(e)
+                } else {
+                    Ok(unsafe { std::mem::transmute(sup) })
+                }
+            }
+            /// Cheaply converts `self` into the next more-general type in the string hierarchy.
+            pub const fn into_super(self) -> $ssuper<'a> {
+                // Can't use `self.0` for non-const destructor reasons.
+                unsafe { std::mem::transmute(self) }
+            }
+        }
+    };
+    (
+        $doc:literal
+        $sname: ident: $ssuper:ident
+        $tname:ident: $tsuper:ident
+        |$targ:ident| $tbody:block
     ) => {
         #[doc = $doc]
         #[repr(transparent)]
@@ -46,20 +80,6 @@ macro_rules! impl_subtype {
                     Ok($sname(bytes))
                 }
             }
-            /// Tries to convert `sup` into an instance of this type.
-            /// Errors if `sup` does not uphold this type's guarantees.
-            pub fn from_super(sup: impl Into<$ssuper<'a>>) -> Result<Self, InvalidByte> {
-                let sup = sup.into();
-                #[inline]
-                fn check($uarg: &[u8]) -> Option<InvalidByte> {
-                    $ubody
-                }
-                if let Some(e) = check(sup.as_ref()) {
-                    Err(e)
-                } else {
-                    Ok(unsafe { std::mem::transmute(sup) })
-                }
-            }
             /// Performs an unchecked conversion from `bytes`.
             ///
             /// # Safety
@@ -71,11 +91,6 @@ macro_rules! impl_subtype {
             /// that upholds `self`'s invariant.
             pub fn transform<T: $tname + ?Sized>(&mut self, tf: &T) -> T::Value {
                 self.0.transform(tf)
-            }
-            /// Cheaply converts `self` into the next more-general type in the string hierarchy.
-            pub const fn into_super(self) -> $ssuper<'a> {
-                // Can't use `$ssuper(self.0)` because Line's $ssuper is Bytes.
-                unsafe { std::mem::transmute(self) }
             }
             /// Cheaply converts `self` into the underlying byte string.
             pub const fn into_bytes(self) -> Bytes<'a> {
@@ -140,9 +155,6 @@ impl_subtype! {
     "A [`Bytes`] that does not contain NUL, CR, or LF."
     Line: Bytes
     LineSafe: Transform
-    |bytes| {
-        check_bytes(bytes, line_byte_check)
-    }
     |bytes| {
         check_bytes(bytes, line_byte_check)
     }
