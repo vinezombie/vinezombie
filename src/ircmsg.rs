@@ -3,36 +3,36 @@
 mod args;
 mod source;
 pub mod tags;
-//#[cfg(test)]
-//mod tests;
+#[cfg(test)]
+mod tests;
 
-use crate::string::Kind;
+use crate::string::{InvalidByte, Kind, Line};
 
 pub use self::{args::*, source::*, tags::Tags};
 
-/// Error type when parsing a [`ServerMsg`].
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+/// Error type when parsing an [`IrcMsg`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ParseError {
     /// Message exceeds permissible length limits.
-    TooLong,
-    /// Expected tags but none were provided.
-    NoTags,
-    /// Expected a source but none was provided.
-    NoSource,
-    /// There was no message kind in the provided message.
-    NoKind,
-    /// The message kind is not ASCII alphanumeric.
-    InvalidKind,
+    ///
+    /// This will never be returned by [`IrcMsg::parse()`],
+    /// but may be returned during I/O buffering.
+    TooLong(usize),
+    /// The source fragment of the message contains an invalid nickname.
+    InvalidNick(InvalidByte),
+    /// The source fragment of the message contains an invalid username.
+    InvalidUser(InvalidByte),
+    /// The message's kind is invalid.
+    InvalidKind(InvalidByte),
 }
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::TooLong => write!(f, "invalid msg: length limits exceeded"),
-            ParseError::NoTags => write!(f, "invalid msg: no tags after @"),
-            ParseError::NoSource => write!(f, "invalid msg: no source after :"),
-            ParseError::NoKind => write!(f, "invalid msg: missing kind/command"),
-            ParseError::InvalidKind => write!(f, "invalid msg: non-alphanumeric kind/command"),
+            ParseError::TooLong(len) => write!(f, "message is too long ({len}+ bytes)"),
+            ParseError::InvalidNick(e) => write!(f, "invalid source nickname: {e}"),
+            ParseError::InvalidUser(e) => write!(f, "invalid source username: {e}"),
+            ParseError::InvalidKind(e) => write!(f, "invalid message kind: {e}"),
         }
     }
 }
@@ -57,30 +57,43 @@ impl<'a> IrcMsg<'a> {
     pub const fn new(kind: Kind<'a>) -> Self {
         IrcMsg { tags: Tags::new(), source: None, kind, args: Args::new() }
     }
-    /*
     /// Parses a message from a string.
-    pub fn parse(msg: impl Into<IrcStr<'a>>) -> Result<ServerMsg<'a, RawData<'a>>, MsgParseError> {
+    pub fn parse(msg: impl Into<Line<'a>>) -> Result<IrcMsg<'a>, ParseError> {
+        use crate::string::tf::{SplitFirst, SplitWord};
         let mut msg = msg.into();
+        let mut tags = Tags::new();
         let mut source = None;
-        msg.slice(str::trim);
-        if msg.lex_char(|c| *c == '@').is_some() {
-            // TODO: Tags. Specifically, actually parse them.
-            let _ = msg.lex_word().ok_or(MsgParseError::NoTags)?;
-            msg.slice(str::trim_start);
-        }
-        if msg.lex_char(|c| *c == ':').is_some() {
-            source = Some(msg.lex_word().ok_or(MsgParseError::NoSource)?);
-            msg.slice(str::trim_start);
-        }
-        let kind = msg.lex_word().ok_or(MsgParseError::NoKind)?.into();
-        let args = args::Args::parse(msg);
-        let data = RawData { args };
-        Ok(ServerMsg { source, kind, data })
+        let mut expect_tags = true;
+        let mut expect_source = true;
+        let kind = loop {
+            let mut word = msg.transform(&SplitWord);
+            if word.is_empty() {
+                return Err(ParseError::InvalidKind(InvalidByte::new_empty()));
+            }
+            match word.first() {
+                Some(b'@') if expect_tags => {
+                    expect_tags = false;
+                    word.transform(&SplitFirst);
+                    tags = Tags::parse(word);
+                }
+                Some(b':') if expect_source => {
+                    expect_tags = false;
+                    expect_source = false;
+                    word.transform(&SplitFirst);
+                    // Maybe not quiet failure here?
+                    // Non-parsed sources can sometimes still be useful.
+                    source = Some(Source::parse(word)?);
+                }
+                Some(_) => break Kind::from_word(word).map_err(ParseError::InvalidKind)?,
+                None => return Err(ParseError::InvalidKind(InvalidByte::new_empty())),
+            }
+        };
+        let args = Args::parse(msg);
+        Ok(IrcMsg { tags, source, kind, args })
     }
-    */
     /// The number of bytes of space remaining in this message excluding tags.
     ///
-    /// When calculating this, it is strongly recommended to have [`source`][Msg::source]
+    /// When calculating this, it is strongly recommended to have [`source`][IrcMsg::source]
     /// set.
     ///
     /// If either of the returned values are negative, this message is too long

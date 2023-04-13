@@ -1,4 +1,7 @@
-use crate::string::{Nick, User, Word};
+use crate::string::{
+    tf::{Split, SplitFirst},
+    Nick, User, Word,
+};
 use std::io::Write;
 
 /// The sender of a message, also known as a message's "prefix".
@@ -20,7 +23,7 @@ pub struct Address<'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl Source<'_> {
+impl<'a> Source<'a> {
     /// Returns the length of `self`'s textual representaiton in bytes.
     pub fn len(&self) -> usize {
         if let Some(address) = self.address.as_ref() {
@@ -45,11 +48,40 @@ impl Source<'_> {
             w.write_all(self.nick.as_ref())
         }
     }
+    /// Parses the provided source string.
+    ///
+    /// The provided word should NOT contain the leading ':'.
+    ///
+    /// # Errors
+    /// This function can return only either
+    /// [`InvalidNick`][super::ParseError::InvalidNick] or
+    /// [`InvalidUser`][super::ParseError::InvalidUser].
+    pub fn parse(word: impl Into<Word<'a>>) -> Result<Self, super::ParseError> {
+        let mut word = word.into();
+        let nick = word.transform(&Split(crate::string::is_invalid_for_nick::<false>));
+        // TODO: We know things that make the full from_bytes check here redundant,
+        // but we still need to check Args's conditions for Word (non-empty, no leading colon).
+        let nick = Nick::from_bytes(nick).map_err(super::ParseError::InvalidNick)?;
+        let user = match word.transform(&SplitFirst) {
+            Some(b'!') => {
+                let user = word.transform(&Split(|b: &u8| *b == b'@'));
+                word.transform(&SplitFirst);
+                user
+            }
+            Some(b'@') => {
+                let address = Address { user: None, host: word };
+                return Ok(Source { nick, address: Some(address) });
+            }
+            _ => return Ok(Source { nick, address: None }),
+        };
+        let user = User::from_bytes(user).map_err(super::ParseError::InvalidUser)?;
+        Ok(Source { nick, address: Some(Address { user: Some(user), host: word }) })
+    }
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl Address<'_> {
-    /// Returns `false` if [`user`][Address:user] exists and starts with a tilde.
+    /// Returns `false` if `self.user` is `Some` and starts with a tilde.
     ///
     /// Many IRC networks use a leading `~` to indicate a lack of ident response.
     pub fn has_ident(&self) -> bool {

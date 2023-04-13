@@ -1,6 +1,9 @@
 //! IRC message argument utilities.
 
-use crate::string::{Arg, Line};
+use crate::string::{
+    tf::{SplitWord, TrimStart, SplitFirst},
+    Arg, Line,
+};
 
 #[inline(always)]
 unsafe fn downcast_line_slice<'a, 's>(lines: &'s [Line<'a>]) -> &'s [Arg<'a>] {
@@ -19,25 +22,26 @@ impl<'a> Args<'a> {
     pub const fn new() -> Args<'a> {
         Args(Vec::new(), false)
     }
-    /*
     /// Parses an argument array from a string.
-    pub fn parse(s: impl Into<Line<'a>>) -> Args<'a> {
-        let mut s = s.into();
+    pub fn parse(line: impl Into<Line<'a>>) -> Args<'a> {
+        let mut line = line.into();
         let mut args = Args::new();
         loop {
-            s.slice(str::trim_start);
-            if s.lex_char(|c| *c == ':').is_some() {
-                args.add(std::mem::take(&mut s));
-                break;
-            } else if let Some(word) = s.lex_word() {
-                args.add_word(word);
-            } else {
+            line.transform(&TrimStart(|b: &u8| *b == b' '));
+            if matches!(line.first(), Some(b':')) {
+                line.transform(&SplitFirst);
+                args.0.push(line);
+                args.1 = true;
                 break;
             }
+            let word = line.transform(&SplitWord);
+            if word.is_empty() {
+                break;
+            }
+            args.0.push(word.into());
         }
         args
     }
-    */
     /// Clears the argument array.
     pub fn clear(&mut self) {
         self.0.clear();

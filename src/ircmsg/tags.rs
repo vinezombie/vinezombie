@@ -91,7 +91,13 @@ impl<'a> Tags<'a> {
         }
         Ok(())
     }
-    // TODO: Parse.
+    /// Parses the provided tag string.
+    ///
+    /// The provided word should NOT contain the leading '@'.
+    pub fn parse(word: impl Into<crate::string::Word<'a>>) -> Self {
+        // TODO: Owl, the rest of it.
+        Tags::new()
+    }
 }
 
 /// An implementation of `Display` that includes the leading `@`.
