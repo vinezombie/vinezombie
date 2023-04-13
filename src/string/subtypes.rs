@@ -1,5 +1,7 @@
 #![allow(clippy::derivable_impls)]
 
+use crate::string::tf::AsciiCasemap;
+
 use super::{Bytes, Transform};
 use std::{borrow::Borrow, num::NonZeroUsize};
 
@@ -126,6 +128,36 @@ macro_rules! impl_subtype {
                 self.0.fmt(f)
             }
         }
+        impl<const N: usize> PartialEq<[u8; N]> for $sname<'_> {
+            fn eq(&self, other: &[u8; N]) -> bool {
+                self.0 == *other
+            }
+        }
+        impl<const N: usize> PartialEq<&[u8; N]> for $sname<'_> {
+            fn eq(&self, other: &&[u8; N]) -> bool {
+                self.0 == *other
+            }
+        }
+        impl PartialEq<[u8]> for $sname<'_> {
+            fn eq(&self, other: &[u8]) -> bool {
+                self.0 == *other
+            }
+        }
+        impl PartialEq<&[u8]> for $sname<'_> {
+            fn eq(&self, other: &&[u8]) -> bool {
+                self.0 == *other
+            }
+        }
+        impl PartialEq<str> for $sname<'_> {
+            fn eq(&self, other: &str) -> bool {
+                self.0 == *other
+            }
+        }
+        impl PartialEq<&str> for $sname<'_> {
+            fn eq(&self, other: &&str) -> bool {
+                self.0 == *other
+            }
+        }
     };
 }
 
@@ -147,7 +179,7 @@ fn check_bytes(bytes: &[u8], f: impl FnMut(&u8) -> bool) -> Option<InvalidByte> 
 }
 
 #[inline]
-fn line_byte_check(byte: &u8) -> bool {
+pub(crate) fn is_invalid_for_line(byte: &u8) -> bool {
     matches!(*byte, b'\0' | b'\r' | b'\n')
 }
 
@@ -156,7 +188,7 @@ impl_subtype! {
     Line: Bytes
     LineSafe: Transform
     |bytes| {
-        check_bytes(bytes, line_byte_check)
+        check_bytes(bytes, is_invalid_for_line)
     }
 }
 
@@ -167,8 +199,8 @@ impl<'a> Default for Line<'a> {
 }
 
 #[inline]
-fn word_byte_check<const CHAIN: bool>(byte: &u8) -> bool {
-    *byte == b' ' || if CHAIN { line_byte_check(byte) } else { false }
+pub(crate) fn is_invalid_for_word<const CHAIN: bool>(byte: &u8) -> bool {
+    *byte == b' ' || if CHAIN { is_invalid_for_line(byte) } else { false }
 }
 
 impl_subtype! {
@@ -176,10 +208,10 @@ impl_subtype! {
     Word: Line
     WordSafe: LineSafe
     |bytes| {
-        check_bytes(bytes, word_byte_check::<true>)
+        check_bytes(bytes, is_invalid_for_word::<true>)
     }
     |bytes| {
-        check_bytes(bytes, word_byte_check::<false>)
+        check_bytes(bytes, is_invalid_for_word::<false>)
     }
 }
 transmute_from!(Word: Line);
@@ -204,7 +236,7 @@ impl_subtype! {
     Arg: Word
     ArgSafe: WordSafe
     |bytes| {
-        arg_first_check(bytes).or_else(|| check_bytes(bytes, word_byte_check::<true>))
+        arg_first_check(bytes).or_else(|| check_bytes(bytes, is_invalid_for_word::<true>))
     }
     |bytes| {
         arg_first_check(bytes)
@@ -214,8 +246,8 @@ transmute_from!(Arg: Line);
 transmute_from!(Arg: Word);
 
 #[inline]
-fn tagkey_byte_check<const CHAIN: bool>(byte: &u8) -> bool {
-    matches!(*byte, b'=' | b';') || if CHAIN { word_byte_check::<true>(byte) } else { false }
+pub(crate) fn is_invalid_for_tagkey<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(*byte, b'=' | b';') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
 }
 
 impl_subtype! {
@@ -226,14 +258,14 @@ impl_subtype! {
         if bytes.is_empty() {
             Some(InvalidByte::new_empty())
         } else {
-            check_bytes(bytes, tagkey_byte_check::<true>)
+            check_bytes(bytes, is_invalid_for_tagkey::<true>)
         }
     }
     |bytes| {
         if bytes.is_empty() {
             Some(InvalidByte::new_empty())
         } else {
-            check_bytes(bytes, tagkey_byte_check::<false>)
+            check_bytes(bytes, is_invalid_for_tagkey::<false>)
         }
     }
 }
@@ -249,13 +281,13 @@ impl TagKey<'_> {
 }
 
 #[inline]
-fn nick_byte_check<const CHAIN: bool>(byte: &u8) -> bool {
-    matches!(*byte, b'!' | b'@') || if CHAIN { word_byte_check::<true>(byte) } else { false }
+pub(crate) fn is_invalid_for_nick<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(*byte, b'!' | b'@') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
 }
 
 #[inline]
-fn user_byte_check<const CHAIN: bool>(byte: &u8) -> bool {
-    matches!(*byte, b'@' | b'%') || if CHAIN { word_byte_check::<true>(byte) } else { false }
+pub(crate) fn is_invalid_for_user<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(*byte, b'@' | b'%') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
 }
 
 impl_subtype! {
@@ -263,10 +295,10 @@ impl_subtype! {
     Nick: Arg
     NickSafe: ArgSafe
     |bytes| {
-        arg_first_check(bytes).or_else(|| check_bytes(bytes, nick_byte_check::<true>))
+        arg_first_check(bytes).or_else(|| check_bytes(bytes, is_invalid_for_nick::<true>))
     }
     |bytes| {
-        check_bytes(bytes, nick_byte_check::<false>)
+        check_bytes(bytes, is_invalid_for_nick::<false>)
     }
 }
 transmute_from!(Nick: Line);
@@ -278,10 +310,10 @@ impl_subtype! {
     User: Arg
     UserSafe: ArgSafe
     |bytes| {
-        arg_first_check(bytes).or_else(|| check_bytes(bytes, user_byte_check::<true>))
+        arg_first_check(bytes).or_else(|| check_bytes(bytes, is_invalid_for_user::<true>))
     }
     |bytes| {
-        check_bytes(bytes, user_byte_check::<false>)
+        check_bytes(bytes, is_invalid_for_user::<false>)
     }
 }
 transmute_from!(User: Line);
@@ -311,6 +343,18 @@ impl_subtype! {
 transmute_from!(Kind: Line);
 transmute_from!(Kind: Word);
 transmute_from!(Kind: Arg);
+
+impl<'a> Kind<'a> {
+    /// Tries to convert `word` into an instance of this type, uppercasing where necessary.
+    pub fn from_word(word: impl Into<Word<'a>>) -> Result<Self, InvalidByte> {
+        let mut word = word.into();
+        if let Some(idx) = word.iter().position(|b| !b.is_ascii_alphanumeric()) {
+            return Err(InvalidByte::new_at(word.as_ref(), idx));
+        };
+        word.transform(&AsciiCasemap::<true>);
+        Ok(unsafe { Kind::from_unchecked(word.into()) })
+    }
+}
 
 /// Error indicating that the invariant of a [`Bytes`] newtype has been violated.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -17,7 +17,8 @@
 mod bytes;
 mod subtypes;
 pub mod tf;
-//pub mod strmap;
+#[cfg(test)]
+mod tests;
 
 pub use bytes::Bytes;
 pub use subtypes::*;
@@ -55,6 +56,17 @@ pub struct Transformation<'a, T> {
     pub transformed: Cow<'a, [u8]>,
     /// The UTF-8 validity of `transformed`. See [`Utf8Policy`].
     pub utf8: Utf8Policy,
+}
+
+impl<'a, T> Transformation<'a, T> {
+    /// Returns a transformed version of input data where the entire input has been consumed.
+    pub fn empty(value: T) -> Self {
+        Transformation {
+            value,
+            transformed: Cow::Borrowed(Default::default()),
+            utf8: Utf8Policy::Valid,
+        }
+    }
 }
 
 /// The UTF-8 validity of a transformed string based on the input string.

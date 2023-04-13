@@ -129,9 +129,8 @@ impl<'a> Bytes<'a> {
     /// and byte slices may be incorrectly cast unchecked to `str`s otherwise.
     pub unsafe fn using_value(&self, value: &'a [u8], utf8: Utf8Policy) -> Self {
         let utf8 = self.utf8_for_policy(utf8);
-        let ownership = if !value.is_empty() { None } else { self.ownership.clone() };
+        let ownership = if value.is_empty() { None } else { self.ownership.clone() };
         Bytes {
-            // SAFETY: Lifetime extension.
             value,
             ownership,
             utf8: utf8.into(),
@@ -140,6 +139,10 @@ impl<'a> Bytes<'a> {
     /// Updates `self` using the provided [`Transform`].
     pub fn transform<T: Transform + ?Sized>(&mut self, tf: &T) -> T::Value<'a> {
         let tfed = tf.transform(self);
+        if tfed.transformed.as_ref().is_empty() {
+            *self = Bytes::empty();
+            return tfed.value;
+        }
         match tfed.transformed {
             Cow::Borrowed(s) => {
                 match tfed.utf8 {
@@ -150,9 +153,6 @@ impl<'a> Bytes<'a> {
                     Utf8Policy::Invalid | Utf8Policy::Recheck | Utf8Policy::Valid => {
                         self.utf8.store(tfed.utf8 as i8, Relaxed);
                     }
-                }
-                if s.is_empty() {
-                    self.ownership = None;
                 }
                 self.value = s;
             }
@@ -250,15 +250,40 @@ impl Clone for Bytes<'_> {
     }
 }
 
+impl PartialEq for Bytes<'_> {
+    fn eq(&self, b: &Bytes<'_>) -> bool {
+        self.value == b.value
+    }
+}
+impl<const N: usize> PartialEq<[u8; N]> for Bytes<'_> {
+    fn eq(&self, other: &[u8; N]) -> bool {
+        self.value == other.as_slice()
+    }
+}
+impl<const N: usize> PartialEq<&[u8; N]> for Bytes<'_> {
+    fn eq(&self, other: &&[u8; N]) -> bool {
+        self == *other
+    }
+}
 impl PartialEq<[u8]> for Bytes<'_> {
     fn eq(&self, other: &[u8]) -> bool {
         self.value == other
     }
 }
-
-impl PartialEq for Bytes<'_> {
-    fn eq(&self, b: &Bytes<'_>) -> bool {
-        self.value == b.value
+impl PartialEq<&[u8]> for Bytes<'_> {
+    fn eq(&self, other: &&[u8]) -> bool {
+        self == *other
+    }
+}
+impl PartialEq<str> for Bytes<'_> {
+    fn eq(&self, other: &str) -> bool {
+        // A proper UTF-8 validity check might be pointless here in many cases.
+        self.utf8.load(Relaxed) != -1 && self.value == other.as_bytes()
+    }
+}
+impl PartialEq<&str> for Bytes<'_> {
+    fn eq(&self, other: &&str) -> bool {
+        self == *other
     }
 }
 
@@ -291,7 +316,7 @@ impl std::fmt::Display for Bytes<'_> {
 impl std::fmt::Debug for Bytes<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let owning = self.ownership.is_some();
-        let mut f = f.debug_struct("StrBytes");
+        let mut f = f.debug_struct("Bytes");
         let f = f.field("owning", &owning);
         if let Some(v) = self.to_utf8() {
             f.field("value", &v)
@@ -330,14 +355,12 @@ impl OwnedBytes {
         // We're at the mercy of what the global allocator does here,
         // but at least this potentially does NOT copy.
         value.shrink_to_fit();
-        // SAFE: as_mut_ptr returns a dangling pointer valid for 0-size reads
-        // if the vector did not allocate.
-        // https://doc.rust-lang.org/std/vec/struct.Vec.html#method.as_mut_ptr
+        // value is non-empty at this point, therefore the pointer is not null.
         let data = NonNull::new_unchecked(value.as_mut_ptr());
         let len = value.len();
         let size = value.capacity();
         std::mem::forget(value);
-        // SAFE: into_raw returns a non-null pointer.
+        // into_raw returns a non-null pointer.
         // https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw
         let rc = NonNull::new_unchecked(Box::into_raw(Box::new(AtomicUsize::new(1))));
         let retval = OwnedBytes { rc, data, size };
