@@ -66,20 +66,20 @@ impl<'a> IrcMsg<'a> {
         let mut expect_tags = true;
         let mut expect_source = true;
         let kind = loop {
-            let mut word = msg.transform(&SplitWord);
+            let mut word = msg.transform(SplitWord);
             if word.is_empty() {
                 return Err(ParseError::InvalidKind(InvalidByte::new_empty()));
             }
             match word.first() {
                 Some(b'@') if expect_tags => {
                     expect_tags = false;
-                    word.transform(&SplitFirst);
+                    word.transform(SplitFirst);
                     tags = Tags::parse(word);
                 }
                 Some(b':') if expect_source => {
                     expect_tags = false;
                     expect_source = false;
-                    word.transform(&SplitFirst);
+                    word.transform(SplitFirst);
                     // Maybe not quiet failure here?
                     // Non-parsed sources can sometimes still be useful.
                     source = Some(Source::parse(word)?);

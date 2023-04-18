@@ -16,9 +16,9 @@
 //pub mod base64;
 mod bytes;
 mod subtypes;
-pub mod tf;
 #[cfg(test)]
 mod tests;
+pub mod tf;
 
 pub use bytes::Bytes;
 pub use subtypes::*;
@@ -45,7 +45,7 @@ pub unsafe trait Transform {
     /// The type of values yielded in addition to a transformed byte string.
     type Value<'a>;
     /// Transforms a byte string.
-    fn transform<'a>(&self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>>;
+    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>>;
 }
 
 /// The result of a byte string transformation, as returned by [`Transform::transform()`].

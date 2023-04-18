@@ -130,14 +130,10 @@ impl<'a> Bytes<'a> {
     pub unsafe fn using_value(&self, value: &'a [u8], utf8: Utf8Policy) -> Self {
         let utf8 = self.utf8_for_policy(utf8);
         let ownership = if value.is_empty() { None } else { self.ownership.clone() };
-        Bytes {
-            value,
-            ownership,
-            utf8: utf8.into(),
-        }
+        Bytes { value, ownership, utf8: utf8.into() }
     }
     /// Updates `self` using the provided [`Transform`].
-    pub fn transform<T: Transform + ?Sized>(&mut self, tf: &T) -> T::Value<'a> {
+    pub fn transform<T: Transform>(&mut self, tf: T) -> T::Value<'a> {
         let tfed = tf.transform(self);
         if tfed.transformed.as_ref().is_empty() {
             *self = Bytes::empty();

@@ -1,7 +1,7 @@
 //! IRC message argument utilities.
 
 use crate::string::{
-    tf::{SplitWord, TrimStart, SplitFirst},
+    tf::{SplitFirst, SplitWord, TrimStart},
     Arg, Line,
 };
 
@@ -27,14 +27,14 @@ impl<'a> Args<'a> {
         let mut line = line.into();
         let mut args = Args::new();
         loop {
-            line.transform(&TrimStart(|b: &u8| *b == b' '));
+            line.transform(TrimStart(|b: &u8| *b == b' '));
             if matches!(line.first(), Some(b':')) {
-                line.transform(&SplitFirst);
+                line.transform(SplitFirst);
                 args.0.push(line);
                 args.1 = true;
                 break;
             }
-            let word = line.transform(&SplitWord);
+            let word = line.transform(SplitWord);
             if word.is_empty() {
                 break;
             }

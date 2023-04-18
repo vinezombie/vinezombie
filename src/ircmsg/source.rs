@@ -58,14 +58,14 @@ impl<'a> Source<'a> {
     /// [`InvalidUser`][super::ParseError::InvalidUser].
     pub fn parse(word: impl Into<Word<'a>>) -> Result<Self, super::ParseError> {
         let mut word = word.into();
-        let nick = word.transform(&Split(crate::string::is_invalid_for_nick::<false>));
+        let nick = word.transform(Split(crate::string::is_invalid_for_nick::<false>));
         // TODO: We know things that make the full from_bytes check here redundant,
         // but we still need to check Args's conditions for Word (non-empty, no leading colon).
         let nick = Nick::from_bytes(nick).map_err(super::ParseError::InvalidNick)?;
-        let user = match word.transform(&SplitFirst) {
+        let user = match word.transform(SplitFirst) {
             Some(b'!') => {
-                let user = word.transform(&Split(|b: &u8| *b == b'@'));
-                word.transform(&SplitFirst);
+                let user = word.transform(Split(|b: &u8| *b == b'@'));
+                word.transform(SplitFirst);
                 user
             }
             Some(b'@') => {

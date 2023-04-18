@@ -12,7 +12,7 @@ pub struct SplitWord;
 unsafe impl Transform for SplitWord {
     type Value<'a> = Word<'a>;
 
-    fn transform<'a>(&self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
+    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
             let slice = bytes.as_slice_unsafe();
             let Some(first_valid_idx) = slice.iter().position(
@@ -41,7 +41,7 @@ pub struct SplitFirst;
 unsafe impl Transform for SplitFirst {
     type Value<'a> = Option<u8>;
 
-    fn transform<'a>(&self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
+    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
             let slice = bytes.as_slice_unsafe();
             if let Some((first, rest)) = slice.split_first() {
@@ -64,13 +64,13 @@ unsafe impl WordSafe for SplitFirst {}
 #[derive(Clone, Copy, Debug)]
 pub struct Split<F>(pub F);
 
-unsafe impl<F: Fn(&u8) -> bool> Transform for Split<F> {
+unsafe impl<F: FnMut(&u8) -> bool> Transform for Split<F> {
     type Value<'a> = Bytes<'a>;
 
-    fn transform<'a>(&self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
+    fn transform<'a>(mut self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
             let slice = bytes.as_slice_unsafe();
-            if let Some(idx) = slice.iter().position(&self.0) {
+            if let Some(idx) = slice.iter().position(&mut self.0) {
                 let (ret, rest) = slice.split_at(idx);
                 Transformation {
                     value: bytes.using_value(ret, Utf8Policy::Recheck),
@@ -84,17 +84,17 @@ unsafe impl<F: Fn(&u8) -> bool> Transform for Split<F> {
         }
     }
 }
-unsafe impl<F: Fn(&u8) -> bool> LineSafe for Split<F> {}
-unsafe impl<F: Fn(&u8) -> bool> WordSafe for Split<F> {}
+unsafe impl<F: FnMut(&u8) -> bool> LineSafe for Split<F> {}
+unsafe impl<F: FnMut(&u8) -> bool> WordSafe for Split<F> {}
 
 /// Transform that discards leading bytes while the provided function returns `true`.
 #[derive(Clone, Copy, Debug)]
 pub struct TrimStart<F>(pub F);
 
-unsafe impl<F: Fn(&u8) -> bool> Transform for TrimStart<F> {
+unsafe impl<F: FnMut(&u8) -> bool> Transform for TrimStart<F> {
     type Value<'a> = ();
 
-    fn transform<'a>(&self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
+    fn transform<'a>(mut self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
             let slice = bytes.as_slice_unsafe();
             if let Some(idx) = slice.iter().position(|b| !self.0(b)) {
@@ -111,5 +111,5 @@ unsafe impl<F: Fn(&u8) -> bool> Transform for TrimStart<F> {
         }
     }
 }
-unsafe impl<F: Fn(&u8) -> bool> LineSafe for TrimStart<F> {}
-unsafe impl<F: Fn(&u8) -> bool> WordSafe for TrimStart<F> {}
+unsafe impl<F: FnMut(&u8) -> bool> LineSafe for TrimStart<F> {}
+unsafe impl<F: FnMut(&u8) -> bool> WordSafe for TrimStart<F> {}

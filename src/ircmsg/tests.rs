@@ -2,7 +2,9 @@ use super::IrcMsg;
 use crate::string::Line;
 
 macro_rules! irc_msg {
-    ($lit:expr) => { IrcMsg::parse(Line::from_bytes($lit).unwrap()).unwrap() }
+    ($lit:expr) => {
+        IrcMsg::parse(Line::from_bytes($lit).unwrap()).unwrap()
+    };
 }
 
 #[test]
@@ -66,7 +68,10 @@ pub fn parse_tag_any() {
 #[test]
 pub fn to_string() {
     let cases = [
-        "CMD", "CMD word :some words", ":src CMD word", ":numeric 001",
+        "CMD",
+        "CMD word :some words",
+        ":src CMD word",
+        ":numeric 001",
         ":nick!user@host CMD",
         ":nick@host CMD",
     ];

@@ -91,7 +91,7 @@ macro_rules! impl_subtype {
             }
             /// Transforms `self` using the provided [`Transform`]
             /// that upholds `self`'s invariant.
-            pub fn transform<T: $tname + ?Sized>(&mut self, tf: &T) -> T::Value<'a> {
+            pub fn transform<T: $tname>(&mut self, tf: T) -> T::Value<'a> {
                 self.0.transform(tf)
             }
             /// Cheaply converts `self` into the underlying byte string.
@@ -100,10 +100,15 @@ macro_rules! impl_subtype {
                 unsafe { std::mem::transmute(self) }
             }
         }
-        // TODO: Downcasting TryFrom impls?
         impl<'a> From<$sname<'a>> for Bytes<'a> {
             fn from(value: $sname<'a>) -> Bytes<'a> {
                 value.into_bytes()
+            }
+        }
+        impl<'a> TryFrom<Bytes<'a>> for $sname<'a> {
+            type Error = InvalidByte;
+            fn try_from(value: Bytes<'a>) -> Result<$sname<'a>, InvalidByte> {
+                $sname::from_bytes(value)
             }
         }
         impl AsRef<[u8]> for $sname<'_> {
@@ -161,12 +166,18 @@ macro_rules! impl_subtype {
     };
 }
 
-macro_rules! transmute_from {
+macro_rules! conversions {
     ($sname: ident: $ssuper: ident) => {
         // TODO: Downcasting TryFrom impls?
         impl<'a> From<$sname<'a>> for $ssuper<'a> {
             fn from(value: $sname<'a>) -> $ssuper<'a> {
                 unsafe { std::mem::transmute(value) }
+            }
+        }
+        impl<'a> TryFrom<$ssuper<'a>> for $sname<'a> {
+            type Error = InvalidByte;
+            fn try_from(value: $ssuper<'a>) -> Result<$sname<'a>, InvalidByte> {
+                $sname::from_bytes(value.into_bytes())
             }
         }
     };
@@ -214,7 +225,7 @@ impl_subtype! {
         check_bytes(bytes, is_invalid_for_word::<false>)
     }
 }
-transmute_from!(Word: Line);
+conversions!(Word: Line);
 
 impl<'a> Default for Word<'a> {
     fn default() -> Self {
@@ -242,8 +253,8 @@ impl_subtype! {
         arg_first_check(bytes)
     }
 }
-transmute_from!(Arg: Line);
-transmute_from!(Arg: Word);
+conversions!(Arg: Line);
+conversions!(Arg: Word);
 
 #[inline]
 pub(crate) fn is_invalid_for_tagkey<const CHAIN: bool>(byte: &u8) -> bool {
@@ -269,8 +280,8 @@ impl_subtype! {
         }
     }
 }
-transmute_from!(TagKey: Line);
-transmute_from!(TagKey: Word);
+conversions!(TagKey: Line);
+conversions!(TagKey: Word);
 
 impl TagKey<'_> {
     /// Returns `true` if this is a client tag.
@@ -301,9 +312,9 @@ impl_subtype! {
         check_bytes(bytes, is_invalid_for_nick::<false>)
     }
 }
-transmute_from!(Nick: Line);
-transmute_from!(Nick: Word);
-transmute_from!(Nick: Arg);
+conversions!(Nick: Line);
+conversions!(Nick: Word);
+conversions!(Nick: Arg);
 
 impl_subtype! {
     "An [`Arg`] that does not contain `@` or `%`.\nIntended for use with usernames."
@@ -316,9 +327,9 @@ impl_subtype! {
         check_bytes(bytes, is_invalid_for_user::<false>)
     }
 }
-transmute_from!(User: Line);
-transmute_from!(User: Word);
-transmute_from!(User: Arg);
+conversions!(User: Line);
+conversions!(User: Word);
+conversions!(User: Arg);
 
 #[inline]
 fn kind_byte_check(byte: &u8) -> bool {
@@ -340,9 +351,9 @@ impl_subtype! {
         check_bytes(bytes, kind_byte_check)
     }
 }
-transmute_from!(Kind: Line);
-transmute_from!(Kind: Word);
-transmute_from!(Kind: Arg);
+conversions!(Kind: Line);
+conversions!(Kind: Word);
+conversions!(Kind: Arg);
 
 impl<'a> Kind<'a> {
     /// Tries to convert `word` into an instance of this type, uppercasing where necessary.
@@ -351,7 +362,7 @@ impl<'a> Kind<'a> {
         if let Some(idx) = word.iter().position(|b| !b.is_ascii_alphanumeric()) {
             return Err(InvalidByte::new_at(word.as_ref(), idx));
         };
-        word.transform(&AsciiCasemap::<true>);
+        word.transform(AsciiCasemap::<true>);
         Ok(unsafe { Kind::from_unchecked(word.into()) })
     }
 }
