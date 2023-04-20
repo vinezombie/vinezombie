@@ -1,11 +1,12 @@
 //! String transformations, including parsers and casemaps.
 
 mod casemap;
+mod escape;
 mod parse;
 #[cfg(test)]
 mod tests;
 
-pub use {casemap::*, parse::*};
+pub use {casemap::*, escape::*, parse::*};
 
 use super::{Transformation, Utf8Policy};
 

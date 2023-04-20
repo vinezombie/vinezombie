@@ -163,6 +163,18 @@ macro_rules! impl_subtype {
                 self.0 == *other
             }
         }
+        impl<'a> TryFrom<&'a [u8]> for $sname<'a> {
+            type Error = InvalidByte;
+            fn try_from(value: &'a [u8]) -> Result<$sname<'a>, Self::Error> {
+                Bytes::from(value).try_into()
+            }
+        }
+        impl<'a> TryFrom<&'a str> for $sname<'a> {
+            type Error = InvalidByte;
+            fn try_from(value: &'a str) -> Result<$sname<'a>, Self::Error> {
+                Bytes::from(value).try_into()
+            }
+        }
     };
 }
 

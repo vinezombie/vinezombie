@@ -66,6 +66,32 @@ pub fn parse_tag_any() {
 }
 
 #[test]
+pub fn parse_tag_keys() {
+    let tags = irc_msg!("@foo TAGMSG").tags;
+    assert_eq!(tags.get("foo").unwrap(), "");
+    let tags = irc_msg!("@foo;bar TAGMSG").tags;
+    assert!(tags.get("foo").is_some());
+    assert!(tags.get("bar").is_some());
+    let tags = irc_msg!("@foo;bar; TAGMSG").tags;
+    assert!(tags.get("foo").is_some());
+    assert!(tags.get("bar").is_some());
+    assert_eq!(tags.len(), 2);
+}
+
+#[test]
+pub fn parse_tag_keyvalues() {
+    let tags = irc_msg!("@foo=foov TAGMSG").tags;
+    assert_eq!(tags.get("foo").unwrap(), "foov");
+    let tags = irc_msg!("@foo=foov;bar=barv TAGMSG").tags;
+    assert_eq!(tags.get("foo").unwrap(), "foov");
+    assert_eq!(tags.get("bar").unwrap(), "barv");
+    let tags = irc_msg!("@foo= TAGMSG").tags;
+    assert_eq!(tags.get("foo").unwrap(), "");
+    let tags = irc_msg!("@foo=; TAGMSG").tags;
+    assert_eq!(tags.get("foo").unwrap(), "");
+}
+
+#[test]
 pub fn to_string() {
     let cases = [
         "CMD",

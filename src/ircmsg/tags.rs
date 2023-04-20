@@ -1,8 +1,10 @@
 //! Stuctures and utilities for IRCv3 message tags.
 
-use std::{collections::BTreeMap, num::NonZeroU8};
-
-use crate::string::{Bytes, TagKey};
+use crate::string::{
+    tf::{escape, unescape},
+    Bytes, TagKey,
+};
+use std::collections::BTreeMap;
 
 /// Collection mapping tag keys to bytes.
 ///
@@ -15,31 +17,6 @@ use crate::string::{Bytes, TagKey};
 pub struct Tags<'a> {
     map: BTreeMap<TagKey<'a>, Bytes<'a>>,
     //avail: isize,
-}
-
-/// Returns the unescaped value for an escape-coded byte.
-pub fn unescape(byte: &u8) -> u8 {
-    match byte {
-        b':' => b';',
-        b's' => b' ',
-        b'r' => b'\r',
-        b'n' => b'\n',
-        b => *b,
-    }
-}
-
-/// Returns the escape code for a particular byte in a tag value,
-/// or `None` if no escaping is necessary.
-pub fn escape(byte: &u8) -> Option<NonZeroU8> {
-    // None of the escape codes are 0u8. Take advantage of that.
-    match byte {
-        b';' => Some(unsafe { NonZeroU8::new_unchecked(b':') }),
-        b' ' => Some(unsafe { NonZeroU8::new_unchecked(b's') }),
-        b'\r' => Some(unsafe { NonZeroU8::new_unchecked(b'r') }),
-        b'\n' => Some(unsafe { NonZeroU8::new_unchecked(b'n') }),
-        b'\\' => Some(unsafe { NonZeroU8::new_unchecked(b'\\') }),
-        _ => None,
-    }
 }
 
 impl<'a> Tags<'a> {
@@ -56,6 +33,10 @@ impl<'a> Tags<'a> {
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
+    /// Returns a reference to the value associated with the provided key, if any.
+    pub fn get(&self, key: impl TryInto<TagKey<'a>>) -> Option<&Bytes<'a>> {
+        self.map.get(&key.try_into().ok()?)
+    }
     /// Inserts a key with no value into this map.
     ///
     /// This is equivalent to inserting a key-value pair with an empty value.
@@ -66,37 +47,58 @@ impl<'a> Tags<'a> {
     pub fn insert_pair(&mut self, key: impl Into<TagKey<'a>>, value: String) -> Option<Bytes<'a>> {
         let key = key.into();
         // TODO: Length calculations based off of the escaped size of `value`.
-        if let Some(v) = self.map.insert(key, value.into()) {
-            // TODO: Add the old value's escaped length to avail.
-            Some(v)
-        } else {
-            // self.avail -= key.len() as isize + self.map.is_empty() as isize;
-            None
-        }
+        self.map.insert(key, value.into())
+    }
+    /// Removes a key-value pair from this map, returning the value, if any.
+    pub fn remove(&mut self, key: impl TryInto<TagKey<'a>>) -> Option<Bytes<'a>> {
+        let key = key.try_into().ok()?;
+        self.map.remove(&key)
+    }
+    /// Removes all key-value pairs.
+    pub fn clear(&mut self) {
+        self.map.clear()
     }
     /// Writes `self`, including a leading `'@'` if non-empty,
     /// to the provided [`Write`][std::io::Write].
     ///
     /// This function makes many small writes. Buffering is strongly recommended.
-    pub fn write_to(&mut self, w: &mut (impl std::io::Write + ?Sized)) -> std::io::Result<()> {
+    pub fn write_to(&self, w: &mut (impl std::io::Write + ?Sized)) -> std::io::Result<()> {
         let mut prefix = b"@";
         for (key, value) in self.map.iter() {
             w.write_all(prefix)?;
             w.write_all(key.as_ref())?;
             if !value.is_empty() {
                 w.write_all(b"=")?;
-                w.write_all(value.as_ref())?;
+                w.write_all(escape(value.clone()).as_ref())?;
             }
             prefix = b";";
         }
         Ok(())
     }
-    /// Parses the provided tag string.
+    /// Parses the provided semicolon-delimited list of tag strings.
     ///
     /// The provided word should NOT contain the leading '@'.
     pub fn parse(word: impl Into<crate::string::Word<'a>>) -> Self {
-        // TODO: Owl, the rest of it.
-        Tags::new()
+        use crate::string::tf::{Split, SplitFirst};
+        let mut word = word.into();
+        let mut tags = Tags::new();
+        // TODO: Tag bytes available.
+        while !word.is_empty() {
+            let key = word.transform(Split(crate::string::is_invalid_for_tagkey::<false>));
+            let value = if matches!(word.transform(SplitFirst), Some(b'=')) {
+                let value = word.transform(Split(|b: &u8| *b == b';'));
+                word.transform(SplitFirst);
+                value
+            } else {
+                Bytes::empty()
+            };
+            if key.is_empty() {
+                continue;
+            }
+            let key = unsafe { TagKey::from_unchecked(key) };
+            tags.map.insert(key, unescape(value));
+        }
+        tags
     }
 }
 
@@ -106,6 +108,7 @@ impl std::fmt::Display for Tags<'_> {
         let mut prefix = '@';
         for (key, value) in self.map.iter() {
             if !value.is_empty() {
+                let value = escape(value.clone());
                 write!(f, "{prefix}{key}={value}")?;
             } else {
                 write!(f, "{prefix}{key}")?;
