@@ -134,3 +134,49 @@ impl<S: Secret + 'static> Sasl for Plain<S> {
         Ok(Box::new(PlainLogic(data)))
     }
 }
+
+/// Enum of included SASL mechanisms and options for them.
+#[derive(Clone)]
+#[allow(missing_docs)]
+#[non_exhaustive]
+pub enum AnySasl<S> {
+    External(External),
+    Plain(Plain<S>),
+}
+
+impl<S> std::fmt::Debug for AnySasl<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AnySasl::External(s) => s.fmt(f),
+            AnySasl::Plain(s) => s.fmt(f),
+        }
+    }
+}
+
+impl<S: Secret + 'static> Sasl for AnySasl<S> {
+    fn name(&self) -> &'static str {
+        match self {
+            AnySasl::External(s) => s.name(),
+            AnySasl::Plain(s) => s.name(),
+        }
+    }
+
+    fn logic(&self) -> Result<Box<dyn SaslLogic>, BoxedErr> {
+        match self {
+            AnySasl::External(s) => s.logic(),
+            AnySasl::Plain(s) => s.logic(),
+        }
+    }
+}
+
+impl<S> From<External> for AnySasl<S> {
+    fn from(value: External) -> Self {
+        AnySasl::External(value)
+    }
+}
+
+impl<S> From<Plain<S>> for AnySasl<S> {
+    fn from(value: Plain<S>) -> Self {
+        AnySasl::Plain(value)
+    }
+}

@@ -1,31 +1,14 @@
 use crate::{
-    auth::{External, Plain}, string::{User, Line},
+    auth::AnySasl,
+    string::{Line, User},
 };
-
-/// Enum of included SASL mechanisms and options for them.
-#[derive(Clone, Debug)]
-#[allow(missing_docs)]
-pub enum AnySasl<S> {
-    External(External),
-    Plain(Plain<S>),
-}
-
-impl<S> From<External> for AnySasl<S> {
-    fn from(value: External) -> Self {
-        AnySasl::External(value)
-    }
-}
-
-impl<S> From<Plain<S>> for AnySasl<S> {
-    fn from(value: Plain<S>) -> Self {
-        AnySasl::Plain(value)
-    }
-}
 
 /// Connection registration options.
 ///
 /// These are used to create the messages sent during the initial connection registration phase,
 /// such as USER and NICK.
+/// These options are limited to a subset of the possibilities that
+/// are known to be serializeable.
 #[derive(Clone, Debug)]
 pub struct Register<N, S> {
     /// The nickname generator.
