@@ -56,7 +56,7 @@ impl<'a> Tags<'a> {
     }
     /// Removes all key-value pairs.
     pub fn clear(&mut self) {
-        self.map.clear()
+        self.map.clear();
     }
     /// Writes `self`, including a leading `'@'` if non-empty,
     /// to the provided [`Write`][std::io::Write].

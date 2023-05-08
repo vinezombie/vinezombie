@@ -15,11 +15,8 @@ pub mod auth;
 //#[cfg(feature = "graveseed")]
 //pub mod handlers;
 pub mod init;
-//#[cfg(feature = "graveseed")]
-//pub mod io;
 pub mod ircmsg;
+#[cfg(feature = "graveseed")]
+pub mod translators;
 //pub mod state;
 pub mod string;
-
-//pub use crate::string::strmap;
-//pub use crate::string::*;
