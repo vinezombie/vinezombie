@@ -46,15 +46,18 @@ impl<'a> PartialEq<&[u8]> for ServerMsgKind<'a> {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl<'a> ServerMsgKind<'a> {
     /// Returns a textual representation of `self`'s value.
-    pub fn as_arg<'b>(&'b self) -> Arg<'b> {
+    pub fn as_arg(&self) -> Arg<'_> {
         match self {
             ServerMsgKind::Numeric(num) => unsafe { Arg::from_unchecked(num.as_str().into()) },
             ServerMsgKind::Cmd(c) => unsafe { Arg::from_unchecked(c.as_ref().into()) },
         }
     }
     /// The length of the server message kind, in bytes.
+    ///
+    /// This value is guaranteed to be non-zero.
     pub fn len(&self) -> usize {
         match self {
             ServerMsgKind::Numeric(_) => 3,
