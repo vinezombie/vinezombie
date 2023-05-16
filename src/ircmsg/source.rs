@@ -24,6 +24,14 @@ pub struct Address<'a> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<'a> Source<'a> {
+    /// Creates a new source representing a server.
+    pub const fn new_server(server_name: Nick<'a>) -> Self {
+        Source { nick: server_name, address: None }
+    }
+    /// Creates a new source representing a user.
+    pub const fn new_user(nick: Nick<'a>, user: User<'a>, host: Word<'a>) -> Self {
+        Source { nick, address: Some(Address { user: Some(user), host }) }
+    }
     /// Returns the length of `self`'s textual representaiton in bytes.
     pub fn len(&self) -> usize {
         if let Some(address) = self.address.as_ref() {

@@ -1,5 +1,45 @@
-use crate::string::{subtypes::is_invalid_for_word, Bytes, LineSafe, Word, WordSafe};
+use crate::string::{
+    subtypes::{is_invalid_for_line, is_invalid_for_word},
+    Bytes, Line, LineSafe, Word, WordSafe,
+};
 use crate::string::{Transform, Transformation, Utf8Policy};
+
+// TODO: Dedup SplitLine and SplitWord.
+// In theory we can make this generic over any newtype of Bytes that only
+// enforces a constraint on the individual bytes it contains,
+// but there's probably no point in doing that.
+
+/// Parser that splits [`Line`]s from the front of a byte string.
+///
+/// This parser discards any bytes that are `Line`-invalid,
+/// then extracts bytes until either another `Line`-invalid byte is found or the string ends.
+/// The returned `Line` will be empty if the input string contains no `Line`-valid bytes.
+#[derive(Clone, Copy, Debug)]
+pub struct SplitLine;
+
+unsafe impl Transform for SplitLine {
+    type Value<'a> = Line<'a>;
+    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
+        unsafe {
+            let slice = bytes.as_slice_unsafe();
+            let Some(first_valid_idx) = slice.iter().position(
+                |b| !is_invalid_for_line(b)
+            ) else {
+                return Transformation::empty(Line::default())
+            };
+            let slice = slice.split_at(first_valid_idx).1;
+            let end_idx = slice.iter().position(is_invalid_for_line).unwrap_or(slice.len());
+            let (line, rest) = slice.split_at(end_idx);
+            Transformation {
+                value: Line::from_unchecked(bytes.using_value(line, Utf8Policy::Preserve)),
+                transformed: rest.into(),
+                utf8: Utf8Policy::Preserve,
+            }
+        }
+    }
+}
+unsafe impl LineSafe for SplitLine {}
+unsafe impl WordSafe for SplitLine {}
 
 /// Parser that splits [`Word`]s from the front of a byte string.
 ///

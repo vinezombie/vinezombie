@@ -16,7 +16,7 @@ pub mod auth;
 //pub mod handlers;
 pub mod init;
 pub mod ircmsg;
-#[cfg(feature = "graveseed")]
-pub mod translators;
+//#[cfg(feature = "graveseed")]
+//pub mod translators;
 //pub mod state;
 pub mod string;

@@ -1,22 +1,22 @@
-use super::IrcMsg;
+use super::ServerMsg;
 use crate::string::Line;
 
 macro_rules! irc_msg {
     ($lit:expr) => {
-        IrcMsg::parse(Line::from_bytes($lit).unwrap()).unwrap()
+        ServerMsg::parse(Line::from_bytes($lit).unwrap()).unwrap()
     };
 }
 
 #[test]
 pub fn parse_cmd() {
-    assert_eq!(irc_msg!("privMSG").kind, b"PRIVMSG");
-    assert_eq!(irc_msg!("  NOTICE").kind, b"NOTICE");
+    assert_eq!(irc_msg!("privMSG").kind, "PRIVMSG");
+    assert_eq!(irc_msg!("  NOTICE").kind, "NOTICE");
 }
 
 #[test]
 pub fn parse_source_nickonly() {
     let msg = irc_msg!(":server PING");
-    assert_eq!(msg.kind, b"PING");
+    assert_eq!(msg.kind, "PING");
     let source = msg.source.unwrap();
     assert_eq!(source.to_string(), "server");
     assert_eq!(source.nick, "server");
@@ -26,7 +26,7 @@ pub fn parse_source_nickonly() {
 #[test]
 pub fn parse_source_full() {
     let msg = irc_msg!(":nick!user@host QUIT");
-    assert_eq!(msg.kind, b"QUIT");
+    assert_eq!(msg.kind, "QUIT");
     let source = msg.source.unwrap();
     assert_eq!(source.to_string(), "nick!user@host");
     assert_eq!(source.nick, "nick");
@@ -62,7 +62,7 @@ pub fn parse_args_long() {
 pub fn parse_tag_any() {
     let msg = irc_msg!("@tag TAGMSG");
     assert_eq!(msg.source, None);
-    assert_eq!(msg.kind.as_ref(), b"TAGMSG");
+    assert_eq!(msg.kind, "TAGMSG");
 }
 
 #[test]

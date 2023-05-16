@@ -3,7 +3,7 @@ Line <- Word: "No spaces"
 Word <- Arg: "Non-empty; no leading :"
 Arg <- Nick: "No ! or @"
 Arg <- User: "No @ or %"
-Arg <- Kind: "Only uppercase ASCII alphanumerics"
+Arg <- Cmd: "Only uppercase ASCII letters"
 Word <- TagKey: "Non-empty; no = or ;"
 
 Bytes.shape: class
@@ -12,5 +12,5 @@ Word.shape: class
 Arg.shape: class 
 Nick.shape: class 
 User.shape: class 
-Kind.shape: class 
+Cmd.shape: class 
 TagKey.shape: class

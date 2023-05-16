@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use graveseed::io::Translator;
 
 use crate::{
-    ircmsg::{IrcMsg, ParseError},
+    ircmsg::{ClientMsg, ServerMsg, ParseError},
     string::{tf::SplitLine, Bytes},
 };
 
@@ -42,16 +42,16 @@ impl Translator for IrcClient {
     // Should be enough in most cases.
     const SEND_HINT: usize = 1024;
 
-    type RecvMsg<'a> = IrcMsg<'a>;
+    type RecvMsg<'a> = ServerMsg<'a>;
 
-    type SendMsg<'a> = IrcMsg<'a>;
+    type SendMsg<'a> = ClientMsg<'a>;
 
     fn write_msg<T: std::io::Write>(
         &mut self,
         buf: &mut T,
         msg: &Self::SendMsg<'_>,
     ) -> std::io::Result<()> {
-        msg.write_to::<false>(buf)?;
+        msg.write_to(buf)?;
         buf.write_all(b"\r\n")
     }
 
@@ -69,28 +69,28 @@ impl Translator for IrcClient {
         buf: &'a [u8],
     ) -> Result<Self::RecvMsg<'a>, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let mut bytes = Bytes::from(buf);
-        Ok(IrcMsg::parse(bytes.transform(SplitLine))?)
+        ServerMsg::parse(bytes.transform(SplitLine)).map_err(|e| e.into())
     }
 }
 
 impl Translator for IrcServer {
-    /// Allows for 4 messages sent in a burst, such as during connection registration.
+    /// Allows for 4 IRCv2 messages sent in a burst, such as during connection registration.
     const RECV_HINT: usize = 2048;
 
     // 512 bytes of message content and 512 bytes of tag content.
     // Should be enough in most cases.
     const SEND_HINT: usize = 1024;
 
-    type RecvMsg<'a> = IrcMsg<'a>;
+    type RecvMsg<'a> = ClientMsg<'a>;
 
-    type SendMsg<'a> = IrcMsg<'a>;
+    type SendMsg<'a> = ServerMsg<'a>;
 
     fn write_msg<T: std::io::Write>(
         &mut self,
         buf: &mut T,
         msg: &Self::SendMsg<'_>,
     ) -> std::io::Result<()> {
-        msg.write_to::<true>(buf)?;
+        msg.write_to(buf)?;
         buf.write_all(b"\r\n")
     }
 
@@ -108,6 +108,6 @@ impl Translator for IrcServer {
         buf: &'a [u8],
     ) -> Result<Self::RecvMsg<'a>, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let mut bytes = Bytes::from(buf);
-        Ok(IrcMsg::parse(bytes.transform(SplitLine))?)
+        ClientMsg::parse(bytes.transform(SplitLine)).map_err(|e| e.into())
     }
 }

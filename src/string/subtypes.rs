@@ -345,13 +345,13 @@ conversions!(User: Arg);
 
 #[inline]
 fn kind_byte_check(byte: &u8) -> bool {
-    !(byte.is_ascii_digit() || byte.is_ascii_uppercase())
+    !byte.is_ascii_uppercase()
 }
 
 impl_subtype! {
-    "An [`Arg`] that only contains ASCII digits and uppercase characters."
-    Kind: Arg
-    KindSafe: ArgSafe
+    "An [`Arg`] that only contains ASCII uppercase characters."
+    Cmd: Arg
+    CmdSafe: ArgSafe
     |bytes| {
         if bytes.is_empty() {
             Some(InvalidByte::new_empty())
@@ -363,19 +363,19 @@ impl_subtype! {
         check_bytes(bytes, kind_byte_check)
     }
 }
-conversions!(Kind: Line);
-conversions!(Kind: Word);
-conversions!(Kind: Arg);
+conversions!(Cmd: Line);
+conversions!(Cmd: Word);
+conversions!(Cmd: Arg);
 
-impl<'a> Kind<'a> {
+impl<'a> Cmd<'a> {
     /// Tries to convert `word` into an instance of this type, uppercasing where necessary.
     pub fn from_word(word: impl Into<Word<'a>>) -> Result<Self, InvalidByte> {
         let mut word = word.into();
-        if let Some(idx) = word.iter().position(|b| !b.is_ascii_alphanumeric()) {
+        if let Some(idx) = word.iter().position(|b| !b.is_ascii_alphabetic()) {
             return Err(InvalidByte::new_at(word.as_ref(), idx));
         };
         word.transform(AsciiCasemap::<true>);
-        Ok(unsafe { Kind::from_unchecked(word.into()) })
+        Ok(unsafe { Cmd::from_unchecked(word.into()) })
     }
 }
 
@@ -414,6 +414,13 @@ impl std::fmt::Display for InvalidByte {
 }
 
 impl std::error::Error for InvalidByte {}
+
+impl From<std::convert::Infallible> for InvalidByte {
+    fn from(value: std::convert::Infallible) -> Self {
+        // Forward compat idiom, also used by std.
+        match value {}
+    }
+}
 
 impl From<InvalidByte> for std::io::Error {
     fn from(value: InvalidByte) -> Self {

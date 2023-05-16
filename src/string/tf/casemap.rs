@@ -1,5 +1,5 @@
 use crate::string::{
-    ArgSafe, Bytes, KindSafe, LineSafe, NickSafe, TagKeySafe, Transform, Transformation, UserSafe,
+    ArgSafe, Bytes, CmdSafe, LineSafe, NickSafe, TagKeySafe, Transform, Transformation, UserSafe,
     Utf8Policy, WordSafe,
 };
 
@@ -30,7 +30,7 @@ unsafe impl<const UC: bool> LineSafe for AsciiCasemap<UC> {}
 unsafe impl<const UC: bool> WordSafe for AsciiCasemap<UC> {}
 unsafe impl<const UC: bool> TagKeySafe for AsciiCasemap<UC> {}
 unsafe impl<const UC: bool> ArgSafe for AsciiCasemap<UC> {}
-unsafe impl KindSafe for AsciiCasemap<true> {}
+unsafe impl CmdSafe for AsciiCasemap<true> {}
 
 /// Basic IRC-style casemapping.
 ///
