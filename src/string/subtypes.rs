@@ -99,6 +99,12 @@ macro_rules! impl_subtype {
                 // Can't use `self.0` for non-const destructor reasons.
                 unsafe { std::mem::transmute(self) }
             }
+            /// Returns an owning version of this string.
+            ///
+            /// If this string already owns its data, this method only extends its lifetime.
+            pub fn owning(self) -> $sname<'static> {
+                $sname(self.0.owning())
+            }
         }
         impl<'a> From<$sname<'a>> for Bytes<'a> {
             fn from(value: $sname<'a>) -> Bytes<'a> {

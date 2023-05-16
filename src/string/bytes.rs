@@ -38,13 +38,13 @@ impl<'a> Bytes<'a> {
     pub const fn is_owning(&self) -> bool {
         self.ownership.is_some()
     }
-    /// Return an owning version of this string.
+    /// Returns an owning version of this string.
     ///
     /// If this string already owns its data, this method only extends its lifetime.
-    pub fn owning(&self) -> Bytes<'static> {
+    pub fn owning(self) -> Bytes<'static> {
         if self.is_owning() {
             // Lifetime extension.
-            unsafe { std::mem::transmute(self.clone()) }
+            unsafe { std::mem::transmute(self) }
         } else {
             unsafe {
                 let (ownership, value) = OwnedBytes::from_vec(self.value.to_vec());
