@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use super::{Args, ParseError, ServerMsg, ServerMsgKind, Source, Tags};
+use super::{Args, ParseError, Source, Tags};
 use crate::string::{Cmd, InvalidByte, Line};
 
 /// An IRC message sent by a client.
@@ -47,18 +47,6 @@ impl<'a> ClientMsg<'a> {
     /// This function makes many small writes. Buffering is strongly recommended.
     pub fn write_to(&self, write: &mut (impl Write + ?Sized)) -> std::io::Result<()> {
         super::write_to(&self.tags, None, &self.cmd, &self.args, write)
-    }
-    /// Converts `self` into a server message with the provided source and kind.
-    pub fn into_server_msg<'b, 'c>(
-        self,
-        source: Source<'b>,
-        kind: impl Into<ServerMsgKind<'b>>,
-    ) -> ServerMsg<'c>
-    where
-        'a: 'c,
-        'b: 'c,
-    {
-        ServerMsg { tags: self.tags, source: Some(source), kind: kind.into(), args: self.args }
     }
 }
 

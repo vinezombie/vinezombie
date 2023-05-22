@@ -46,8 +46,35 @@ impl<'a> PartialEq<&[u8]> for ServerMsgKind<'a> {
     }
 }
 
+impl<'a> PartialEq<Cmd<'_>> for ServerMsgKind<'a> {
+    fn eq(&self, other: &Cmd<'_>) -> bool {
+        if let Self::Cmd(cmd) = self {
+            cmd == other
+        } else {
+            false
+        }
+    }
+}
+
+impl<'a> PartialEq<Numeric> for ServerMsgKind<'a> {
+    fn eq(&self, other: &Numeric) -> bool {
+        if let Self::Numeric(num) = self {
+            num == other
+        } else {
+            false
+        }
+    }
+}
+
 #[allow(clippy::len_without_is_empty)]
 impl<'a> ServerMsgKind<'a> {
+    /// Converts `self` into a version that owns its data.
+    pub fn owning(self) -> ServerMsgKind<'static> {
+        match self {
+            ServerMsgKind::Numeric(num) => ServerMsgKind::Numeric(num),
+            ServerMsgKind::Cmd(c) => ServerMsgKind::Cmd(c.owning()),
+        }
+    }
     /// Returns a textual representation of `self`'s value.
     pub fn as_arg(&self) -> Arg<'_> {
         match self {

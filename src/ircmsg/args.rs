@@ -22,6 +22,11 @@ impl<'a> Args<'a> {
     pub const fn new() -> Args<'a> {
         Args(Vec::new(), false)
     }
+    /// Converts `self` into a version that owns its data.
+    pub fn owning(self) -> Args<'static> {
+        // rustc optimizations mean that the map operation should run in-place.
+        Args(self.0.into_iter().map(Line::owning).collect(), self.1)
+    }
     /// Parses an argument array from a string.
     pub fn parse(line: impl Into<Line<'a>>) -> Args<'a> {
         let mut line = line.into();

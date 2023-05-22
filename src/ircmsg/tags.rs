@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 /// the specification's requirements.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct Tags<'a> {
+    // Might replace with a sorted Vec.
     map: BTreeMap<TagKey<'a>, Bytes<'a>>,
     //avail: isize,
 }
@@ -24,6 +25,12 @@ impl<'a> Tags<'a> {
     pub const fn new() -> Self {
         // avail 4094 per IRCv3 spec.
         Tags { map: BTreeMap::new() }
+    }
+    /// Converts `self` into a version that owns its data.
+    pub fn owning(self) -> Tags<'static> {
+        // This is where temptation exists to make an
+        // `owning` function that takes `&mut self` and just transmute.
+        Tags { map: self.map.into_iter().map(|(k, v)| (k.owning(), v.owning())).collect() }
     }
     /// Returns how many keys are in this map.
     pub fn len(&self) -> usize {

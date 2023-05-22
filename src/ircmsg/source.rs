@@ -32,6 +32,10 @@ impl<'a> Source<'a> {
     pub const fn new_user(nick: Nick<'a>, user: User<'a>, host: Word<'a>) -> Self {
         Source { nick, address: Some(Address { user: Some(user), host }) }
     }
+    /// Converts `self` into a version that owns its data.
+    pub fn owning(self) -> Source<'static> {
+        Source { nick: self.nick.owning(), address: self.address.map(Address::owning) }
+    }
     /// Returns the length of `self`'s textual representaiton in bytes.
     pub fn len(&self) -> usize {
         if let Some(address) = self.address.as_ref() {
@@ -89,6 +93,10 @@ impl<'a> Source<'a> {
 
 #[allow(clippy::len_without_is_empty)]
 impl Address<'_> {
+    /// Converts `self` into a version that owns its data.
+    pub fn owning(self) -> Address<'static> {
+        Address { host: self.host.owning(), user: self.user.map(User::owning) }
+    }
     /// Returns `false` if `self.user` is `Some` and starts with a tilde.
     ///
     /// Many IRC networks use a leading `~` to indicate a lack of ident response.

@@ -2,7 +2,7 @@ use std::io::Write;
 
 use crate::string::{Cmd, InvalidByte, Line, Nick};
 
-use super::{Args, ClientMsg, Numeric, ParseError, ServerMsgKind, Source, Tags};
+use super::{Args, Numeric, ParseError, ServerMsgKind, Source, Tags};
 
 /// An IRC message sent by a server.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -62,17 +62,6 @@ impl<'a> ServerMsg<'a> {
     /// This function makes many small writes. Buffering is strongly recommended.
     pub fn write_to(&self, write: &mut (impl Write + ?Sized)) -> std::io::Result<()> {
         super::write_to(&self.tags, self.source.as_ref(), &self.kind.as_arg(), &self.args, write)
-    }
-    /// Converts `self` into a client-bound message with the provided [`Cmd`].
-    ///
-    /// The returned message can easily exceed the tag length limit for client messages.
-    /// It is the caller's responsibility to ensure this is not the case before sending the message.
-    pub fn into_client_msg<'b, 'c>(self, cmd: Cmd<'b>) -> ClientMsg<'c>
-    where
-        'a: 'c,
-        'b: 'c,
-    {
-        ClientMsg { tags: self.tags, cmd, args: self.args }
     }
 }
 
