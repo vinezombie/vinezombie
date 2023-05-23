@@ -34,7 +34,7 @@ pub fn escape<'a>(tag_value: impl Into<Bytes<'a>>) -> Word<'a> {
         }
     };
     let (mut new_bytes, rest) = unsafe {
-        let (no_escape, rest) = tag_value.as_slice_unsafe().split_at(first_idx);
+        let (no_escape, rest) = tag_value.as_bytes_unsafe().split_at(first_idx);
         // rest contains at least one byte because first_idx is a valid index.
         let (first, rest) = rest.split_first().unwrap_unchecked();
         let count = 1 + rest.iter().filter(|c| escape_byte(c).is_some()).count();
@@ -62,7 +62,7 @@ pub fn unescape<'a>(tag_value: impl Into<Bytes<'a>>) -> Bytes<'a> {
         return tag_value;
     };
     let (mut new_bytes, rest) = unsafe {
-        let (no_escape, rest) = tag_value.as_slice_unsafe().split_at(first_idx);
+        let (no_escape, rest) = tag_value.as_bytes_unsafe().split_at(first_idx);
         // rest contains at least one byte because first_idx is a valid index.
         let (first, rest) = rest.split_first().unwrap_unchecked();
         let mut new_bytes = Vec::with_capacity(tag_value.len() - 1);

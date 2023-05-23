@@ -91,7 +91,7 @@ impl<'a> Tags<'a> {
         let mut tags = Tags::new();
         // TODO: Tag bytes available.
         while !word.is_empty() {
-            let key = word.transform(Split(crate::string::is_invalid_for_tagkey::<false>));
+            let key = word.transform(Split(crate::string::is_invalid_for_key::<false>));
             let value = if matches!(word.transform(SplitFirst), Some(b'=')) {
                 let value = word.transform(Split(|b: &u8| *b == b';'));
                 word.transform(SplitFirst);

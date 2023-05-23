@@ -58,11 +58,11 @@ impl<'a> Bytes<'a> {
     // especially if one finds a need for to_borrowed_or_cloned.
 
     /// Returns true if this byte string is empty.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.value.is_empty()
     }
     /// Returns the length of this byte string.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.value.len()
     }
     /// Returns a reference to `self`'s value as a UTF-8 string if it's correctly encoded.
@@ -110,12 +110,16 @@ impl<'a> Bytes<'a> {
             Utf8Policy::Invalid | Utf8Policy::Recheck | Utf8Policy::Valid => utf8 as i8,
         }
     }
+    /// Returns `self`'s value as a slice.
+    pub const fn as_bytes(&self) -> &[u8] {
+        self.value
+    }
     /// Returns `self`'s value as a slice with lifetime `'a`.
     ///
     /// # Safety
     /// If `self [is owning][Bytes::is_owning], then
     /// the returned slice must not outlive `self`.
-    pub unsafe fn as_slice_unsafe(&self) -> &'a [u8] {
+    pub const unsafe fn as_bytes_unsafe(&self) -> &'a [u8] {
         self.value
     }
     /// Creates a clone of `self` using `value` as the value.

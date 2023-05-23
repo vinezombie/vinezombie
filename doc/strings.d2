@@ -1,10 +1,10 @@
 Bytes <- Line: "No CR, LF, or NUL"
 Line <- Word: "No spaces"
 Word <- Arg: "Non-empty; no leading :"
+Arg <- Cmd: "Only uppercase ASCII letters"
+Arg <- Key: "No = or ;"
 Arg <- Nick: "No ! or @"
 Arg <- User: "No @ or %"
-Arg <- Cmd: "Only uppercase ASCII letters"
-Word <- Key: "Non-empty; no = or ;"
 
 Bytes.shape: class
 Line.shape: class 

@@ -116,6 +116,14 @@ macro_rules! impl_subtype {
             pub fn owning(self) -> $sname<'static> {
                 $sname(self.0.owning())
             }
+            /// Returns true if this byte string is empty.
+            pub const fn is_empty(&self) -> bool {
+                self.0.is_empty()
+            }
+            /// Returns the length of this byte string.
+            pub const fn len(&self) -> usize {
+                self.0.len()
+            }
         }
         impl<'a> From<$sname<'a>> for Bytes<'a> {
             fn from(value: $sname<'a>) -> Bytes<'a> {
@@ -297,34 +305,31 @@ conversions!(Arg: Line);
 conversions!(Arg: Word);
 
 #[inline]
-pub(crate) const fn is_invalid_for_tagkey<const CHAIN: bool>(byte: &u8) -> bool {
+pub(crate) const fn is_invalid_for_key<const CHAIN: bool>(byte: &u8) -> bool {
     matches!(*byte, b'=' | b';') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
 }
 
 impl_subtype! {
-    "A non-empty [`Word`] that does not contain `=` or `;`."
-    Key: Word
-    KeySafe: WordSafe
+    "An [`Arg`] that does not contain `=` or `;`."
+    Key: Arg
+    KeySafe: ArgSafe
     |bytes| {
-        if bytes.is_empty() {
+        if let Some(e) = arg_first_check(bytes) {
             Some(InvalidByte::new_empty())
         } else {
-            check_bytes!(bytes, is_invalid_for_tagkey::<true>)
+            check_bytes!(bytes, is_invalid_for_key::<true>)
         }
     }
     |bytes| {
-        if bytes.is_empty() {
-            Some(InvalidByte::new_empty())
-        } else {
-            check_bytes!(bytes, is_invalid_for_tagkey::<false>)
-        }
+        check_bytes!(bytes, is_invalid_for_key::<false>)
     }
 }
 conversions!(Key: Line);
 conversions!(Key: Word);
+conversions!(Key: Arg);
 
 impl Key<'_> {
-    /// Returns `true` if this is a client tag.
+    /// Returns `true` if this string could be a client tag.
     pub fn is_client_tag(&self) -> bool {
         // SAFE: TagKey is non-empty.
         unsafe { *self.0.get_unchecked(0) == b'+' }
@@ -412,6 +417,11 @@ impl<'a> Cmd<'a> {
         };
         word.transform(AsciiCasemap::<true>);
         Ok(unsafe { Cmd::from_unchecked(word.into()) })
+    }
+    /// Returns a reference to `self`'s value as a `str`.
+    pub const fn as_str(&self) -> &str {
+        // Safety: Cmd should only contain ASCII characters.
+        unsafe { std::str::from_utf8_unchecked(self.0.as_bytes()) }
     }
 }
 

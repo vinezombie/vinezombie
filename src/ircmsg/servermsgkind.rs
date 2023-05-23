@@ -75,17 +75,22 @@ impl<'a> ServerMsgKind<'a> {
             ServerMsgKind::Cmd(c) => ServerMsgKind::Cmd(c.owning()),
         }
     }
-    /// Returns a textual representation of `self`'s value.
-    pub fn as_arg(&self) -> Arg<'_> {
+    /// Returns `self`'s value as an [`Arg`].
+    pub const fn as_arg(&self) -> Arg<'_> {
+        use crate::string::Bytes;
+        unsafe { Arg::from_unchecked(Bytes::from_str(self.as_str())) }
+    }
+    /// Returns a reference to `self`'s value as a [`str`].
+    pub const fn as_str(&self) -> &str {
         match self {
-            ServerMsgKind::Numeric(num) => unsafe { Arg::from_unchecked(num.as_str().into()) },
-            ServerMsgKind::Cmd(c) => unsafe { Arg::from_unchecked(c.as_ref().into()) },
+            ServerMsgKind::Numeric(num) => num.as_str(),
+            ServerMsgKind::Cmd(c) => c.as_str(),
         }
     }
     /// The length of the server message kind, in bytes.
     ///
     /// This value is guaranteed to be non-zero.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         match self {
             ServerMsgKind::Numeric(_) => 3,
             ServerMsgKind::Cmd(c) => c.len(),

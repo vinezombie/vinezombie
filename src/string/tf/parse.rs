@@ -21,7 +21,7 @@ unsafe impl Transform for SplitLine {
     type Value<'a> = Line<'a>;
     fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
-            let slice = bytes.as_slice_unsafe();
+            let slice = bytes.as_bytes_unsafe();
             let Some(first_valid_idx) = slice.iter().position(
                 |b| !is_invalid_for_line(b)
             ) else {
@@ -54,7 +54,7 @@ unsafe impl Transform for SplitWord {
 
     fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
-            let slice = bytes.as_slice_unsafe();
+            let slice = bytes.as_bytes_unsafe();
             let Some(first_valid_idx) = slice.iter().position(
                 |b| !is_invalid_for_word::<true>(b)
             ) else {
@@ -83,7 +83,7 @@ unsafe impl Transform for SplitFirst {
 
     fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
-            let slice = bytes.as_slice_unsafe();
+            let slice = bytes.as_bytes_unsafe();
             if let Some((first, rest)) = slice.split_first() {
                 // This transform can easily make or break UTF-8 validity.
                 // However, if the split-off byte is ASCII, it will neither
@@ -109,7 +109,7 @@ unsafe impl<F: FnMut(&u8) -> bool> Transform for Split<F> {
 
     fn transform<'a>(mut self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
-            let slice = bytes.as_slice_unsafe();
+            let slice = bytes.as_bytes_unsafe();
             if let Some(idx) = slice.iter().position(&mut self.0) {
                 let (ret, rest) = slice.split_at(idx);
                 Transformation {
@@ -136,7 +136,7 @@ unsafe impl<F: FnMut(&u8) -> bool> Transform for TrimStart<F> {
 
     fn transform<'a>(mut self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
-            let slice = bytes.as_slice_unsafe();
+            let slice = bytes.as_bytes_unsafe();
             if let Some(idx) = slice.iter().position(|b| !self.0(b)) {
                 let transformed = slice.split_at(idx).1.into();
                 Transformation {

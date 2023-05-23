@@ -17,7 +17,7 @@ unsafe impl<const UPPERCASE: bool> Transform for AsciiCasemap<UPPERCASE> {
 
     fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
-            let bytes = bytes.as_slice_unsafe();
+            let bytes = bytes.as_bytes_unsafe();
             if UPPERCASE {
                 super::map_bytes(bytes, Utf8Policy::PreserveStrict, u8::to_ascii_uppercase)
             } else {
@@ -87,7 +87,7 @@ unsafe impl Transform for IrcCasemap {
         use super::map_bytes;
         use Utf8Policy::PreserveStrict as U8Pol;
         unsafe {
-            let bytes = bytes.as_slice_unsafe();
+            let bytes = bytes.as_bytes_unsafe();
             match self {
                 IrcCasemap::Ascii => map_bytes(bytes, U8Pol, u8::to_ascii_lowercase),
                 IrcCasemap::Rfc1459Strict => map_bytes(bytes, U8Pol, rfc1459_strict),
