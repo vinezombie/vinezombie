@@ -281,8 +281,8 @@ pub(crate) fn is_invalid_for_tagkey<const CHAIN: bool>(byte: &u8) -> bool {
 
 impl_subtype! {
     "A non-empty [`Word`] that does not contain `=` or `;`."
-    TagKey: Word
-    TagKeySafe: WordSafe
+    Key: Word
+    KeySafe: WordSafe
     |bytes| {
         if bytes.is_empty() {
             Some(InvalidByte::new_empty())
@@ -298,12 +298,12 @@ impl_subtype! {
         }
     }
 }
-conversions!(TagKey: Line);
-conversions!(TagKey: Word);
+conversions!(Key: Line);
+conversions!(Key: Word);
 
-impl TagKey<'_> {
+impl Key<'_> {
     /// Returns `true` if this is a client tag.
-    pub fn is_client(&self) -> bool {
+    pub fn is_client_tag(&self) -> bool {
         // SAFE: TagKey is non-empty.
         unsafe { *self.0.get_unchecked(0) == b'+' }
     }

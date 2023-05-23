@@ -1,5 +1,5 @@
 use crate::string::{
-    ArgSafe, Bytes, CmdSafe, LineSafe, NickSafe, TagKeySafe, Transform, Transformation, UserSafe,
+    ArgSafe, Bytes, CmdSafe, LineSafe, NickSafe, KeySafe, Transform, Transformation, UserSafe,
     Utf8Policy, WordSafe,
 };
 
@@ -28,7 +28,7 @@ unsafe impl<const UPPERCASE: bool> Transform for AsciiCasemap<UPPERCASE> {
 }
 unsafe impl<const UC: bool> LineSafe for AsciiCasemap<UC> {}
 unsafe impl<const UC: bool> WordSafe for AsciiCasemap<UC> {}
-unsafe impl<const UC: bool> TagKeySafe for AsciiCasemap<UC> {}
+unsafe impl<const UC: bool> KeySafe for AsciiCasemap<UC> {}
 unsafe impl<const UC: bool> ArgSafe for AsciiCasemap<UC> {}
 unsafe impl CmdSafe for AsciiCasemap<true> {}
 
