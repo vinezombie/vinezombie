@@ -12,12 +12,12 @@
 #![deny(rustdoc::private_intra_doc_links)]
 
 pub mod auth;
-//#[cfg(feature = "graveseed")]
-//pub mod handlers;
+#[cfg(feature = "graveseed")]
+pub mod handlers;
 pub mod init;
 pub mod ircmsg;
 pub mod known;
 //pub mod state;
 pub mod string;
-//#[cfg(feature = "graveseed")]
-//pub mod translators;
+#[cfg(feature = "graveseed")]
+pub mod translators;

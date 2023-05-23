@@ -1,12 +1,8 @@
 //! Common handlers for writing IRC applications.
 
-pub mod init;
+// pub mod init;
 
-use std::{collections::VecDeque, iter::FusedIterator, time::Duration};
-
-use crate::msg::{
-    data::Ping, ClientMsg, DefaultMsgWriter, MsgWriter, NewMsgWriter, RawClientMsg, RawServerMsg,
-};
+use crate::ircmsg::{ClientMsg, ServerMsg};
 use graveseed::{
     handler::{
         inline::{InlineHandler, RateLimited},
@@ -14,79 +10,7 @@ use graveseed::{
     },
     time::rate_limiters::LeakyBucket,
 };
-
-/// A collection of [`MsgWriter`]s usable as an iterator or a [`Handler`].
-#[derive(Default)]
-pub struct Send<'a>(VecDeque<Box<dyn MsgWriter<'a> + 'a>>);
-
-impl<'a> Send<'a> {
-    /// Creates a new empty message burst.
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    /// Adds the provided [`ClientMsg`] to the end of this burst.
-    ///
-    /// The data of the message must have a default message writer
-    /// whose `Options` implement `Default`.
-    pub fn with_msg<W>(self, what: ClientMsg<'a, W>) -> Self
-    where
-        W: DefaultMsgWriter<'a> + 'a,
-        <<W as DefaultMsgWriter<'a>>::Writer as NewMsgWriter<'a>>::Options: Default,
-    {
-        self.with_writer(W::Writer::new_msg_writer(what, Default::default()))
-    }
-    /// Adds the provided [`ClientMsg`] to the end of this burst using `opts`
-    /// for writer options.
-    ///
-    /// The data of the message must have a default message writer.
-    pub fn with_msg_and_opts<W>(
-        self,
-        what: ClientMsg<'a, W>,
-        opts: <<W as DefaultMsgWriter<'a>>::Writer as NewMsgWriter<'a>>::Options,
-    ) -> Self
-    where
-        W: DefaultMsgWriter<'a> + 'a,
-    {
-        self.with_writer(W::Writer::new_msg_writer(what, opts))
-    }
-
-    /// Adds the provided boxed [`MsgWriter`] to the end of this burst.
-    pub fn with_writer(mut self, what: Box<dyn MsgWriter<'a> + 'a>) -> Self {
-        self.0.push_back(what);
-        self
-    }
-}
-
-impl<'a, T: Default> Handler<T, RawServerMsg<'a>, RawClientMsg<'static>> for Send<'static> {
-    fn handle(
-        self: Box<Self>,
-        _: Option<&RawServerMsg<'a>>,
-    ) -> Action<T, RawServerMsg<'a>, RawClientMsg<'static>> {
-        Action::done(T::default()).with_send(self)
-    }
-
-    fn timeout(&self) -> Option<std::time::Duration> {
-        Some(std::time::Duration::ZERO)
-    }
-}
-
-impl<'a> Iterator for Send<'a> {
-    type Item = RawClientMsg<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let back = self.0.pop_front()?;
-        let (msg, cont) = back.write_msg();
-        if let Some(cont) = cont {
-            self.0.push_front(cont);
-        }
-        Some(msg)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.0.len(), self.0.is_empty().then_some(0))
-    }
-}
+use std::{collections::VecDeque, time::Duration};
 
 /// Creates a rate-limiting inline handler.
 ///
@@ -113,8 +37,8 @@ pub fn rate_limited_queue<S>(
 pub struct DebugLog;
 
 #[cfg(feature = "log")]
-impl<'a> InlineHandler<RawServerMsg<'a>, RawClientMsg<'static>> for DebugLog {
-    fn handle_recv(&mut self, msg: Option<RawServerMsg<'a>>) -> Option<RawServerMsg<'a>> {
+impl<'a> InlineHandler<ServerMsg<'a>, ClientMsg<'static>> for DebugLog {
+    fn handle_recv(&mut self, msg: Option<ServerMsg<'a>>) -> Option<ServerMsg<'a>> {
         if let Some(ref msg) = msg {
             log::debug!("recv: {msg}");
         }
@@ -123,18 +47,14 @@ impl<'a> InlineHandler<RawServerMsg<'a>, RawClientMsg<'static>> for DebugLog {
 
     fn handle_send(
         &mut self,
-        msg: Result<RawClientMsg<'static>, graveseed::time::Deadline>,
-    ) -> Result<RawClientMsg<'static>, graveseed::time::Deadline> {
+        msg: Result<ClientMsg<'static>, graveseed::time::Deadline>,
+    ) -> Result<ClientMsg<'static>, graveseed::time::Deadline> {
         if let Ok(ref msg) = msg {
             log::debug!("send: {msg}");
         }
         msg
     }
 }
-
-impl<'a> FusedIterator for Send<'a> {}
-
-// Do NOT impl DoubleEndedIterator.
 
 /// Handler that auto-replies to pings.
 ///
@@ -143,16 +63,21 @@ impl<'a> FusedIterator for Send<'a> {}
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AutoPong;
 
-impl<'a> Handler<(), RawServerMsg<'a>, RawClientMsg<'static>> for AutoPong {
+impl<'a> Handler<(), ServerMsg<'a>, ClientMsg<'static>> for AutoPong {
     fn handle(
         self: Box<Self>,
-        msg: Option<&RawServerMsg<'a>>,
-    ) -> graveseed::handler::Action<(), RawServerMsg<'a>, RawClientMsg<'static>> {
+        msg: Option<&ServerMsg<'a>>,
+    ) -> graveseed::handler::Action<(), ServerMsg<'a>, ClientMsg<'static>> {
+        use crate::known::cmd::{PING, PONG};
         let retval = Action::next(self);
-        let Some(msg) = msg.and_then(|m| m.to_parsed::<Ping<'a>>(())) else {
+        let Some(msg) = msg else {
             return retval;
         };
-        let reply = ClientMsg::new(msg.data.pong());
-        retval.with_send(Send::new().with_msg(reply))
+        if msg.kind != PING {
+            return retval;
+        }
+        let mut reply = ClientMsg::new_cmd(PONG);
+        reply.args = msg.args.clone().owning();
+        retval.with_send(std::iter::once(reply))
     }
 }

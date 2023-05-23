@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use graveseed::io::Translator;
 
 use crate::{
-    ircmsg::{ClientMsg, ServerMsg, ParseError},
+    ircmsg::{ClientMsg, ParseError, ServerMsg},
     string::{tf::SplitLine, Bytes},
 };
 
