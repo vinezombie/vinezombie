@@ -66,10 +66,11 @@ macro_rules! impl_subtype {
         impl<'a> $sname<'a> {
             /// Returns the first byte and its index that violate this type's guarantees.
             #[inline]
-            pub fn find_invalid(bytes: impl AsRef<[u8]>) -> Option<InvalidByte> {
+            pub const fn find_invalid(bytes: &[u8]) -> Option<InvalidByte> {
+                // TODO: It seems like this could be made const for some cases.
                 // Optimization: the block here can also do a test for ASCII-validity
                 // and use that to infer UTF-8 validity.
-                let $targ = bytes.as_ref();
+                let $targ = bytes;
                 $tbody
             }
             /// Tries to convert `bytes` into an instance of this type.
@@ -80,6 +81,16 @@ macro_rules! impl_subtype {
                     Err(e)
                 } else {
                     Ok($sname(bytes))
+                }
+            }
+            /// Tries to convert the provided [`str`] into an instance of this type.
+            /// Panics if `string` does not uphold this type's gurarantees.
+            pub const fn from_str(string: &'a str) -> Self {
+                if Self::find_invalid(string.as_bytes()).is_some() {
+                    // Can't emit the error here because of the const context.
+                    panic!("invalid string")
+                } else {
+                    unsafe { Self::from_unchecked(Bytes::from_str(string)) }
                 }
             }
             /// Performs an unchecked conversion from `bytes`.
@@ -201,14 +212,21 @@ macro_rules! conversions {
     };
 }
 
-#[inline(always)]
-fn check_bytes(bytes: &[u8], f: impl FnMut(&u8) -> bool) -> Option<InvalidByte> {
-    let idx = bytes.iter().position(f)?;
-    Some(InvalidByte::new_at(bytes, idx))
+macro_rules! check_bytes {
+    ($bytes:ident, $f:expr) => {{
+        let mut i = 0usize;
+        while i < $bytes.len() {
+            if $f(&$bytes[i]) {
+                return Some(InvalidByte::new_at($bytes, i))
+            }
+            i += 1;
+        }
+        None
+    }}
 }
 
 #[inline]
-pub(crate) fn is_invalid_for_line(byte: &u8) -> bool {
+pub(crate) const fn is_invalid_for_line(byte: &u8) -> bool {
     matches!(*byte, b'\0' | b'\r' | b'\n')
 }
 
@@ -217,7 +235,7 @@ impl_subtype! {
     Line: Bytes
     LineSafe: Transform
     |bytes| {
-        check_bytes(bytes, is_invalid_for_line)
+        check_bytes!(bytes, is_invalid_for_line)
     }
 }
 
@@ -228,7 +246,7 @@ impl<'a> Default for Line<'a> {
 }
 
 #[inline]
-pub(crate) fn is_invalid_for_word<const CHAIN: bool>(byte: &u8) -> bool {
+pub(crate) const fn is_invalid_for_word<const CHAIN: bool>(byte: &u8) -> bool {
     *byte == b' ' || if CHAIN { is_invalid_for_line(byte) } else { false }
 }
 
@@ -237,10 +255,10 @@ impl_subtype! {
     Word: Line
     WordSafe: LineSafe
     |bytes| {
-        check_bytes(bytes, is_invalid_for_word::<true>)
+        check_bytes!(bytes, is_invalid_for_word::<true>)
     }
     |bytes| {
-        check_bytes(bytes, is_invalid_for_word::<false>)
+        check_bytes!(bytes, is_invalid_for_word::<false>)
     }
 }
 conversions!(Word: Line);
@@ -252,7 +270,7 @@ impl<'a> Default for Word<'a> {
 }
 
 #[inline]
-fn arg_first_check(bytes: &[u8]) -> Option<InvalidByte> {
+const fn arg_first_check(bytes: &[u8]) -> Option<InvalidByte> {
     match bytes.first() {
         None => Some(InvalidByte::new_empty()),
         Some(b':') => Some(InvalidByte::new_at(bytes, 0)),
@@ -265,7 +283,11 @@ impl_subtype! {
     Arg: Word
     ArgSafe: WordSafe
     |bytes| {
-        arg_first_check(bytes).or_else(|| check_bytes(bytes, is_invalid_for_word::<true>))
+        if let Some(e) = arg_first_check(bytes) {
+            Some(e)
+        } else {
+            check_bytes!(bytes, is_invalid_for_word::<true>)
+        }
     }
     |bytes| {
         arg_first_check(bytes)
@@ -275,7 +297,7 @@ conversions!(Arg: Line);
 conversions!(Arg: Word);
 
 #[inline]
-pub(crate) fn is_invalid_for_tagkey<const CHAIN: bool>(byte: &u8) -> bool {
+pub(crate) const fn is_invalid_for_tagkey<const CHAIN: bool>(byte: &u8) -> bool {
     matches!(*byte, b'=' | b';') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
 }
 
@@ -287,14 +309,14 @@ impl_subtype! {
         if bytes.is_empty() {
             Some(InvalidByte::new_empty())
         } else {
-            check_bytes(bytes, is_invalid_for_tagkey::<true>)
+            check_bytes!(bytes, is_invalid_for_tagkey::<true>)
         }
     }
     |bytes| {
         if bytes.is_empty() {
             Some(InvalidByte::new_empty())
         } else {
-            check_bytes(bytes, is_invalid_for_tagkey::<false>)
+            check_bytes!(bytes, is_invalid_for_tagkey::<false>)
         }
     }
 }
@@ -310,12 +332,12 @@ impl Key<'_> {
 }
 
 #[inline]
-pub(crate) fn is_invalid_for_nick<const CHAIN: bool>(byte: &u8) -> bool {
+pub(crate) const fn is_invalid_for_nick<const CHAIN: bool>(byte: &u8) -> bool {
     matches!(*byte, b'!' | b'@') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
 }
 
 #[inline]
-pub(crate) fn is_invalid_for_user<const CHAIN: bool>(byte: &u8) -> bool {
+pub(crate) const fn is_invalid_for_user<const CHAIN: bool>(byte: &u8) -> bool {
     matches!(*byte, b'@' | b'%') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
 }
 
@@ -324,10 +346,14 @@ impl_subtype! {
     Nick: Arg
     NickSafe: ArgSafe
     |bytes| {
-        arg_first_check(bytes).or_else(|| check_bytes(bytes, is_invalid_for_nick::<true>))
+        if let Some(e) = arg_first_check(bytes) {
+            Some(e)
+        } else {
+            check_bytes!(bytes, is_invalid_for_nick::<true>)
+        }
     }
     |bytes| {
-        check_bytes(bytes, is_invalid_for_nick::<false>)
+        check_bytes!(bytes, is_invalid_for_nick::<false>)
     }
 }
 conversions!(Nick: Line);
@@ -339,10 +365,14 @@ impl_subtype! {
     User: Arg
     UserSafe: ArgSafe
     |bytes| {
-        arg_first_check(bytes).or_else(|| check_bytes(bytes, is_invalid_for_user::<true>))
+        if let Some(e) = arg_first_check(bytes) {
+            Some(e)
+        } else {
+            check_bytes!(bytes, is_invalid_for_user::<true>)
+        }
     }
     |bytes| {
-        check_bytes(bytes, is_invalid_for_user::<false>)
+        check_bytes!(bytes, is_invalid_for_user::<false>)
     }
 }
 conversions!(User: Line);
@@ -350,7 +380,7 @@ conversions!(User: Word);
 conversions!(User: Arg);
 
 #[inline]
-fn kind_byte_check(byte: &u8) -> bool {
+const fn cmd_byte_check(byte: &u8) -> bool {
     !byte.is_ascii_uppercase()
 }
 
@@ -362,11 +392,11 @@ impl_subtype! {
         if bytes.is_empty() {
             Some(InvalidByte::new_empty())
         } else {
-            check_bytes(bytes, kind_byte_check)
+            check_bytes!(bytes, cmd_byte_check)
         }
     }
     |bytes| {
-        check_bytes(bytes, kind_byte_check)
+        check_bytes!(bytes, cmd_byte_check)
     }
 }
 conversions!(Cmd: Line);
@@ -391,11 +421,11 @@ pub struct InvalidByte(u8, Option<NonZeroUsize>);
 
 impl InvalidByte {
     /// Creates an `InvalidByte` representing a violation of a "non-empty string" invariant.
-    pub fn new_empty() -> InvalidByte {
+    pub const fn new_empty() -> InvalidByte {
         InvalidByte(0u8, None)
     }
     /// Creates an `InvalidBytes` for an invalid bytes.
-    pub fn new_at(bytes: &[u8], idx: usize) -> InvalidByte {
+    pub const fn new_at(bytes: &[u8], idx: usize) -> InvalidByte {
         // Assuming that it's impossible to ever have an array where `usize::MAX` is a valid index.
         InvalidByte(bytes[idx], Some(unsafe { NonZeroUsize::new_unchecked(idx + 1) }))
     }
