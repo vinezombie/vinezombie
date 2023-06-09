@@ -109,13 +109,16 @@ pub fn to_string() {
 
 #[test]
 pub fn bytes_left() {
+    // Vinezombie assumes the final argument of messages
+    // will always be relayed with a colon.
+    // The testcases here reflect this.
     let cases = [
         "CMD",
-        "CMD word",
-        "CMD word1 word2",
+        "CMD :word",
+        "CMD word1 :word2",
         "CMD word :some words",
-        ":src CMD word",
-        "CMD uniçödé",
+        ":src CMD :word",
+        "CMD :uniçödé",
         "001",
     ];
     for case in cases {

@@ -75,11 +75,11 @@ pub(crate) fn bytes_left(kind: &[u8], source: Option<&Source>, args: &Args) -> i
     if let Some(src) = source {
         size += 2 + src.len();
     }
-    for arg in args.all() {
-        size += arg.len() + 1; // Space.
-    }
-    if args.is_last_long() {
+    if !args.is_empty() {
         size += 1; // Colon.
+        for arg in args.all() {
+            size += arg.len() + 1; // Space.
+        }
     }
     let size: isize = size.try_into().unwrap_or(isize::MAX);
     512 - size
