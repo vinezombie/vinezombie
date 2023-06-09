@@ -20,8 +20,6 @@ possible to the quirks of whatever server is being connected to.
 The default feature set is designed to be enough to write IRC bots,
 and includes the following:
 
-* `graveseed`: Adds [graveseed](https://sr.ht/~daemoness/graveseed/)
-integrations, allowing it to be used for I/O and message handling.
 * `base64`: Adds base64 encoding/decoding. Required for SASL.
 * `log`: Enables utilities for logging using `log`.
 

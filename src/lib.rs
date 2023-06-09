@@ -13,11 +13,7 @@
 
 pub mod auth;
 pub mod config;
-#[cfg(feature = "graveseed")]
-pub mod handlers;
 pub mod ircmsg;
 pub mod known;
 pub mod state;
 pub mod string;
-#[cfg(feature = "graveseed")]
-pub mod translators;
