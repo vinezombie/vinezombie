@@ -10,6 +10,8 @@ use std::{
 /// A borrowing or shared-owning immutable byte string. Not to be confused with Bytes
 /// from the crate of the same name.
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(from = "Vec<u8>", into = "Vec<u8>"))]
 pub struct Bytes<'a> {
     value: &'a [u8],
     /// If this is Some, `value` points to data owned by this.
@@ -166,6 +168,18 @@ impl<'a> Bytes<'a> {
         }
         tfed.value
     }
+    /// Transforms `self` into a [`Vec`].
+    ///
+    /// This operation copies data unless `self` has sole ownership of its data.
+    pub fn into_vec(self) -> Vec<u8> {
+        if let Some(owner) = self.ownership {
+            unsafe {
+                owner.to_vec(&self.value)
+            }
+        } else {
+            self.value.to_vec()
+        }
+    }
 }
 
 impl<'a> Deref for Bytes<'a> {
@@ -235,6 +249,12 @@ impl<'a> From<Cow<'a, str>> for Bytes<'a> {
             Cow::Borrowed(s) => s.into(),
             Cow::Owned(s) => s.into(),
         }
+    }
+}
+
+impl<'a> From<Bytes<'a>> for Vec<u8> {
+    fn from(value: Bytes<'a>) -> Self {
+        value.into_vec()
     }
 }
 
@@ -366,6 +386,20 @@ impl OwnedBytes {
         let retval = OwnedBytes { rc, data, size };
         (Some(retval), std::slice::from_raw_parts(data.as_ptr().cast_const(), len))
     }
+    /// Attempts to re-use the buffer for constructing a `Vec` from `slice`.
+    ///
+    /// # Safety
+    /// `slice` is assumed to be a slice of the data owned by self.
+    pub unsafe fn to_vec(self, slice: &[u8]) -> Vec<u8> {
+        let slice_start = slice.as_ptr();
+        let data_start = self.data.as_ptr();
+        let rc = self.rc.as_ref();
+        if slice_start == data_start && rc.fetch_sub(1, Ordering::Release) == 1 {
+            Vec::from_raw_parts(data_start, slice.len(), self.size)
+        } else {
+            slice.to_vec()
+        }
+    }
 }
 
 impl Clone for OwnedBytes {
@@ -378,7 +412,7 @@ impl Clone for OwnedBytes {
 
 impl Drop for OwnedBytes {
     fn drop(&mut self) {
-        unsafe {
+         unsafe {
             let rc = self.rc.as_ref();
             if rc.fetch_sub(1, Ordering::Release) == 1 {
                 std::mem::drop(Vec::from_raw_parts(self.data.as_ptr(), 0, self.size));

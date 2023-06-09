@@ -53,6 +53,8 @@ macro_rules! impl_subtype {
         #[doc = $doc]
         #[repr(transparent)]
         #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        #[cfg_attr(feature = "serde", serde(try_from = "Vec<u8>", into = "Vec<u8>"))]
         pub struct $sname<'a>(Bytes<'a>);
 
         #[doc = concat!("Marker for [`", stringify!($sname), "`]-safe [`Transform`]s.")]
@@ -130,6 +132,11 @@ macro_rules! impl_subtype {
                 value.into_bytes()
             }
         }
+        impl<'a> From<$sname<'a>> for Vec<u8> {
+            fn from(value: $sname<'a>) -> Vec<u8> {
+                value.into_bytes().into_vec()
+            }
+        }
         impl<'a> TryFrom<Bytes<'a>> for $sname<'a> {
             type Error = InvalidByte;
             fn try_from(value: Bytes<'a>) -> Result<$sname<'a>, InvalidByte> {
@@ -148,7 +155,6 @@ macro_rules! impl_subtype {
         }
         impl<'a> std::ops::Deref for $sname<'a> {
             type Target = $ssuper<'a>;
-
             fn deref(&self) -> &Self::Target {
                 unsafe { &*(self as *const Self as *const Self::Target) }
             }
@@ -197,6 +203,18 @@ macro_rules! impl_subtype {
         impl<'a> TryFrom<&'a str> for $sname<'a> {
             type Error = InvalidByte;
             fn try_from(value: &'a str) -> Result<$sname<'a>, Self::Error> {
+                Bytes::from(value).try_into()
+            }
+        }
+        impl TryFrom<Vec<u8>> for $sname<'static> {
+            type Error = InvalidByte;
+            fn try_from(value: Vec<u8>) -> Result<$sname<'static>, Self::Error> {
+                Bytes::from(value).try_into()
+            }
+        }
+        impl TryFrom<String> for $sname<'static> {
+            type Error = InvalidByte;
+            fn try_from(value: String) -> Result<$sname<'static>, Self::Error> {
                 Bytes::from(value).try_into()
             }
         }
@@ -310,12 +328,12 @@ pub(crate) const fn is_invalid_for_key<const CHAIN: bool>(byte: &u8) -> bool {
 }
 
 impl_subtype! {
-    "An [`Arg`] that does not contain `=` or `;`."
+    "An [`Arg`] that does not contain `=` or `;`.\n"
     Key: Arg
     KeySafe: ArgSafe
     |bytes| {
         if let Some(e) = arg_first_check(bytes) {
-            Some(InvalidByte::new_empty())
+            Some(e)
         } else {
             check_bytes!(bytes, is_invalid_for_key::<true>)
         }

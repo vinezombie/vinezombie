@@ -27,7 +27,8 @@ integrations, allowing it to be used for I/O and message handling.
 
 The following optional features are also available:
 
-* `whoami`: Uses system acocunt info for `crate::init::Register::default()`.
+* `serde`: Adds implementations of `Serialize`+`Deserialize` for certain types.
+* `whoami`: Uses system account info for `crate::init::Register::default()`.
 
 ## License
 
