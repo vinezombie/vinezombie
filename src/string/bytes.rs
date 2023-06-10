@@ -129,7 +129,7 @@ impl<'a> Bytes<'a> {
     /// # Safety
     /// If `self [is owning][Bytes::is_owning], then
     /// `value` must either point to data owned by `self` or an immutable static variable.
-    /// A valid value can be obtained using [`as_slice_unsafe`][Bytes::as_slice_unsafe].
+    /// A valid value can be obtained using [`as_bytes_unsafe`][Bytes::as_bytes_unsafe].
     ///
     /// The `utf8` parameter is trusted to be correct,
     /// and byte slices may be incorrectly cast unchecked to `str`s otherwise.
@@ -173,9 +173,7 @@ impl<'a> Bytes<'a> {
     /// This operation copies data unless `self` has sole ownership of its data.
     pub fn into_vec(self) -> Vec<u8> {
         if let Some(owner) = self.ownership {
-            unsafe {
-                owner.to_vec(&self.value)
-            }
+            unsafe { owner.into_vec(self.value) }
         } else {
             self.value.to_vec()
         }
@@ -390,7 +388,7 @@ impl OwnedBytes {
     ///
     /// # Safety
     /// `slice` is assumed to be a slice of the data owned by self.
-    pub unsafe fn to_vec(self, slice: &[u8]) -> Vec<u8> {
+    pub unsafe fn into_vec(self, slice: &[u8]) -> Vec<u8> {
         let slice_start = slice.as_ptr();
         let data_start = self.data.as_ptr();
         let rc = self.rc.as_ref();
@@ -412,7 +410,7 @@ impl Clone for OwnedBytes {
 
 impl Drop for OwnedBytes {
     fn drop(&mut self) {
-         unsafe {
+        unsafe {
             let rc = self.rc.as_ref();
             if rc.fetch_sub(1, Ordering::Release) == 1 {
                 std::mem::drop(Vec::from_raw_parts(self.data.as_ptr(), 0, self.size));

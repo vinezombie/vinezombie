@@ -12,14 +12,14 @@ pub struct ServerAddr<'a> {
     /// Whether to use TLS.
     pub tls: bool,
     /// An optional port number if a non-default one should be used.
-    pub port: Option<u16>
+    pub port: Option<u16>,
 }
 
 impl<'a> PartialEq for ServerAddr<'a> {
     fn eq(&self, other: &Self) -> bool {
-        self.tls == other.tls &&
-        self.port_num() == other.port_num() &&
-            self.address == other.address
+        self.tls == other.tls
+            && self.port_num() == other.port_num()
+            && self.address == other.address
     }
 }
 
@@ -31,11 +31,7 @@ impl<'a> ServerAddr<'a> {
         use std::io::Write;
         let mut vec = Vec::with_capacity(self.address.len() + 9);
         vec.extend_from_slice(self.address.as_bytes());
-        let _ = write!(
-            vec, ":{}{}",
-            if self.tls { "+" } else {""},
-            self.port_num()
-        );
+        let _ = write!(vec, ":{}{}", if self.tls { "+" } else { "" }, self.port_num());
         // TODO: We're pretty UTF-8 safe here.
         unsafe { Word::from_unchecked(vec.into()) }
     }

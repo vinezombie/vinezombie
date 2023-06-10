@@ -1,5 +1,5 @@
 use crate::string::{
-    ArgSafe, Bytes, CmdSafe, LineSafe, NickSafe, KeySafe, Transform, Transformation, UserSafe,
+    ArgSafe, Bytes, CmdSafe, KeySafe, LineSafe, NickSafe, Transform, Transformation, UserSafe,
     Utf8Policy, WordSafe,
 };
 
@@ -36,11 +36,6 @@ unsafe impl CmdSafe for AsciiCasemap<true> {}
 ///
 /// Does not map UTF-8 characters, but preserves UTF-8 validity.
 /// Maps from uppercase to lowercase.
-///
-/// Although this transform is safe to use for [`TagKey`][crate::string::TagKey],
-/// it is likely a logic error to do so (as tag keys are case-sensitive,
-/// and the server's casemapping especailly does not apply to them).
-/// As such, it does not implement [`TagKeySafe`].
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[non_exhaustive]
 pub enum IrcCasemap {
@@ -101,3 +96,4 @@ unsafe impl WordSafe for IrcCasemap {}
 unsafe impl ArgSafe for IrcCasemap {}
 unsafe impl NickSafe for IrcCasemap {}
 unsafe impl UserSafe for IrcCasemap {}
+unsafe impl KeySafe for IrcCasemap {}

@@ -243,12 +243,12 @@ macro_rules! check_bytes {
         let mut i = 0usize;
         while i < $bytes.len() {
             if $f(&$bytes[i]) {
-                return Some(InvalidByte::new_at($bytes, i))
+                return Some(InvalidByte::new_at($bytes, i));
             }
             i += 1;
         }
         None
-    }}
+    }};
 }
 
 #[inline]
@@ -456,6 +456,10 @@ impl InvalidByte {
     pub const fn new_at(bytes: &[u8], idx: usize) -> InvalidByte {
         // Assuming that it's impossible to ever have an array where `usize::MAX` is a valid index.
         InvalidByte(bytes[idx], Some(unsafe { NonZeroUsize::new_unchecked(idx + 1) }))
+    }
+    /// Returns `true` if `self` is an error representing an invalid byte at some position.
+    pub fn has_index(&self) -> bool {
+        self.1.is_some()
     }
     /// Returns the invalid byte, which will be `0u8` for non-empty string invariant violations.
     pub fn byte(&self) -> u8 {

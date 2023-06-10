@@ -98,7 +98,7 @@ impl<'a> Args<'a> {
     /// Panics if the provided string literal is not a valid [`Line`],
     /// that is, if it contains an `'\r'`, `'\n'`, or `'\0'`.
     pub fn add_literal(&mut self, s: &'static str) {
-        self.add(Line::from_str(s))
+        self.add(Line::from_str(s));
     }
     /// Returns true if there are no arguments.
     pub fn is_empty(&self) -> bool {

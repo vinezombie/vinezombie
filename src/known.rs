@@ -3,5 +3,17 @@
 //! These constants exist to sidestep needing to use `from_unchecked` all over the place
 //! for a large subset of possible messages.
 
+// Throughout this, we'll be doing the `from_unchecked(Bytes::from_str)` dance.
+// This helps compilation times, as we trust ourselves.
+
 /// Commands.
 pub mod cmd;
+
+use crate::string::{Arg, Bytes};
+
+/// The literal `"*"`.
+///
+/// This shows up pretty commonly in argument lists,
+/// so this constant is provided for convenience.
+#[allow(clippy::declare_interior_mutable_const)]
+pub const STAR: Arg<'static> = unsafe { Arg::from_unchecked(Bytes::from_str("*")) };

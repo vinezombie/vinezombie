@@ -4,6 +4,7 @@ macro_rules! defn_cmd {
     ($($cmd:ident)+) => {
         $(
             #[allow(missing_docs)]
+            #[allow(clippy::declare_interior_mutable_const)]
             pub const $cmd: Cmd<'static> = unsafe {
                 Cmd::from_unchecked(Bytes::from_str(stringify!($cmd)))
             };
