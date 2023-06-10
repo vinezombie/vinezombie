@@ -92,8 +92,9 @@ impl<'a> ClientMsg<'a> {
     /// Both success and parse failure
     /// (indicated by [`InvalidData`][std::io::ErrorKind::InvalidData])
     /// will leave `buf` in an invalid state for future calls.
+    #[cfg(feature = "tokio")]
     pub async fn read_borrowing_from_tokio(
-        read: std::pin::Pin<&mut (impl tokio::io::AsyncBufReadExt + ?Sized)>,
+        read: &mut (impl tokio::io::AsyncBufReadExt + ?Sized + Unpin),
         buf: &'a mut Vec<u8>,
     ) -> std::io::Result<ClientMsg<'a>> {
         use tokio::io::{AsyncBufReadExt, AsyncReadExt};
