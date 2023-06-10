@@ -21,13 +21,12 @@ The default feature set is designed to be enough to write IRC bots,
 and includes the following:
 
 * `base64`: Adds base64 encoding/decoding. Required for SASL.
-* `log`: Enables utilities for logging using `log`.
 
 The following optional features are also available:
 
 * `serde`: Adds implementations of `Serialize`+`Deserialize` for certain types.
 * `tokio`: Adds functions for Tokio-based I/O.
-* `whoami`: Uses system account info for `crate::init::Register::default()`.
+* `whoami`: Uses system account info for `crate::config::Register::default()`.
 
 ## License
 
