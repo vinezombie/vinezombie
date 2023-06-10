@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 license = "GPL-3.0-only"
-description = "A modular IRCv3 client library"
-homepage = "https://sr.ht/~daemoness/vinezombie/"
-repository = "https://git.sr.ht/~daemoness/vinezombie"
+description = "An abstracting IRCv3 library"
+repository = "https://github.com/TheDaemoness/vinezombie"
 readme = "README.md"
 keywords = ["irc", "ircv3"]
 categories = ["network-programming", "parser-implementations"]

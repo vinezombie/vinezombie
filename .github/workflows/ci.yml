@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  quality:
+    name: Build+Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: default
+          toolchain: stable
+      - name: Build (No Features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: "--no-default-features"
+      - name: Build (Default Features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+      - name: Build (All Features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: "--all-features"
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: "--all-features"
+      - name: Check Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: "--all-features"
+      - name: Check Docs
+        uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: "--all-features --no-deps"
+      - name: Check Style
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: "--check"

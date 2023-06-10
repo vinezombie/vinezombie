@@ -2,9 +2,9 @@
 
 # vinezombie
 
-**An abstracting IRCv3 client library in Rust.**
+**An abstracting IRCv3 library in Rust.**
 
-[![builds.sr.ht status](https://builds.sr.ht/~daemoness/vinezombie/.svg)](https://builds.sr.ht/~daemoness/vinezombie/?)
+[![CI](https://github.com/TheDaemoness/vinezombie/actions/workflows/ci.yml/badge.svg)](https://github.com/TheDaemoness/vinezombie/actions/workflows/ci.yml)
 [![Chat on libera.chat](https://img.shields.io/badge/libera.chat-%23vinezombie-blueviolet)](https://web.libera.chat/gamja/?channel=#vinezombie)
 
 `vinezombie` is an opinionated Rust library for writing IRCv3 utilities,
@@ -37,8 +37,9 @@ end users over IRC is also strongly encouraged, but not required.
 
 ## Discussion
 
-The author somtimes rambles about code design in #vinezombie on
-[Libera.Chat](ircs://irc.libera.chat/#vinezombie).
+The author somtimes rambles about code design in
+[#vinezombie](ircs://irc.libera.chat/#vinezombie)
+on [Libera.Chat](https://libera.chat/).
 A link to a webchat is available at the top by clicking the libera.chat badge.
 
 ---

@@ -17,9 +17,6 @@ tasks:
   - build-max: |
       cd vinezombie
       cargo build --all-features --message-format short
-  - examples: |
-      cd vinezombie
-      cargo build --all-features --examples --message-format short
   - test: |
       cd vinezombie
       cargo test --all-features
