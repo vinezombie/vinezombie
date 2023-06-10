@@ -26,6 +26,7 @@ and includes the following:
 The following optional features are also available:
 
 * `serde`: Adds implementations of `Serialize`+`Deserialize` for certain types.
+* `tokio`: Adds functions for Tokio-based I/O.
 * `whoami`: Uses system account info for `crate::init::Register::default()`.
 
 ## License

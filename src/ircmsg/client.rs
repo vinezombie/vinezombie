@@ -35,6 +35,26 @@ impl ClientMsg<'static> {
             ClientMsg::parse(std::mem::take(buf))
         )
     }
+    /// Asynchronously reads a `'static` client message from `read`.
+    ///
+    /// `buf` must either be empty or contain a partial message from
+    /// a previous call to this function.
+    /// All calls to this function will leave `buf`
+    /// in a valid state for future calls.
+    #[cfg(feature = "tokio")]
+    pub async fn read_owning_from_tokio(
+        read: &mut (impl tokio::io::AsyncBufReadExt + ?Sized + Unpin),
+        buf: &mut Vec<u8>,
+    ) -> std::io::Result<Self> {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+        read_msg!(
+            ClientMsg::MAX_LEN,
+            buf,
+            read: AsyncReadExt,
+            read.read_until(b'\n', buf).await,
+            ClientMsg::parse(std::mem::take(buf))
+        )
+    }
 }
 
 impl<'a> ClientMsg<'a> {
@@ -59,6 +79,29 @@ impl<'a> ClientMsg<'a> {
             buf,
             read: Read,
             read.read_until(b'\n', buf),
+            ClientMsg::parse(buf.as_slice())
+        )
+    }
+    /// Asynchronously reads a client message from `read`.
+    ///
+    /// Consider using [`ClientMsg::read_owning_from_tokio`] instead
+    /// unless minimizing memory allocations is very important.
+    ///
+    /// `buf` must either be empty or contain a partial message from
+    /// a previous call to this function.
+    /// Both success and parse failure
+    /// (indicated by [`InvalidData`][std::io::ErrorKind::InvalidData])
+    /// will leave `buf` in an invalid state for future calls.
+    pub async fn read_borrowing_from_tokio(
+        read: std::pin::Pin<&mut (impl tokio::io::AsyncBufReadExt + ?Sized)>,
+        buf: &'a mut Vec<u8>,
+    ) -> std::io::Result<ClientMsg<'a>> {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+        read_msg!(
+            ClientMsg::MAX_LEN,
+            buf,
+            read: AsyncReadExt,
+            read.read_until(b'\n', buf).await,
             ClientMsg::parse(buf.as_slice())
         )
     }
@@ -97,7 +140,7 @@ impl<'a> ClientMsg<'a> {
     pub fn write_to(&self, write: &mut (impl Write + ?Sized)) -> std::io::Result<()> {
         super::write_to(&self.tags, None, &self.cmd, &self.args, write)
     }
-    /// Writes self to the provided [`Write`] WITH a trailing CRLF,
+    /// Writes self to `write` WITH a trailing CRLF,
     /// using the provided buffer to minimize the necessary number of writes to `write`.
     ///
     /// The buffer will be cleared after successfully sending this message.
@@ -109,7 +152,24 @@ impl<'a> ClientMsg<'a> {
     ) -> std::io::Result<()> {
         self.write_to(buf)?;
         buf.extend_from_slice(b"\r\n");
-        write.write_all(&buf)?;
+        write.write_all(buf)?;
+        buf.clear();
+        Ok(())
+    }
+    /// Asynchronously writes self to `write` WITH a trailing CRLF,
+    /// using the provided buffer to minimize the necessary number of writes to `write`.
+    ///
+    /// The buffer will be cleared after successfully sending this message.
+    /// If the buffer is non-empty, message data will be appended to the buffer's contents.
+    #[cfg(feature = "tokio")]
+    pub async fn send_to_tokio(
+        &self,
+        write: &mut (impl tokio::io::AsyncWriteExt + ?Sized + Unpin),
+        buf: &mut Vec<u8>,
+    ) -> std::io::Result<()> {
+        self.write_to(buf)?;
+        buf.extend_from_slice(b"\r\n");
+        write.write_all(buf).await?;
         buf.clear();
         Ok(())
     }
