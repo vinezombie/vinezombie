@@ -1,8 +1,11 @@
 //! Minimally-processed IRC messages.
 
+// Placing this here for macros.
+#[macro_use]
+mod common;
+
 mod args;
 mod client;
-mod common;
 mod numeric;
 mod server;
 mod servermsgkind;

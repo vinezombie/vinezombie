@@ -1,11 +1,11 @@
 use super::{Args, Source, Tags};
 use crate::string::{InvalidByte, Line, Word};
 
-/// Error type when parsing an IRC message..
+/// Errors from parsing an IRC message..
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ParseError {
-    /// Message exceeds permissible length limits.
-    TooLong(usize),
+    /// The message exceeds permissible length limits.
+    TooLong,
     /// The string provided to a parse function is not a Line.
     InvalidLine(InvalidByte),
     /// The source fragment of the message contains an invalid nickname.
@@ -19,7 +19,7 @@ pub enum ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::TooLong(len) => write!(f, "message is too long (>{len} bytes)"),
+            ParseError::TooLong => write!(f, "message is too long"),
             ParseError::InvalidLine(e) => write!(f, "invalid line: {e}"),
             ParseError::InvalidNick(e) => write!(f, "invalid source nickname: {e}"),
             ParseError::InvalidUser(e) => write!(f, "invalid source username: {e}"),
@@ -29,6 +29,61 @@ impl std::fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
+
+impl From<ParseError> for std::io::Error {
+    fn from(value: ParseError) -> Self {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, value)
+    }
+}
+
+macro_rules! read_msg {
+    (
+        $limit:path, $buf:ident, $read:ident: $read_type:ident, $read_expr:expr, $parse_expr:expr
+    ) => {{
+        use std::io::{Error, ErrorKind};
+        let mut $read = $read_type::take($read, 1);
+        loop {
+            let buflen = $buf.len();
+            if buflen < $limit {
+                let read_count = $limit - buflen;
+                $read.set_limit(read_count as u64);
+                // 256 bytes is 1/2 the largest IRCv2 message,
+                // ensuring at most 1 realloc for tagless messages
+                // assuming Vec's growing strategy doesn't change for non-tiny allocations.
+                // IME most messages should fit in 256 bytes anyway.
+                $buf.reserve_exact(std::cmp::min(read_count, 256));
+                $read_expr?;
+            }
+            let mut found_newline = false;
+            loop {
+                match $buf.last() {
+                    None => break,
+                    Some(b'\n') => {
+                        found_newline = true;
+                        $buf.pop();
+                    }
+                    Some(b'\r') => {
+                        $buf.pop();
+                    }
+                    Some(_) if found_newline => {
+                        return match $parse_expr {
+                            Ok(v) => Ok(v),
+                            Err(e) => Err(e.into()),
+                        }
+                    }
+                    _ => {
+                        $buf.clear();
+                        return if $buf.len() < $limit {
+                            Err(Error::from(ErrorKind::UnexpectedEof))
+                        } else {
+                            Err(ParseError::TooLong.into())
+                        };
+                    }
+                }
+            }
+        }
+    }};
+}
 
 #[inline(always)]
 pub(crate) fn parse<'a, S: 'a, K: 'a>(

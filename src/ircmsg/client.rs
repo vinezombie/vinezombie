@@ -14,7 +14,56 @@ pub struct ClientMsg<'a> {
     pub args: Args<'a>,
 }
 
+impl ClientMsg<'static> {
+    /// Reads a `'static` client message from `read`.
+    /// This function may block.
+    ///
+    /// `buf` must either be empty or contain a partial message from
+    /// a previous call to this function.
+    /// All calls to this function will leave `buf`
+    /// in a valid state for future calls.
+    pub fn read_owning_from(
+        read: &mut (impl std::io::BufRead + ?Sized),
+        buf: &mut Vec<u8>,
+    ) -> std::io::Result<Self> {
+        use std::io::{BufRead, Read};
+        read_msg!(
+            ClientMsg::MAX_LEN,
+            buf,
+            read: Read,
+            read.read_until(b'\n', buf),
+            ClientMsg::parse(std::mem::take(buf))
+        )
+    }
+}
+
 impl<'a> ClientMsg<'a> {
+    /// Reads a client message from `read`.
+    /// This function may block.
+    ///
+    /// Consider using [`ClientMsg::read_owning_from`] instead
+    /// unless minimizing memory allocations is very important.
+    ///
+    /// `buf` must either be empty or contain a partial message from
+    /// a previous call to this function.
+    /// Both success and parse failure
+    /// (indicated by [`InvalidData`][std::io::ErrorKind::InvalidData])
+    /// will leave `buf` in an invalid state for future calls.
+    pub fn read_borrowing_from(
+        read: &mut (impl std::io::BufRead + ?Sized),
+        buf: &'a mut Vec<u8>,
+    ) -> std::io::Result<Self> {
+        use std::io::{BufRead, Read};
+        read_msg!(
+            ClientMsg::MAX_LEN,
+            buf,
+            read: Read,
+            read.read_until(b'\n', buf),
+            ClientMsg::parse(buf.as_slice())
+        )
+    }
+    /// The length of the longest permissible client message.
+    pub const MAX_LEN: usize = 4608;
     /// Creates a new `ServerMsg` with the provided command.
     pub const fn new_cmd(cmd: Cmd<'a>) -> Self {
         ClientMsg { tags: Tags::new(), cmd, args: Args::new() }
@@ -47,6 +96,22 @@ impl<'a> ClientMsg<'a> {
     /// This function makes many small writes. Buffering is strongly recommended.
     pub fn write_to(&self, write: &mut (impl Write + ?Sized)) -> std::io::Result<()> {
         super::write_to(&self.tags, None, &self.cmd, &self.args, write)
+    }
+    /// Writes self to the provided [`Write`] WITH a trailing CRLF,
+    /// using the provided buffer to minimize the necessary number of writes to `write`.
+    ///
+    /// The buffer will be cleared after successfully sending this message.
+    /// If the buffer is non-empty, message data will be appended to the buffer's contents.
+    pub fn send_to(
+        &self,
+        write: &mut (impl Write + ?Sized),
+        buf: &mut Vec<u8>,
+    ) -> std::io::Result<()> {
+        self.write_to(buf)?;
+        buf.extend_from_slice(b"\r\n");
+        write.write_all(&buf)?;
+        buf.clear();
+        Ok(())
     }
 }
 
