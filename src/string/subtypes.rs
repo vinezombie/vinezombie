@@ -265,6 +265,20 @@ impl_subtype! {
     }
 }
 
+impl Line<'static> {
+    /// Returns the realname of the local user running this program.
+    ///
+    /// This function returns `None` if either the `whoami` feature is not enabled
+    /// or if the realname is not a valid `Line`.
+    pub fn new_realname() -> Option<Self> {
+        #[cfg(feature = "whoami")]
+        if let Ok(val) = Line::from_bytes(whoami::realname()) {
+            return Some(val);
+        }
+        None
+    }
+}
+
 impl<'a> Default for Line<'a> {
     fn default() -> Self {
         Line(Bytes::default())
@@ -401,6 +415,20 @@ impl_subtype! {
 conversions!(User: Line);
 conversions!(User: Word);
 conversions!(User: Arg);
+
+impl User<'static> {
+    /// Returns the username of the local user running this program.
+    ///
+    /// This function returns `None` if either the `whoami` feature is not enabled
+    /// or if the username is not a valid `User`.
+    pub fn new_username() -> Option<Self> {
+        #[cfg(feature = "whoami")]
+        if let Ok(val) = User::from_bytes(whoami::username()) {
+            return Some(val);
+        }
+        None
+    }
+}
 
 #[inline]
 const fn cmd_byte_check(byte: &u8) -> bool {

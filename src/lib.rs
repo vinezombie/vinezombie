@@ -1,5 +1,5 @@
 //! [Vinezombie](https://git.sr.ht/~daemoness/vinezombie)
-#![deny(missing_docs)]
+#![allow(clippy::borrow_interior_mutable_const)]
 #![deny(clippy::missing_safety_doc)]
 #![deny(clippy::redundant_else)]
 #![deny(clippy::semicolon_if_nothing_returned)]
@@ -11,8 +11,8 @@
 #![deny(rustdoc::invalid_rust_codeblocks)]
 #![deny(rustdoc::private_intra_doc_links)]
 
-pub mod auth;
-pub mod config;
+#[cfg(feature = "client")]
+pub mod client;
 pub mod ircmsg;
 pub mod known;
 pub mod state;

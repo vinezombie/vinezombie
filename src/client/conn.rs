@@ -1,3 +1,5 @@
+//! Options for connecting to IRC servers.
+
 use crate::string::Word;
 
 /// The minimal config necessary to connect to an IRC server.
