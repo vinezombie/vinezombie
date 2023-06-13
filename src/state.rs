@@ -50,7 +50,7 @@ impl Network {
     }
 }
 
-/// The state of an active connection to an IRC network.
+/// The state of an active client connection to an IRC network.
 #[derive(Clone, Debug)]
 pub struct Connection {
     /// The nickname currently in use.
@@ -71,7 +71,7 @@ impl Connection {
 /// Information on who set channel metadata.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct ChanMetaSetter {
-    user: Option<crate::ircmsg::Source<'static>>,
+    user: Option<crate::source::Source<'static>>,
     when: Option<std::time::SystemTime>,
 }
 

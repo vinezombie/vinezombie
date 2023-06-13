@@ -1,7 +1,10 @@
+use super::{Args, Tags};
+use crate::{
+    error::{InvalidByte, ParseError},
+    source::Source,
+    string::{Cmd, Line},
+};
 use std::io::Write;
-
-use super::{Args, ParseError, Source, Tags};
-use crate::string::{Cmd, InvalidByte, Line};
 
 /// An IRC message sent by a client.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]

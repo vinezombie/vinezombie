@@ -2,7 +2,8 @@
 #![allow(missing_docs)]
 
 use crate::{
-    ircmsg::{ServerMsg, Source},
+    ircmsg::ServerMsg,
+    source::Source,
     state::*,
     string::{Arg, Bytes, Line, Nick, Word},
 };

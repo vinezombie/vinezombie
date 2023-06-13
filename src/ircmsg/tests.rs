@@ -20,7 +20,7 @@ pub fn parse_source_nickonly() {
     let source = msg.source.unwrap();
     assert_eq!(source.to_string(), "server");
     assert_eq!(source.nick, "server");
-    assert_eq!(source.address, None);
+    assert_eq!(source.userhost, None);
 }
 
 #[test]
@@ -30,7 +30,7 @@ pub fn parse_source_full() {
     let source = msg.source.unwrap();
     assert_eq!(source.to_string(), "nick!user@host");
     assert_eq!(source.nick, "nick");
-    let address = source.address.unwrap();
+    let address = source.userhost.unwrap();
     assert_eq!(address.user.unwrap(), "user");
     assert_eq!(address.host, "host");
 }

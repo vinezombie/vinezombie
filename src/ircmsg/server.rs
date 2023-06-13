@@ -1,5 +1,9 @@
-use super::{Args, Numeric, ParseError, ServerMsgKind, Source, Tags};
-use crate::string::{Cmd, InvalidByte, Line, Nick};
+use super::{Args, Numeric, ServerMsgKind, Tags};
+use crate::{
+    error::{InvalidByte, ParseError},
+    source::Source,
+    string::{Cmd, Line, Nick},
+};
 use std::io::Write;
 
 /// An IRC message sent by a server.

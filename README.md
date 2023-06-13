@@ -16,18 +16,28 @@ possible to the quirks of whatever server is being connected to.
 
 ## Optional Features
 
-`vinezombie` aims to have minimal mandatory dependencies.
+`vinezombie` aims to have feature gates and minimum mandatory dependencies
+to allow you to use only what you need.
 The default feature set is designed to be enough to write IRC bots,
 and includes the following:
 
-* `base64`: Adds base64 encoding/decoding. Required for SASL.
-* `client`: Adds utilities for building client-side IRC software.
+* `abstract`: Uses `ircmsg` and `state`.
+Adds abstractions of the raw IRC protocol.
+* `base64`: Required for SASL.
+Adds base64 encoding/decoding.
+* `client`: Uses `ircmsg`.
+Adds utilities for building client-side IRC software.
+* `ircmsg`: Adds representations of IRC messages.
+* `state`: Adds types for representing network state.
 
 The following optional features are also available:
 
-* `serde`: Adds implementations of `Serialize`+`Deserialize` for certain types.
-* `tokio`: Adds functions for Tokio-based I/O.
-* `whoami`: Enables functions for creating strings from local user info.
+* `serde`:
+Adds implementations of `Serialize`+`Deserialize` for certain types.
+* `tokio`:
+Adds functions for Tokio-based I/O.
+* `whoami`:
+Enables functions for creating strings from local user info.
 
 ## License
 
