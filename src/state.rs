@@ -1,4 +1,5 @@
 //! Representations of IRC network and connection state, including users and channels.
+#![allow(missing_docs)]
 
 use crate::string::{Arg, Key, Nick, Word};
 use std::borrow::Borrow;
@@ -65,4 +66,57 @@ impl Connection {
     pub fn new(nick: Nick<'static>, net: Option<Arc<RwLock<Network>>>) -> Self {
         Connection { nick, caps: BTreeSet::new(), net: net.unwrap_or_default() }
     }
+}
+
+/// Information on who set channel metadata.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct ChanMetaSetter {
+    user: Option<crate::ircmsg::Source<'static>>,
+    when: Option<std::time::SystemTime>,
+}
+
+/// User metadata.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum UserMeta {
+    UnknownMode(u8),
+    Invisible,
+    GetsWallops,
+    Bot,
+}
+
+/// User metadata keys.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum UserMetaKey {
+    UnknownMode(u8),
+    UserHost,
+    Realname,
+    Account,
+    Away,
+}
+
+/// Channel metadata.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum ChanMeta {
+    UnknownMode(u8),
+    InviteOnly,
+    Moderated,
+    Secret,
+    TopicLock,
+    NoExternalSend,
+    NoFormat,
+    Ban(Word<'static>),
+    Quiet(Word<'static>),
+    Invex(Word<'static>),
+    Exempt(Word<'static>),
+}
+
+/// Channel metadata keys.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum ChanMetaKey {
+    UnknownMode(u8),
+    Topic,
+    Key,
+    Forward,
+    Limit,
+    UserPrefix(Nick<'static>),
 }

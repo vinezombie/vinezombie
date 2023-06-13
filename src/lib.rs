@@ -17,3 +17,4 @@ pub mod ircmsg;
 pub mod known;
 pub mod state;
 pub mod string;
+pub mod update;
