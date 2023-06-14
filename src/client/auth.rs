@@ -46,6 +46,7 @@ pub trait Sasl: std::fmt::Debug {
 /// This is what is used when authentication occurs out-of-band,
 /// such as when using TLS client certificate authentication.
 #[derive(Clone, Copy, Default, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct External;
 
 struct ExternalLogic;
@@ -72,6 +73,7 @@ impl Sasl for External {
 /// It transmits the password in the clear;
 /// do not use this without some form of secure transport, like TLS.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Plain<S> {
     authzid: Arc<CString>,
     authcid: Arc<CString>,
@@ -137,6 +139,7 @@ impl<S: Secret + 'static> Sasl for Plain<S> {
 
 /// Enum of included SASL mechanisms and options for them.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
 #[non_exhaustive]
 pub enum AnySasl<S> {

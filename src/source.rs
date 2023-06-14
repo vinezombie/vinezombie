@@ -12,6 +12,7 @@ use std::io::Write;
 
 /// The sender of a message, also known as a message's "prefix".
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Source<'a> {
     /// The name of the source, usually a nickname but also sometimes a server name.
     pub nick: Nick<'a>,
@@ -21,6 +22,7 @@ pub struct Source<'a> {
 
 /// The `username@hostname` fragment of a [`Source`].
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UserHost<'a> {
     /// The hostname (or vhost) of the sender.
     pub host: Word<'a>,

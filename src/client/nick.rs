@@ -42,6 +42,7 @@ impl NickTransformer for () {
 
 /// Possible randomized suffixes that can be added to a nickname.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum NickSuffix {
     /// One ASCII letter, uppercase if `true`.
@@ -78,6 +79,7 @@ impl NickSuffix {
 /// [LCG](https://en.wikipedia.org/wiki/Linear_congruential_generator).
 /// It appends one value from each element in `suffixes`.
 #[derive(Clone, PartialEq, Eq, Hash, Default, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SuffixRandom {
     /// The seed to use for nick generation, or `None` for a pseudo-random one.
     pub seed: Option<u32>,

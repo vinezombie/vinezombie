@@ -7,6 +7,7 @@ use crate::string::Word;
 /// This subset of options is typically all that is trivially configurable
 /// when using WebSocket gateways and bouncers.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ServerAddr<'a> {
     // Can't use Arg here because of `::1`.
     /// The address to connect to.
@@ -26,6 +27,14 @@ impl<'a> PartialEq for ServerAddr<'a> {
 }
 
 impl<'a> Eq for ServerAddr<'a> {}
+
+impl<'a> std::hash::Hash for ServerAddr<'a> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(self.address.as_bytes());
+        state.write_u8(self.tls as u8);
+        state.write_u16(self.port_num());
+    }
+}
 
 impl<'a> ServerAddr<'a> {
     /// Returns a string representation of self.

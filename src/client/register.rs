@@ -12,6 +12,7 @@ use crate::{
 /// These options are limited to a subset of the possibilities that
 /// are known to be serializeable.
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Register<S> {
     /// The server password.
     pub pass: Option<Line<'static>>,
