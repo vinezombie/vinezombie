@@ -20,7 +20,7 @@ mod subtypes;
 mod tests;
 pub mod tf;
 
-pub use bytes::Bytes;
+pub use bytes::*;
 pub use subtypes::*;
 
 use std::borrow::Cow;

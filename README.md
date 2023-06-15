@@ -38,6 +38,8 @@ Adds implementations of `Serialize`+`Deserialize` for certain types.
 Adds functions for Tokio-based I/O.
 * `whoami`:
 Enables functions for creating strings from local user info.
+* `zeroize`:
+Zeroes-out certain byte buffers containing potentially-sensitive data.
 
 ## License
 

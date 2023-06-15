@@ -111,11 +111,25 @@ macro_rules! impl_subtype {
                 // Can't use `self.0` for non-const destructor reasons.
                 unsafe { std::mem::transmute(self) }
             }
+            /// Returns `true` if `self` is not borrowing its data.
+            pub const fn is_owning(&self) -> bool {
+                self.0.is_owning()
+            }
+            /// Returns `true` if `self` is a sensitive byte-string.
+            pub fn is_secret(&self) -> bool {
+                self.0.is_owning()
+            }
             /// Returns an owning version of this string.
             ///
             /// If this string already owns its data, this method only extends its lifetime.
             pub fn owning(self) -> $sname<'static> {
                 $sname(self.0.owning())
+            }
+            /// Returns a secret version of this string.
+            ///
+            /// See [`Bytes::secret`] for information on what this means.
+            pub fn secret(self) -> $sname<'a> {
+                $sname(self.0.secret())
             }
             /// Returns true if this byte string is empty.
             pub const fn is_empty(&self) -> bool {

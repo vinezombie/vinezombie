@@ -7,6 +7,10 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+/// Placeholder string for when some value cannot be displayed,
+/// usually due to either being a non-UTF-8 string or secret.
+pub const DISPLAY_PLACEHOLDER: &str = "<?>";
+
 /// A borrowing or shared-owning immutable byte string. Not to be confused with Bytes
 /// from the crate of the same name.
 #[derive(Default)]
@@ -40,6 +44,10 @@ impl<'a> Bytes<'a> {
     pub const fn is_owning(&self) -> bool {
         self.ownership.is_some()
     }
+    /// Returns `true` if `self` is a sensitive byte-string.
+    pub fn is_secret(&self) -> bool {
+        self.ownership.as_ref().is_some_and(|o| o.is_secret())
+    }
     /// Returns an owning version of this string.
     ///
     /// If this string already owns its data, this method only extends its lifetime.
@@ -48,10 +56,35 @@ impl<'a> Bytes<'a> {
             // Lifetime extension.
             unsafe { std::mem::transmute(self) }
         } else {
-            unsafe {
-                let (ownership, value) = OwnedBytes::from_vec(self.value.to_vec());
-                Bytes { value, ownership, utf8: self.utf8.load(Relaxed).into() }
-            }
+            self.owning_force()
+        }
+    }
+    /// Returns a secret version of this string.
+    /// Secret strings' contents are not printed in formatting strings,
+    /// whether using `Display` or `Debug`.
+    /// Clones of secret strings are also secret.
+    ///
+    /// If the `zeroize` feature is enabled, these strings' buffers are zeroed out
+    /// when the last reference to them is lost.
+    ///
+    /// For forward compatibility reasons, the value returned by this function
+    /// has a lifetime bound of `'a`. It may be cheaply converted to `'static`
+    /// using [`owning`][Bytes::owning]; secret strings are always owning.
+    pub fn secret(self) -> Bytes<'a> {
+        // Sneaky interior mutation.
+        if self.ownership.as_ref().is_some_and(|o| o.set_secret()) {
+            self
+        } else {
+            let retval = self.owning_force();
+            let _ = retval.ownership.as_ref().unwrap().set_secret();
+            retval
+        }
+    }
+    /// Returns an owning version of this string, unconditionally copying data.
+    fn owning_force(self) -> Bytes<'static> {
+        unsafe {
+            let (ownership, value) = OwnedBytes::from_vec(self.value.to_vec());
+            Bytes { value, ownership, utf8: self.utf8.load(Relaxed).into() }
         }
     }
     // TODO: Are the "borrowed" methods from IrcStr needed?
@@ -84,11 +117,25 @@ impl<'a> Bytes<'a> {
             }
         }
     }
-    /// Returns a clone of `self` as a UTF-8 string,
+    /// Returns a [`Cow`] `str` containing `self`'s value as a UTF-8 string
+    /// with any non-UTF-8 byte sequences replaced with the
+    /// [U+FFFD replacement character](std::char::REPLACEMENT_CHARACTER).
+    pub fn to_utf8_lossy(&self) -> Cow<'_, str> {
+        unsafe { self.utf8_cow() }
+    }
+    /// Returns `self` as a UTF-8 string,
     /// replacing any non-UTF-8 byte sequences with the the
     /// [U+FFFD replacement character](std::char::REPLACEMENT_CHARACTER).
-    pub fn to_utf8_lossy(&self) -> Self {
-        let update = match self.utf8.load(Relaxed) {
+    pub fn into_utf8_lossy(self) -> Self {
+        match unsafe { self.utf8_cow() } {
+            Cow::Borrowed(s) => {
+                Bytes { value: s.as_bytes(), ownership: self.ownership, utf8: 1i8.into() }
+            }
+            Cow::Owned(o) => o.into(),
+        }
+    }
+    unsafe fn utf8_cow(&self) -> Cow<'a, str> {
+        match self.utf8.load(Relaxed) {
             1 => Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(self.value) }),
             -1 => String::from_utf8_lossy(self.value),
             _ => {
@@ -97,12 +144,6 @@ impl<'a> Bytes<'a> {
                 self.utf8.store(utf8, Relaxed);
                 sl
             }
-        };
-        match update {
-            Cow::Borrowed(s) => {
-                Bytes { value: s.as_bytes(), ownership: self.ownership.clone(), utf8: 1i8.into() }
-            }
-            Cow::Owned(o) => o.into(),
         }
     }
     fn utf8_for_policy(&self, utf8: Utf8Policy) -> i8 {
@@ -327,19 +368,33 @@ impl std::hash::Hash for Bytes<'_> {
 
 impl std::fmt::Display for Bytes<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&String::from_utf8_lossy(self.as_ref()))
+        if self.is_secret() {
+            f.write_str(DISPLAY_PLACEHOLDER)
+        } else if let Some(s) = self.to_utf8() {
+            f.write_str(s)
+        } else {
+            f.write_str(DISPLAY_PLACEHOLDER)
+        }
     }
 }
 
 impl std::fmt::Debug for Bytes<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let owning = self.ownership.is_some();
+        let (owning, secret) = if let Some(ref ownership) = self.ownership {
+            (true, ownership.is_secret())
+        } else {
+            (false, false)
+        };
         let mut f = f.debug_struct("Bytes");
         let f = f.field("owning", &owning);
-        if let Some(v) = self.to_utf8() {
-            f.field("value", &v)
+        if !secret {
+            if let Some(v) = self.to_utf8() {
+                f.field("value", &v)
+            } else {
+                f.field("value", &self.value)
+            }
         } else {
-            f.field("value", &self.value)
+            f.field("value", &DISPLAY_PLACEHOLDER)
         }
         .finish()
     }
@@ -380,9 +435,24 @@ impl OwnedBytes {
         std::mem::forget(value);
         // into_raw returns a non-null pointer.
         // https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw
-        let rc = NonNull::new_unchecked(Box::into_raw(Box::new(AtomicUsize::new(1))));
+        let rc = NonNull::new_unchecked(Box::into_raw(Box::new(AtomicUsize::new(2))));
         let retval = OwnedBytes { rc, data, size };
         (Some(retval), std::slice::from_raw_parts(data.as_ptr().cast_const(), len))
+    }
+    /// Marks this byte string as sensitive if and only if `self` has exclusive ownership.
+    #[must_use]
+    pub fn set_secret(&self) -> bool {
+        unsafe {
+            let rc = self.rc.as_ref();
+            rc.compare_exchange(2, 3, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+        }
+    }
+    #[must_use]
+    pub fn is_secret(&self) -> bool {
+        unsafe {
+            let rc = self.rc.as_ref();
+            rc.load(Ordering::Relaxed) & 1 != 0
+        }
     }
     /// Attempts to re-use the buffer for constructing a `Vec` from `slice`.
     ///
@@ -392,7 +462,7 @@ impl OwnedBytes {
         let slice_start = slice.as_ptr();
         let data_start = self.data.as_ptr();
         let rc = self.rc.as_ref();
-        if slice_start == data_start && rc.fetch_sub(1, Ordering::Release) == 1 {
+        if slice_start == data_start && rc.fetch_sub(2, Ordering::Release) < 4 {
             Vec::from_raw_parts(data_start, slice.len(), self.size)
         } else {
             slice.to_vec()
@@ -403,7 +473,7 @@ impl OwnedBytes {
 impl Clone for OwnedBytes {
     fn clone(&self) -> Self {
         let rc = unsafe { self.rc.as_ref() };
-        rc.fetch_add(1, Ordering::Relaxed);
+        rc.fetch_add(2, Ordering::Relaxed);
         OwnedBytes { rc: self.rc, data: self.data, size: self.size }
     }
 }
@@ -412,8 +482,15 @@ impl Drop for OwnedBytes {
     fn drop(&mut self) {
         unsafe {
             let rc = self.rc.as_ref();
-            if rc.fetch_sub(1, Ordering::Release) == 1 {
-                std::mem::drop(Vec::from_raw_parts(self.data.as_ptr(), 0, self.size));
+            let count = rc.fetch_sub(2, Ordering::Release);
+            if count < 4 {
+                let ptr = self.data.as_ptr();
+                #[cfg(feature = "zeroize")]
+                if count & 1 != 0 {
+                    use zeroize::Zeroize;
+                    std::slice::from_raw_parts_mut(ptr, self.size).zeroize();
+                }
+                std::mem::drop(Vec::from_raw_parts(ptr, 0, self.size));
                 std::mem::drop(Box::from_raw(self.rc.as_mut()));
             }
         }

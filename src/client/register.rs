@@ -1,6 +1,6 @@
 use super::nick::{NickTransformer, SuffixRandom};
 use crate::{
-    client::auth::AnySasl,
+    client::auth::{AnySasl, Secret},
     ircmsg::ClientMsg,
     string::{Line, Nick, User},
 };
@@ -11,7 +11,7 @@ use crate::{
 /// such as USER and NICK.
 #[derive(Clone, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Register<S, N> {
+pub struct Register<S: Secret, N> {
     /// The server password.
     pub pass: Option<Line<'static>>,
     /// The list of nicknames to use.
@@ -26,13 +26,13 @@ pub struct Register<S, N> {
     pub sasl: Vec<AnySasl<S>>,
 }
 
-impl<S, N> Register<S, N> {
+impl<S: Secret, N> Register<S, N> {
     /// Adds a SASL authenticator.
     pub fn add_sasl(&mut self, sasl: impl Into<AnySasl<S>>) {
         self.sasl.push(sasl.into());
     }
 }
-impl<S, N: NickTransformer> Register<S, N> {
+impl<S: Secret, N: NickTransformer> Register<S, N> {
     /// Generates the initial burst of messages for connection registration,
     /// as well as an [`Iterator`] that returns fallback nicknames.
     pub fn register_msgs<'a, N2: NickTransformer>(
@@ -126,7 +126,7 @@ pub struct FallbackNicks<'a, N1: NickTransformer, N2: NickTransformer> {
 
 impl<'a, N1: NickTransformer, N2: NickTransformer> FallbackNicks<'a, N1, N2> {
     /// Generate the first nickname and a `FallbackNicks` for more.
-    pub fn new<S>(
+    pub fn new<S: Secret>(
         reg: &'a Register<S, N1>,
         reg_def: &'a impl RegisterDefaults<NickGen = N2>,
     ) -> (Nick<'static>, Self) {

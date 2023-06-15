@@ -6,24 +6,41 @@ type BoxedErr = Box<dyn std::error::Error + Send + Sync>;
 
 /// Trait for types that can store sensitive byte strings.
 pub trait Secret {
-    /// Appends the secret's bytes to the provided string.
+    /// Appends the secret's bytes to the provided buffer.
+    fn load(&self, data: &mut Vec<u8>) -> Result<(), BoxedErr>;
+    /// Sets this secret's value.
+    fn store(&mut self, data: Vec<u8>) -> Result<(), BoxedErr>;
+    /// Irreversibly destroys any sensitive data owned by self.
     ///
-    /// This method may fail if retrieving the secret fails.
-    fn append_to(&self, data: &mut Vec<u8>) -> Result<(), BoxedErr>;
-    /// Returns a hint for how many bytes should be preallocated for this secret.
-    fn len_hint(&self) -> usize {
-        0
-    }
+    /// The actions performed by this method should ideally be performed by [`Drop`] impl,
+    /// however this method
+    fn destroy(&mut self) {}
 }
 
-/// Zero-added-security implementation of `Secret`.
+/// Zero-added-security implementation of [`Secret`].
 impl Secret for Vec<u8> {
-    fn append_to(&self, data: &mut Vec<u8>) -> Result<(), BoxedErr> {
-        data.extend(self.as_slice());
+    fn load(&self, data: &mut Vec<u8>) -> Result<(), BoxedErr> {
+        let lens = data.len() + self.len();
+        if data.capacity() < lens {
+            let mut vec = Vec::with_capacity(lens);
+            vec.extend_from_slice(data.as_slice());
+            #[cfg(feature = "zeroize")]
+            zeroize::Zeroize::zeroize(data);
+            *data = vec;
+        }
+        data.extend_from_slice(self.as_slice());
         Ok(())
     }
-    fn len_hint(&self) -> usize {
-        self.len()
+
+    fn store(&mut self, data: Vec<u8>) -> Result<(), BoxedErr> {
+        self.destroy();
+        *self = data;
+        Ok(())
+    }
+
+    fn destroy(&mut self) {
+        #[cfg(feature = "zeroize")]
+        zeroize::Zeroize::zeroize(self);
     }
 }
 
@@ -45,7 +62,7 @@ pub trait Sasl: std::fmt::Debug {
 ///
 /// This is what is used when authentication occurs out-of-band,
 /// such as when using TLS client certificate authentication.
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct External;
 
@@ -72,12 +89,20 @@ impl Sasl for External {
 /// This is what is used for typical username/password authentication.
 /// It transmits the password in the clear;
 /// do not use this without some form of secure transport, like TLS.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Plain<S> {
+pub struct Plain<S: Secret> {
     authzid: Arc<CString>,
     authcid: Arc<CString>,
     passwd: Arc<S>,
+}
+
+impl<S: Secret> Drop for Plain<S> {
+    fn drop(&mut self) {
+        if let Some(passwd) = Arc::get_mut(&mut self.passwd) {
+            passwd.destroy();
+        }
+    }
 }
 
 impl<S: Secret> Plain<S> {
@@ -103,17 +128,24 @@ impl<S: Secret> Plain<S> {
     }
 }
 
-impl<S> std::fmt::Debug for Plain<S> {
+impl<S: Secret> std::fmt::Debug for Plain<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Plain")
             .field("authzid", &self.authzid)
             .field("authcid", &self.authcid)
-            .field("passwd", &format_args!("<?>"))
+            .field("passwd", &crate::string::DISPLAY_PLACEHOLDER)
             .finish()
     }
 }
 
 struct PlainLogic(Vec<u8>);
+
+#[cfg(feature = "zeroize")]
+impl Drop for PlainLogic {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.0);
+    }
+}
 
 impl SaslLogic for PlainLogic {
     fn reply<'a>(&'a mut self, _: &[u8]) -> Result<&'a [u8], BoxedErr> {
@@ -129,25 +161,25 @@ impl<S: Secret + 'static> Sasl for Plain<S> {
     fn logic(&self) -> Result<Box<dyn SaslLogic>, BoxedErr> {
         let authzid = self.authzid.as_bytes_with_nul();
         let authcid = self.authcid.as_bytes_with_nul();
-        let mut data = Vec::with_capacity(self.passwd.len_hint() + authcid.len() + authzid.len());
+        let mut data = Vec::with_capacity(16 + authcid.len() + authzid.len());
         data.extend(authzid);
         data.extend(authcid);
-        self.passwd.append_to(&mut data)?;
+        self.passwd.load(&mut data)?;
         Ok(Box::new(PlainLogic(data)))
     }
 }
 
 /// Enum of included SASL mechanisms and options for them.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
 #[non_exhaustive]
-pub enum AnySasl<S> {
+pub enum AnySasl<S: Secret> {
     External(External),
     Plain(Plain<S>),
 }
 
-impl<S> std::fmt::Debug for AnySasl<S> {
+impl<S: Secret> std::fmt::Debug for AnySasl<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AnySasl::External(s) => s.fmt(f),
@@ -172,13 +204,13 @@ impl<S: Secret + 'static> Sasl for AnySasl<S> {
     }
 }
 
-impl<S> From<External> for AnySasl<S> {
+impl<S: Secret> From<External> for AnySasl<S> {
     fn from(value: External) -> Self {
         AnySasl::External(value)
     }
 }
 
-impl<S> From<Plain<S>> for AnySasl<S> {
+impl<S: Secret> From<Plain<S>> for AnySasl<S> {
     fn from(value: Plain<S>) -> Self {
         AnySasl::Plain(value)
     }
