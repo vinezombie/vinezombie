@@ -74,8 +74,8 @@ impl<'a> Source<'a> {
     ///
     /// # Errors
     /// This function can return only either
-    /// [`InvalidNick`][super::ParseError::InvalidNick] or
-    /// [`InvalidUser`][super::ParseError::InvalidUser].
+    /// [`InvalidNick`][crate::error::ParseError::InvalidNick] or
+    /// [`InvalidUser`][crate::error::ParseError::InvalidUser].
     pub fn parse(word: impl Into<Word<'a>>) -> Result<Self, ParseError> {
         let mut word = word.into();
         let nick = word.transform(Split(crate::string::is_invalid_for_nick::<false>));

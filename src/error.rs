@@ -38,7 +38,8 @@ impl From<ParseError> for std::io::Error {
         std::io::Error::new(std::io::ErrorKind::InvalidData, value)
     }
 }
-/// Error indicating that the invariant of a [`Bytes`] newtype has been violated.
+/// Error indicating that the invariant of a [`Bytes`][crate::string::Bytes] newtype
+/// has been violated.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct InvalidByte(u8, Option<NonZeroUsize>);
 
