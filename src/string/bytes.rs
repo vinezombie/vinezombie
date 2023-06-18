@@ -56,10 +56,11 @@ impl<'a> Bytes<'a> {
             // Lifetime extension.
             unsafe { std::mem::transmute(self) }
         } else {
-            self.owning_force()
+            self.owning_force(false)
         }
     }
     /// Returns a secret version of this string.
+    ///
     /// Secret strings' contents are not printed in formatting strings,
     /// whether using `Display` or `Debug`.
     /// Clones of secret strings are also secret.
@@ -70,20 +71,21 @@ impl<'a> Bytes<'a> {
     /// For forward compatibility reasons, the value returned by this function
     /// has a lifetime bound of `'a`. It may be cheaply converted to `'static`
     /// using [`owning`][Bytes::owning]; secret strings are always owning.
+    ///
+    /// Currently, empty strings cannot be secret. This is a limitation that will be fixed.
     pub fn secret(self) -> Bytes<'a> {
         // Sneaky interior mutation.
         if self.ownership.as_ref().is_some_and(|o| o.set_secret()) {
             self
         } else {
-            let retval = self.owning_force();
-            let _ = retval.ownership.as_ref().unwrap().set_secret();
+            let retval = self.owning_force(true);
             retval
         }
     }
     /// Returns an owning version of this string, unconditionally copying data.
-    fn owning_force(self) -> Bytes<'static> {
+    fn owning_force(self, secret: bool) -> Bytes<'static> {
         unsafe {
-            let (ownership, value) = OwnedBytes::from_vec(self.value.to_vec());
+            let (ownership, value) = OwnedBytes::from_vec(self.value.to_vec(), secret);
             Bytes { value, ownership, utf8: self.utf8.load(Relaxed).into() }
         }
     }
@@ -132,6 +134,36 @@ impl<'a> Bytes<'a> {
                 Bytes { value: s.as_bytes(), ownership: self.ownership, utf8: 1i8.into() }
             }
             Cow::Owned(o) => o.into(),
+        }
+    }
+    #[cfg(feature = "base64")]
+    fn to_base64_impl(&self) -> Bytes<'static> {
+        use base64::engine::{general_purpose::STANDARD as ENGINE, Engine};
+        let encoded = ENGINE.encode(self.value);
+        unsafe {
+            let (ownership, value) = OwnedBytes::from_vec(encoded.into_bytes(), self.is_secret());
+            Bytes { value, ownership, utf8: 1i8.into() }
+        }
+    }
+    /// Creates a base64-encoded version of this string.
+    ///
+    /// The returned string is always owning if it's non-empty.
+    /// If `self` is secret, the returned string will also be secret.
+    #[cfg(feature = "base64")]
+    pub fn to_base64(&self) -> super::Word<'static> {
+        unsafe { super::Word::from_unchecked(self.to_base64_impl()) }
+    }
+    /// Creates a base64-encoded version of this string,
+    /// using the literal `"+"` if `self` is empty.
+    ///
+    /// The returned string is always owning if `self` is non-empty.
+    /// If `self` is secret, the returned string will also be secret.
+    #[cfg(feature = "base64")]
+    pub fn to_base64_plus(&self) -> super::Arg<'static> {
+        if self.is_empty() {
+            crate::known::PLUS
+        } else {
+            unsafe { super::Arg::from_unchecked(self.to_base64_impl()) }
         }
     }
     unsafe fn utf8_cow(&self) -> Cow<'a, str> {
@@ -202,7 +234,7 @@ impl<'a> Bytes<'a> {
             Cow::Owned(o) => {
                 let utf8 = self.utf8_for_policy(tfed.utf8);
                 unsafe {
-                    let (ownership, value) = OwnedBytes::from_vec(o);
+                    let (ownership, value) = OwnedBytes::from_vec(o, self.is_secret());
                     *self = Bytes { value, ownership, utf8: utf8.into() };
                 }
             }
@@ -246,7 +278,7 @@ impl std::borrow::Borrow<[u8]> for Bytes<'_> {
 impl From<Vec<u8>> for Bytes<'static> {
     fn from(value: Vec<u8>) -> Self {
         unsafe {
-            let (ownership, value) = OwnedBytes::from_vec(value);
+            let (ownership, value) = OwnedBytes::from_vec(value, false);
             Bytes { value, ownership, utf8: 0i8.into() }
         }
     }
@@ -255,7 +287,7 @@ impl From<Vec<u8>> for Bytes<'static> {
 impl From<String> for Bytes<'static> {
     fn from(value: String) -> Self {
         unsafe {
-            let (ownership, value) = OwnedBytes::from_vec(value.into_bytes());
+            let (ownership, value) = OwnedBytes::from_vec(value.into_bytes(), false);
             Bytes { value, ownership, utf8: 1i8.into() }
         }
     }
@@ -421,7 +453,7 @@ impl OwnedBytes {
     ///
     /// # Safety
     /// Unbound lifetimes are the devil.
-    pub unsafe fn from_vec<'a>(mut value: Vec<u8>) -> (Option<Self>, &'a [u8]) {
+    pub unsafe fn from_vec<'a>(mut value: Vec<u8>, secret: bool) -> (Option<Self>, &'a [u8]) {
         if value.is_empty() {
             return (None, Default::default());
         }
@@ -433,9 +465,10 @@ impl OwnedBytes {
         let len = value.len();
         let size = value.capacity();
         std::mem::forget(value);
+        let init_rc = if secret { 3usize } else { 2usize };
         // into_raw returns a non-null pointer.
         // https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw
-        let rc = NonNull::new_unchecked(Box::into_raw(Box::new(AtomicUsize::new(2))));
+        let rc = NonNull::new_unchecked(Box::into_raw(Box::new(AtomicUsize::new(init_rc))));
         let retval = OwnedBytes { rc, data, size };
         (Some(retval), std::slice::from_raw_parts(data.as_ptr().cast_const(), len))
     }

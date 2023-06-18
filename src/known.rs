@@ -17,3 +17,9 @@ use crate::string::{Arg, Bytes};
 /// so this constant is provided for convenience.
 #[allow(clippy::declare_interior_mutable_const)]
 pub const STAR: Arg<'static> = unsafe { Arg::from_unchecked(Bytes::from_str("*")) };
+
+/// The literal `"+"`.
+///
+/// Used as a placeholder when a base64-encoded field is empty.
+#[allow(clippy::declare_interior_mutable_const)]
+pub const PLUS: Arg<'static> = unsafe { Arg::from_unchecked(Bytes::from_str("+")) };

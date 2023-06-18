@@ -12,8 +12,8 @@
 
 // TODO: SVG link.
 
-//#[cfg(feature = "base64")]
-//pub mod base64;
+#[cfg(feature = "base64")]
+pub mod base64;
 mod bytes;
 mod subtypes;
 #[cfg(test)]

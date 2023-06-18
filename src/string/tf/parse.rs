@@ -153,3 +153,33 @@ unsafe impl<F: FnMut(&u8) -> bool> Transform for TrimStart<F> {
 }
 unsafe impl<F: FnMut(&u8) -> bool> LineSafe for TrimStart<F> {}
 unsafe impl<F: FnMut(&u8) -> bool> WordSafe for TrimStart<F> {}
+
+/// Transform that takes a chunk from the start that is exactly some number of bytes long.
+#[derive(Clone, Copy, Debug)]
+pub struct SplitAt(pub usize);
+
+unsafe impl Transform for SplitAt {
+    type Value<'a> = Option<Bytes<'a>>;
+
+    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
+        unsafe {
+            let slice = bytes.as_bytes_unsafe();
+            if self.0 > slice.len() {
+                Transformation {
+                    value: None,
+                    transformed: slice.into(),
+                    utf8: Utf8Policy::PreserveStrict,
+                }
+            } else {
+                let (chunk, rest) = slice.split_at(self.0);
+                Transformation {
+                    value: Some(bytes.using_value(chunk, Utf8Policy::Recheck)),
+                    transformed: rest.into(),
+                    utf8: Utf8Policy::Recheck,
+                }
+            }
+        }
+    }
+}
+unsafe impl LineSafe for SplitAt {}
+unsafe impl WordSafe for SplitAt {}
