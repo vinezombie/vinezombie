@@ -36,7 +36,9 @@ pub trait Secret {
     /// Irreversibly destroys any sensitive data owned by self.
     ///
     /// The actions performed by this method should ideally be performed by [`Drop`] impl,
-    /// however this method
+    /// however this method provides a means of doing so when
+    /// either the object will not be dropped outright, or when `Secret`
+    /// is being implemented on a foreign type whose `Drop` impl isn't secure.
     fn destroy(&mut self) {}
 }
 
@@ -82,7 +84,7 @@ pub trait Sasl: std::fmt::Debug {
 }
 
 /// Enum of included SASL mechanisms and options for them.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
 #[non_exhaustive]

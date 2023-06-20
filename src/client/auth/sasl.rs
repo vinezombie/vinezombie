@@ -2,7 +2,7 @@
 
 use super::{BoxedErr, Sasl, SaslLogic, Secret};
 use crate::string::Arg;
-use std::{ffi::CString, sync::Arc};
+use std::ffi::CString;
 
 /// The [EXTERNAL SASL mechanism](https://www.rfc-editor.org/rfc/rfc4422#appendix-A).
 ///
@@ -35,19 +35,17 @@ impl Sasl for External {
 /// This is what is used for typical username/password authentication.
 /// It transmits the password in the clear;
 /// do not use this without some form of secure transport, like TLS.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Plain<S: Secret> {
-    authzid: Arc<CString>,
-    authcid: Arc<CString>,
-    passwd: Arc<S>,
+    authzid: CString,
+    authcid: CString,
+    passwd: S,
 }
 
 impl<S: Secret> Drop for Plain<S> {
     fn drop(&mut self) {
-        if let Some(passwd) = Arc::get_mut(&mut self.passwd) {
-            passwd.destroy();
-        }
+        self.passwd.destroy();
     }
 }
 
@@ -58,11 +56,7 @@ impl<S: Secret> Plain<S> {
     /// `passwd` should be UTF-8 encoded and not contain a null character,
     /// but this is not enforced.
     pub fn new(account: CString, passwd: S) -> Self {
-        Plain {
-            authzid: Arc::new(CString::new("").unwrap()),
-            authcid: Arc::new(account),
-            passwd: Arc::new(passwd),
-        }
+        Plain { authzid: CString::new("").unwrap(), authcid: account, passwd }
     }
     /// Creates a `Plain` that logs into the account specified by authzid
     /// using the credentials for the account specified by authcid.
@@ -70,7 +64,7 @@ impl<S: Secret> Plain<S> {
     /// `passwd` should be UTF-8 encoded and not contain a null character,
     /// but this is not enforced.
     pub fn new_as(authzid: CString, authcid: CString, passwd: S) -> Self {
-        Plain { authzid: Arc::new(authzid), authcid: Arc::new(authcid), passwd: Arc::new(passwd) }
+        Plain { authzid, authcid, passwd }
     }
 }
 

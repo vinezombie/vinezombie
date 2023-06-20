@@ -4,10 +4,9 @@ pub mod auth;
 pub mod conn;
 pub mod nick;
 mod queue;
-mod register;
+pub mod register;
 
 pub use queue::*;
-pub use register::*;
 
 use crate::ircmsg::{ClientMsg, ServerMsg};
 use crate::known::cmd::{PING, PONG};
