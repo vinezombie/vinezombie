@@ -22,14 +22,31 @@ pub enum HandlerError {
     Fail(Line<'static>),
     /// The server's implementation of a SASL mechanism is broken.
     Broken(BoxedErr),
+    /// An I/O error occurred.
+    Io(std::io::Error),
+}
+
+impl From<HandlerError> for std::io::Error {
+    fn from(value: HandlerError) -> Self {
+        use std::io::{Error, ErrorKind};
+        match value {
+            HandlerError::WrongMechanism(_) => {
+                Error::new(ErrorKind::Unsupported, value.to_string())
+            }
+            HandlerError::Fail(_) => Error::new(ErrorKind::PermissionDenied, value.to_string()),
+            HandlerError::Broken(e) => Error::new(ErrorKind::InvalidData, e),
+            HandlerError::Io(e) => e,
+        }
+    }
 }
 
 impl std::fmt::Display for HandlerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HandlerError::WrongMechanism(_) => write!(f, "wrong mechanism"),
-            HandlerError::Fail(reason) => write!(f, "auth failed: {reason}"),
+            HandlerError::WrongMechanism(_) => write!(f, "unsupported mechanism"),
+            HandlerError::Fail(reason) => reason.fmt(f),
             HandlerError::Broken(_) => write!(f, "broken mechanism"),
+            HandlerError::Io(_) => write!(f, "io failure"),
         }
     }
 }
@@ -38,19 +55,10 @@ impl std::error::Error for HandlerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             HandlerError::Broken(brk) => Some(&**brk),
+            HandlerError::Io(io) => Some(io),
             _ => None,
         }
     }
-}
-
-/// An authentication step.
-pub enum HandlerAction<T> {
-    /// Authentication was successful.
-    Authed(Line<'static>),
-    /// The following client messages need to be sent.
-    Send(T),
-    /// The authenticator needs more messages.
-    Wait,
 }
 
 impl Handler {
@@ -62,14 +70,13 @@ impl Handler {
         };
         Ok((super::msg_auth(sasl), auth))
     }
-    /// Handles a server message. Returns `Ok(true)` if authenticated,
-    /// and `Ok(false)` if more messages are required.
-    ///
-    /// After calling this function,
+    /// Handles a server message sent during SASL authentication.
+    /// Returns `Ok(true)` if authenticated, or `Ok(false)` if more messages are required.
     pub fn handle(
         &mut self,
         msg: &crate::ircmsg::ServerMsg<'_>,
-    ) -> Result<HandlerAction<impl Iterator<Item = ClientMsg<'static>>>, HandlerError> {
+        mut send_fn: impl FnMut(ClientMsg<'static>) -> Result<(), std::io::Error>,
+    ) -> Result<bool, HandlerError> {
         use crate::string::base64::ChunkEncoder;
         match msg.kind.as_str() {
             "AUTHENTICATE" => {
@@ -81,21 +88,16 @@ impl Handler {
                 if let Some(res) = res {
                     let chal = res.map_err(|e| HandlerError::Broken(e.into()))?;
                     let reply = self.logic.reply(&chal).map_err(HandlerError::Broken)?;
-                    let iter = ChunkEncoder::new(reply, 400, true).map(|chunk| {
+                    for chunk in ChunkEncoder::new(reply, 400, true) {
                         let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
                         msg.args.add_word(chunk);
-                        msg
-                    });
-                    Ok(HandlerAction::Send(iter))
-                } else {
-                    Ok(HandlerAction::Wait)
+                        send_fn(msg).map_err(HandlerError::Io)?;
+                    }
                 }
+                Ok(false)
             }
             // Ignore 901.
-            "900" | "903" | "907" => {
-                let reason = msg.args.split_last().1.cloned().unwrap_or_default();
-                Ok(HandlerAction::Authed(reason.owning()))
-            }
+            "900" | "903" | "907" => Ok(true),
             "902" | "904" | "905" | "906" => {
                 let reason = msg.args.split_last().1.cloned().unwrap_or_default();
                 Err(HandlerError::Fail(reason.owning()))
@@ -105,7 +107,7 @@ impl Handler {
                 let set = msg.args.args().iter().map(|a| a.clone().owning()).collect();
                 Err(HandlerError::WrongMechanism(set))
             }
-            _ => Ok(HandlerAction::Wait),
+            _ => Ok(false),
         }
     }
 }
