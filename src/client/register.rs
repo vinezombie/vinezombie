@@ -54,15 +54,15 @@ impl<S, N: NickTransformer> Register<S, N> {
         // USER message.
         let mut msg_u = ClientMsg::new_cmd(USER);
         let args = &mut msg_u.args;
-        args.add_word(self.username.clone().unwrap_or_else(|| defaults.username()));
+        args.add(self.username.clone().unwrap_or_else(|| defaults.username()));
         // Some IRCds still rely on 8 to set +i by default.
         args.add_literal("8");
         args.add_literal("*");
-        args.add(self.realname.clone().unwrap_or_else(|| defaults.realname()));
+        args.add_last(self.realname.clone().unwrap_or_else(|| defaults.realname()));
         // NICK message.
         let mut msg_n = ClientMsg::new_cmd(NICK);
         let (nick, fallbacks) = FallbackNicks::new(self, defaults);
-        msg_n.args.add_word(nick);
+        msg_n.args.add(nick);
         (vec![msg_c, msg_u, msg_n], fallbacks)
     }
 }

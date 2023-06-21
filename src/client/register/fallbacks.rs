@@ -1,9 +1,9 @@
-use std::{sync::Arc, collections::VecDeque};
 use super::Register;
 use crate::{
     client::nick::{NickTransformer, SuffixRandom},
     string::{Line, Nick, User},
 };
+use std::{collections::VecDeque, sync::Arc};
 
 /// Source of fallback nicks from a [`Register`] and [`Defaults`].
 #[derive(Clone, Debug)]

@@ -90,7 +90,7 @@ impl Handler {
                     let reply = self.logic.reply(&chal).map_err(HandlerError::Broken)?;
                     for chunk in ChunkEncoder::new(reply, 400, true) {
                         let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
-                        msg.args.add_word(chunk);
+                        msg.args.add(chunk);
                         send_fn(msg).map_err(HandlerError::Io)?;
                     }
                 }

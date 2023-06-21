@@ -16,14 +16,14 @@ type BoxedErr = Box<dyn std::error::Error + Send + Sync + 'static>;
 /// Returns the initial [`ClientMsg`] to begin authentication.
 pub fn msg_auth(sasl: &(impl Sasl + ?Sized)) -> ClientMsg<'static> {
     let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
-    msg.args.add_word(sasl.name());
+    msg.args.add(sasl.name());
     msg
 }
 
 /// Returns the [`ClientMsg`] for aborting authentication.
 pub fn msg_abort() -> ClientMsg<'static> {
     let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
-    msg.args.add_word(crate::known::STAR);
+    msg.args.add(crate::known::STAR);
     msg
 }
 

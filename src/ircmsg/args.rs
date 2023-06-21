@@ -57,11 +57,11 @@ impl<'a> Args<'a> {
         self.1 = false;
         self.0.pop()
     }
-    /// Adds a word to the argument array.
+    /// Adds an [`Arg`] to the argument array.
     ///
-    /// The word will be added to the end of the argument array unless the last argument is long,
-    /// in which case it will be added just before it.
-    pub fn add_word<'b: 'a>(&mut self, w: impl Into<Arg<'b>>) {
+    /// The argument will be added to the end of the argument array
+    /// unless the last argument is long in which case it will be added just before it.
+    pub fn add<'b: 'a>(&mut self, w: impl Into<Arg<'b>>) {
         let mut s: Line = w.into().into();
         if self.1 {
             std::mem::swap(&mut s, self.0.last_mut().unwrap());
@@ -82,7 +82,7 @@ impl<'a> Args<'a> {
     /// Adds a string to the end of this argument array.
     ///
     /// If the last string in the argument array is long, it will be replaced.
-    pub fn add<'b: 'a>(&mut self, s: impl Into<Line<'b>>) {
+    pub fn add_last<'b: 'a>(&mut self, s: impl Into<Line<'b>>) {
         let s = s.into();
         let long = Arg::find_invalid(&s).is_some();
         if self.1 {
@@ -98,7 +98,7 @@ impl<'a> Args<'a> {
     /// Panics if the provided string literal is not a valid [`Line`],
     /// that is, if it contains an `'\r'`, `'\n'`, or `'\0'`.
     pub fn add_literal(&mut self, s: &'static str) {
-        self.add(Line::from_str(s));
+        self.add_last(Line::from_str(s));
     }
     /// Returns true if there are no arguments.
     pub fn is_empty(&self) -> bool {
