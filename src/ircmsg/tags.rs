@@ -1,7 +1,7 @@
 //! Stuctures and utilities for IRCv3 message tags.
 
 use crate::string::{
-    tf::{escape, unescape},
+    tf::{escape, unescape, SplitKey},
     Bytes, Key,
 };
 use std::collections::BTreeMap;
@@ -91,19 +91,17 @@ impl<'a> Tags<'a> {
         let mut tags = Tags::new();
         // TODO: Tag bytes available.
         while !word.is_empty() {
-            let key = word.transform(Split(crate::string::is_invalid_for_key::<false>));
-            let value = if matches!(word.transform(SplitFirst), Some(b'=')) {
+            let (Ok(key), delim) = word.transform(SplitKey) else {
+                continue;
+            };
+            let value = if matches!(delim, Some(b'=')) {
                 let value = word.transform(Split(|b: &u8| *b == b';'));
                 word.transform(SplitFirst);
-                value
+                unescape(value)
             } else {
                 Bytes::empty()
             };
-            if key.is_empty() {
-                continue;
-            }
-            let key = unsafe { Key::from_unchecked(key) };
-            tags.map.insert(key, unescape(value));
+            tags.map.insert(key, value);
         }
         tags
     }

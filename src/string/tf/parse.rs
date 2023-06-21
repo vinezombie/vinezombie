@@ -1,8 +1,12 @@
-use crate::string::{
-    subtypes::{is_invalid_for_line, is_invalid_for_word},
-    Bytes, Line, LineSafe, Word, WordSafe,
-};
 use crate::string::{Transform, Transformation, Utf8Policy};
+use crate::{
+    error::InvalidByte,
+    string::{
+        is_invalid_for_key,
+        subtypes::{is_invalid_for_line, is_invalid_for_word},
+        Bytes, Key, Line, LineSafe, Word, WordSafe,
+    },
+};
 
 // TODO: Dedup SplitLine and SplitWord.
 // In theory we can make this generic over any newtype of Bytes that only
@@ -73,6 +77,53 @@ unsafe impl Transform for SplitWord {
 }
 unsafe impl LineSafe for SplitWord {}
 unsafe impl WordSafe for SplitWord {}
+
+/// Parser that splits [`Key`]s from the front of a byte string.
+///
+/// This parser extracts the longest continuous range of `Key`-valid bytes
+/// from the front of the byte string. If a `Key`-invalid byte is found,
+/// extracts and returns it seperately.
+/// It attempts to convert the range of `Key`-valid bytes into a `Key`;
+/// this can fail if the range is not `Arg`-valid (i.e. empty or beginning with `':'`).
+#[derive(Clone, Copy, Debug)]
+pub struct SplitKey;
+
+unsafe impl Transform for SplitKey {
+    type Value<'a> = (Result<Key<'a>, InvalidByte>, Option<u8>);
+
+    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
+        unsafe {
+            let slice = bytes.as_bytes_unsafe();
+            let first_invalid_idx = slice.iter().position(is_invalid_for_key::<true>);
+            let (key, rest, inval) = if let Some(first_invalid_idx) = first_invalid_idx {
+                let (key, rest) = slice.split_at(first_invalid_idx);
+                if let Some((first, rest)) = rest.split_first() {
+                    (key, rest, Some(*first))
+                } else {
+                    (key, Default::default(), None)
+                }
+            } else {
+                (slice, Default::default(), None)
+            };
+            let key = if let Some(inval) = Key::find_invalid(key) {
+                Err(inval)
+            } else {
+                // Split shouldn't happen in the middle of a UTF-8 character.
+                let bytes = bytes.using_value(key, Utf8Policy::Preserve);
+                Ok(Key::from_unchecked(bytes))
+            };
+            // An additional byte gets munched, but none of the Key-invalid bytes
+            // are part of multi-byte UTF-8 characters.
+            Transformation {
+                value: (key, inval),
+                transformed: rest.into(),
+                utf8: Utf8Policy::Preserve,
+            }
+        }
+    }
+}
+unsafe impl LineSafe for SplitKey {}
+unsafe impl WordSafe for SplitKey {}
 
 /// Parser that extracts one byte from the front of a byte string.
 #[derive(Clone, Copy, Debug)]
