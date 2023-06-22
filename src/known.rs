@@ -9,14 +9,15 @@
 /// Commands.
 pub mod cmd;
 
-use crate::string::{Arg, Bytes};
+use crate::string::{Arg, Bytes, Nick};
 
 /// The literal `"*"`.
 ///
 /// This shows up pretty commonly in argument lists,
 /// so this constant is provided for convenience.
+/// It is occasionally also used as the first argument of numeric replies.
 #[allow(clippy::declare_interior_mutable_const)]
-pub const STAR: Arg<'static> = unsafe { Arg::from_unchecked(Bytes::from_str("*")) };
+pub const STAR: Nick<'static> = unsafe { Nick::from_unchecked(Bytes::from_str("*")) };
 
 /// The literal `"+"`.
 ///
