@@ -1,6 +1,7 @@
 //! Utilities for building IRC clients or bots.
 
 pub mod auth;
+pub mod cap;
 pub mod conn;
 pub mod nick;
 mod queue;
