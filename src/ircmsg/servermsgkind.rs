@@ -96,4 +96,16 @@ impl<'a> ServerMsgKind<'a> {
             ServerMsgKind::Cmd(c) => c.len(),
         }
     }
+    /// Returns `Some(true)` if `self` represents an error,
+    /// `Some(false)` if it does not, or `None` if it's unknown.
+    pub const fn is_error(&self) -> Option<bool> {
+        match self {
+            ServerMsgKind::Numeric(n) => n.is_error(),
+            ServerMsgKind::Cmd(c) => match c.as_str().as_bytes() {
+                b"FAIL" => Some(true),
+                b"ERROR" => Some(true),
+                _ => Some(false),
+            },
+        }
+    }
 }

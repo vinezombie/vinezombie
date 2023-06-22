@@ -191,6 +191,16 @@ impl<'a> ServerMsg<'a> {
         buf.clear();
         Ok(())
     }
+
+    /// Converts `self` into a version that owns its data.
+    pub fn owning(self) -> ServerMsg<'static> {
+        ServerMsg {
+            tags: self.tags.owning(),
+            source: self.source.map(Source::owning),
+            kind: self.kind.owning(),
+            args: self.args.owning(),
+        }
+    }
 }
 
 impl std::fmt::Display for ServerMsg<'_> {

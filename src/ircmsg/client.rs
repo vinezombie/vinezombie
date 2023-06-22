@@ -177,6 +177,11 @@ impl<'a> ClientMsg<'a> {
         buf.clear();
         Ok(())
     }
+
+    /// Converts `self` into a version that owns its data.
+    pub fn owning(self) -> ClientMsg<'static> {
+        ClientMsg { tags: self.tags.owning(), cmd: self.cmd.owning(), args: self.args.owning() }
+    }
 }
 
 impl std::fmt::Display for ClientMsg<'_> {

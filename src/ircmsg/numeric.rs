@@ -69,6 +69,15 @@ impl Numeric {
     pub fn write_to(&self, write: &mut (impl Write + ?Sized)) -> std::io::Result<()> {
         write.write_all(&self.0)
     }
+    /// Returns `Some(true)` if `self` represents an error,
+    /// `Some(false)` if it does not, or `None` if it's unknown.
+    pub const fn is_error(&self) -> Option<bool> {
+        match self.0[0] {
+            b'0' | b'1' | b'2' | b'3' => Some(false),
+            b'4' => Some(true),
+            _ => None,
+        }
+    }
 }
 
 impl AsRef<str> for Numeric {
