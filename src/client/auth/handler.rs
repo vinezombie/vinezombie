@@ -1,5 +1,6 @@
 use super::{BoxedErr, Sasl, SaslLogic};
 use crate::{
+    client::ClientMsgSink,
     ircmsg::ClientMsg,
     known::cmd::AUTHENTICATE,
     string::{Arg, Line},
@@ -75,7 +76,7 @@ impl Handler {
     pub fn handle(
         &mut self,
         msg: &crate::ircmsg::ServerMsg<'_>,
-        mut send_fn: impl FnMut(ClientMsg<'static>) -> Result<(), std::io::Error>,
+        mut sink: impl ClientMsgSink<'static>,
     ) -> Result<bool, HandlerError> {
         use crate::string::base64::ChunkEncoder;
         match msg.kind.as_str() {
@@ -91,7 +92,7 @@ impl Handler {
                     for chunk in ChunkEncoder::new(reply, 400, true) {
                         let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
                         msg.args.add(chunk);
-                        send_fn(msg).map_err(HandlerError::Io)?;
+                        sink.send(msg).map_err(HandlerError::Io)?;
                     }
                 }
                 Ok(false)

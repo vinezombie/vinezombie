@@ -6,8 +6,9 @@ pub mod conn;
 pub mod nick;
 mod queue;
 pub mod register;
+mod sink;
 
-pub use queue::*;
+pub use {queue::*, sink::*};
 
 use crate::ircmsg::{ClientMsg, ServerMsg};
 use crate::known::cmd::{PING, PONG};

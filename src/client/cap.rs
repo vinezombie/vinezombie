@@ -8,6 +8,8 @@ use crate::{
 };
 use std::collections::{BTreeMap, VecDeque};
 
+use super::ClientMsgSink;
+
 /// Requests capabilities to be enabled.
 ///
 /// `client` and `server` are used to evaluate the maximum message length for
@@ -19,7 +21,7 @@ pub fn req<'a>(
     caps: impl IntoIterator<Item = Key<'a>>,
     client: Option<Arg<'a>>,
     server: Option<&Source>,
-    mut send_fn: impl FnMut(ClientMsg<'a>) -> Result<(), std::io::Error>,
+    mut sink: impl ClientMsgSink<'static>,
 ) -> Result<(), std::io::Error> {
     let mut msg = ClientMsg::new_cmd(CAP);
     msg.args.add_literal("REQ");
@@ -39,14 +41,14 @@ pub fn req<'a>(
                 let msg_clone = msg.clone();
                 // TODO: Need a LineBuilder to avoid having to do this.
                 msg.args.add_last(unsafe { Line::from_unchecked(cap_string.into()) });
-                send_fn(msg)?;
+                sink.send(msg)?;
                 msg = msg_clone;
             }
             cap_string = cap.as_bytes().to_vec();
         }
     }
     msg.args.add_last(unsafe { Line::from_unchecked(cap_string.into()) });
-    send_fn(msg)
+    sink.send(msg)
 }
 
 /// The CAP subcommand type.

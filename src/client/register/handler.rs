@@ -1,6 +1,6 @@
 use super::FallbackNicks;
 use crate::{
-    client::nick::NickTransformer,
+    client::{nick::NickTransformer, ClientMsgSink},
     ircmsg::{ClientMsg, ServerMsg},
     known::cmd::{CAP, NICK},
     source::Source,
@@ -88,19 +88,19 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static, S: crate::client::auth:
     pub fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
-        mut send_fn: impl FnMut(ClientMsg<'static>) -> Result<(), std::io::Error>,
+        mut sink: impl ClientMsgSink<'static>,
     ) -> Result<Option<Registration>, HandlerError> {
         if self.source.is_none() {
             self.source = msg.source.as_ref().cloned().map(Source::owning);
         }
         if let Some(pong) = crate::client::pong(msg) {
-            send_fn(pong).map_err(HandlerError::Io)?;
+            sink.send(pong).map_err(HandlerError::Io)?;
             return Ok(None);
         }
         #[cfg(feature = "base64")]
         if let Some(auth) = &mut self.auth {
             use crate::client::auth::HandlerError as AuthHandlerError;
-            match auth.handle(msg, &mut send_fn) {
+            match auth.handle(msg, sink.borrow_mut()) {
                 Ok(true) => {
                     self.auth = None;
                     self.state = HandlerState::CapEnd;
@@ -111,14 +111,14 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static, S: crate::client::auth:
                 }
                 Err(AuthHandlerError::Io(e)) => return Err(HandlerError::Io(e)),
                 Err(AuthHandlerError::Broken(_)) => {
-                    send_fn(crate::client::auth::msg_abort()).map_err(HandlerError::Io)?;
+                    sink.send(crate::client::auth::msg_abort()).map_err(HandlerError::Io)?;
                     self.auth = None;
                 }
                 Err(AuthHandlerError::Fail(_)) => {
                     self.auth = None;
                     self.state = HandlerState::CapEnd;
                     #[cfg(feature = "base64")]
-                    self.next_sasl(&mut send_fn)?;
+                    self.next_sasl(sink.borrow_mut())?;
                 }
                 _ => (),
             }
@@ -141,14 +141,14 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static, S: crate::client::auth:
                 // Invalid nick. Keep trying user nicks,
                 // but don't allow auto-generated fallbacks.
                 if self.nicks.has_user_nicks() {
-                    self.next_nick(&mut send_fn)?;
+                    self.next_nick(sink.borrow_mut())?;
                     Ok(None)
                 } else {
                     Err(HandlerError::NoNicks)
                 }
             }
             "433" | "436" => {
-                self.next_nick(&mut send_fn)?;
+                self.next_nick(sink.borrow_mut())?;
                 Ok(None)
             }
             "464" | "465" => Err(HandlerError::NoAccess),
@@ -173,7 +173,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static, S: crate::client::auth:
                                 reqs.iter().cloned(),
                                 Some(self.reg.nick.clone().into_super()),
                                 self.source.as_ref(),
-                                &mut send_fn,
+                                sink.borrow_mut(),
                             )
                             .map_err(HandlerError::Io)?;
                             self.state = HandlerState::Ack(reqs);
@@ -209,7 +209,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static, S: crate::client::auth:
                     }
                     self.state = HandlerState::CapEnd;
                     #[cfg(feature = "base64")]
-                    self.next_sasl(&mut send_fn)?;
+                    self.next_sasl(sink.borrow_mut())?;
                 }
                 Ok(None)
             }
@@ -226,27 +226,21 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static, S: crate::client::auth:
             }
             let mut msg = crate::ircmsg::ClientMsg::new_cmd(CAP);
             msg.args.add_literal("END");
-            send_fn(msg).map_err(HandlerError::Io)?;
+            sink.send(msg).map_err(HandlerError::Io)?;
             self.state = HandlerState::Done;
         }
         Ok(retval)
     }
-    fn next_nick(
-        &mut self,
-        mut send_fn: impl FnMut(ClientMsg<'static>) -> Result<(), std::io::Error>,
-    ) -> Result<(), HandlerError> {
+    fn next_nick(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
         let nick = self.nicks.next().ok_or(HandlerError::NoNicks)?;
         let mut msg = ClientMsg::new_cmd(NICK);
         msg.args.add(nick.clone());
-        send_fn(msg).map_err(HandlerError::Io)?;
+        sink.send(msg).map_err(HandlerError::Io)?;
         self.reg.nick = nick;
         Ok(())
     }
     #[cfg(feature = "base64")]
-    fn next_sasl(
-        &mut self,
-        mut send_fn: impl FnMut(ClientMsg<'static>) -> Result<(), std::io::Error>,
-    ) -> Result<(), HandlerError> {
+    fn next_sasl(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
         self.auth = loop {
             let Some(front) = self.auths.pop_front() else {
                 return Ok(());
@@ -256,7 +250,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static, S: crate::client::auth:
                 // TODO: Log somehow?
                 Err(_) => continue,
             };
-            send_fn(msg).map_err(HandlerError::Io)?;
+            sink.send(msg).map_err(HandlerError::Io)?;
             break Some(handler);
         };
         self.state = HandlerState::Sasl;

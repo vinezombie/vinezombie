@@ -5,7 +5,7 @@ mod handler;
 
 pub use {fallbacks::*, handler::*};
 
-use super::nick::NickTransformer;
+use super::{nick::NickTransformer, ClientMsgSink};
 use crate::{
     ircmsg::ClientMsg,
     string::{Key, Line, Nick, User},
@@ -55,20 +55,20 @@ impl<S, N: NickTransformer> Register<S, N> {
     pub fn register_msgs<N2: NickTransformer>(
         &self,
         defaults: &'static impl Defaults<NickGen = N2>,
-        mut send_fn: impl FnMut(ClientMsg<'static>) -> std::io::Result<()>,
+        mut sink: impl ClientMsgSink<'static>,
     ) -> std::io::Result<FallbackNicks<N, N2>> {
         use crate::known::cmd::{CAP, NICK, PASS, USER};
         if let Some(pass) = &self.pass {
             let mut msg = ClientMsg::new_cmd(PASS);
             msg.args.add_last(pass.clone().secret());
-            send_fn(msg)?;
+            sink.send(msg)?;
         }
         // CAP message.
         let mut msg = ClientMsg::new_cmd(CAP);
         msg.args.add_literal("LS");
         // TODO: Don't hardcode this, or at least name this constant.
         msg.args.add_literal("302");
-        send_fn(msg)?;
+        sink.send(msg)?;
         // USER message.
         msg = ClientMsg::new_cmd(USER);
         let args = &mut msg.args;
@@ -77,12 +77,12 @@ impl<S, N: NickTransformer> Register<S, N> {
         args.add_literal("8");
         args.add_literal("*");
         args.add_last(self.realname.clone().unwrap_or_else(|| defaults.realname()));
-        send_fn(msg)?;
+        sink.send(msg)?;
         // NICK message.
         msg = ClientMsg::new_cmd(NICK);
         let (nick, fallbacks) = FallbackNicks::new(self, defaults);
         msg.args.add(nick);
-        send_fn(msg)?;
+        sink.send(msg)?;
         Ok(fallbacks)
     }
     /// Sends the initial burst of messages for connection registration.
@@ -94,9 +94,9 @@ impl<S, N: NickTransformer> Register<S, N> {
         &self,
         mut caps: BTreeSet<Key<'static>>,
         defaults: &'static impl Defaults<NickGen = N2>,
-        mut send_fn: impl FnMut(ClientMsg<'static>) -> std::io::Result<()>,
+        sink: impl ClientMsgSink<'static>,
     ) -> std::io::Result<Handler<N, N2, S>> {
-        let nicks = self.register_msgs(defaults, &mut send_fn)?;
+        let nicks = self.register_msgs(defaults, sink)?;
         let (auths, needs_auth) = if !self.sasl.is_empty() {
             caps.insert(Key::from_str("sasl"));
             (self.sasl.iter().cloned().collect(), !self.allow_sasl_fail)
