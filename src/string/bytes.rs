@@ -530,5 +530,10 @@ impl Drop for OwnedBytes {
     }
 }
 
+// Should be send-safe and sync-safe since `data` is never written to after-construction
+// unless the atomic ref count indicates exclusive ownership.
+unsafe impl Send for OwnedBytes {}
+unsafe impl Sync for OwnedBytes {}
+
 // Unfortunately, address sanitizer support in rustc is still unstable.
 // https://github.com/rust-lang/rust/issues/39699
