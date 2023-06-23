@@ -7,6 +7,8 @@ pub mod nick;
 mod queue;
 pub mod register;
 mod sink;
+#[cfg(feature = "tls")]
+pub mod tls;
 
 pub use {queue::*, sink::*};
 

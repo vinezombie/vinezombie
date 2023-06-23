@@ -27,8 +27,14 @@ Adds abstractions of the raw IRC protocol.
 Adds base64 encoding/decoding.
 * `client`: Uses `ircmsg`.
 Adds utilities for building client-side IRC software.
-* `ircmsg`: Adds representations of IRC messages.
-* `state`: Adds types for representing network state.
+* `ircmsg`:
+Adds representations of IRC messages.
+* `native`:
+Enables features that do not work under WASM.
+* `state`:
+Adds types for representing network state.
+* `tls`: Uses `native`.
+Adds utilities for working with rustls.
 
 The following optional features are also available:
 
