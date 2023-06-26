@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod cap;
 pub mod conn;
+mod handler;
 pub mod nick;
 mod queue;
 pub mod register;
@@ -10,7 +11,7 @@ mod sink;
 #[cfg(feature = "tls")]
 pub mod tls;
 
-pub use {queue::*, sink::*};
+pub use {handler::*, queue::*, sink::*};
 
 use crate::ircmsg::{ClientMsg, ServerMsg};
 use crate::known::cmd::{PING, PONG};

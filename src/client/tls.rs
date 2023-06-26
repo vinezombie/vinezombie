@@ -1,11 +1,10 @@
 //! Helpers for creating TLS connections.
 
+use rustls::{Certificate, ClientConfig, RootCertStore};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-
-use rustls::{Certificate, ClientConfig, RootCertStore};
 
 /// A representation of what trust anchors to use for server certificate verification.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -93,7 +92,7 @@ impl TlsConfig {
     /// This is an expensive operation. It should ideally be done only once per network.
     pub fn build(&self) -> std::io::Result<Arc<ClientConfig>> {
         let cli_auth =
-            if let Some(path) = &self.cert { Some(load_client_cert(&path)?) } else { None };
+            if let Some(path) = &self.cert { Some(load_client_cert(path)?) } else { None };
         let builder = ClientConfig::builder().with_safe_defaults();
         let config = if matches!(&self.trust, Trust::NoVerify) {
             let builder = builder.with_custom_certificate_verifier(Arc::new(NoVerifier));
@@ -127,4 +126,18 @@ impl TlsConfig {
         };
         Ok(Arc::new(config))
     }
+}
+
+/// Creates a new synchronous TCP connection using TLS.
+pub fn connect(
+    config: Arc<ClientConfig>,
+    address: &str,
+    port: u16,
+) -> std::io::Result<rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>> {
+    let name = rustls::ServerName::try_from(address)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+    let conn = rustls::ClientConnection::new(config, name)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let sock = std::net::TcpStream::connect((address, port))?;
+    Ok(rustls::StreamOwned { conn, sock })
 }

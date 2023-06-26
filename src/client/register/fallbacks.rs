@@ -1,6 +1,6 @@
 use super::Register;
 use crate::{
-    client::nick::{NickTransformer, SuffixRandom},
+    client::nick::{NickSuffix, NickTransformer, SuffixRandom},
     string::{Line, Nick, User},
 };
 use std::{collections::VecDeque, sync::Arc};
@@ -15,8 +15,8 @@ pub struct FallbackNicks<N1: NickTransformer, N2: NickTransformer + 'static> {
 
 impl<N1: NickTransformer, N2: NickTransformer> FallbackNicks<N1, N2> {
     /// Generate the first nickname and a `FallbackNicks` for more.
-    pub fn new<S>(
-        reg: &Register<S, N1>,
+    pub fn new<P, S>(
+        reg: &Register<P, S, N1>,
         reg_def: &'static impl Defaults<NickGen = N2>,
     ) -> (Nick<'static>, Self) {
         let (nick, state) = if let Some((nick, rest)) = reg.nicks.split_first() {
@@ -99,7 +99,6 @@ pub struct DefaultDefaults(pub SuffixRandom);
 
 impl Default for DefaultDefaults {
     fn default() -> Self {
-        use crate::client::nick::NickSuffix;
         DefaultDefaults(SuffixRandom {
             seed: None,
             suffixes: std::borrow::Cow::Borrowed(&[NickSuffix::Base10, NickSuffix::Base8]),
@@ -131,5 +130,40 @@ impl Defaults for DefaultDefaults {
     fn realname(&self) -> Line<'static> {
         let realname = unsafe { Line::from_unchecked("???".into()) };
         Line::new_realname().unwrap_or(realname)
+    }
+}
+
+static BNG: SuffixRandom = SuffixRandom {
+    seed: None,
+    suffixes: std::borrow::Cow::Borrowed(&[
+        NickSuffix::Base10,
+        NickSuffix::Base8,
+        NickSuffix::Base10,
+        NickSuffix::Base8,
+        NickSuffix::Base10,
+        NickSuffix::Base8,
+    ]),
+};
+
+/// Overtly bot-like default implementation of [`Defaults`].
+pub struct BotDefaults;
+
+impl Defaults for BotDefaults {
+    type NickGen = SuffixRandom;
+
+    fn nick_gen(&self) -> &Self::NickGen {
+        &BNG
+    }
+
+    fn nick(&self) -> (Nick<'static>, Option<<Self::NickGen as NickTransformer>::State>) {
+        self.nick_gen().init(&Nick::from_str("VZB")).unwrap()
+    }
+
+    fn username(&self) -> User<'static> {
+        User::from_str("vnzb_bot")
+    }
+
+    fn realname(&self) -> Line<'static> {
+        Line::from_str("Vinezombie Bot")
     }
 }

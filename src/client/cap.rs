@@ -1,6 +1,7 @@
 //! Utilities for working with capability negotiation.
 
 use crate::{
+    error::ParseError,
     ircmsg::{Args, ClientMsg},
     known::cmd::CAP,
     source::Source,
@@ -110,25 +111,23 @@ pub struct ServerMsgArgs<'a> {
 
 impl<'a> ServerMsgArgs<'a> {
     /// Parses the argument list of a server-originated CAP message.
-    ///
-    /// Returns `None` if the arguments do not make up a valid CAP message.
-    #[must_use]
-    pub fn parse(args: &Args<'a>) -> Option<Self> {
+    pub fn parse(args: &Args<'a>) -> Result<Self, ParseError> {
         let (args, Some(last)) = args.split_last() else {
-            return None;
+            return Err(ParseError::MissingField("caps"));
         };
-        let (nick, args) = args.split_first()?;
-        let nick = Nick::from_super(nick.clone()).ok()?;
-        let (subcmd, args) = args.split_first()?;
+        let (nick, args) = args.split_first().ok_or(ParseError::MissingField("nick"))?;
+        let nick = Nick::from_super(nick.clone()).map_err(ParseError::InvalidNick)?;
+        let (subcmd, args) = args.split_first().ok_or(ParseError::MissingField("subcmd"))?;
         let mut subcmd = subcmd.clone();
         // Does the spec actually mandate that this match be case-insensitive?
         subcmd.transform(crate::string::tf::AsciiCasemap::<true>);
-        let subcmd = SubCmd::from_bytes(subcmd.as_bytes())?;
+        let subcmd = SubCmd::from_bytes(subcmd.as_bytes())
+            .ok_or_else(|| ParseError::InvalidField("subcmd", subcmd.owning().into()))?;
         let is_last = if let Some((last_arg, _)) = args.split_first() {
             if last_arg == "*" {
                 false
             } else {
-                return None;
+                return Err(ParseError::InvalidField("is_last", last_arg.clone().owning().into()));
             }
         } else {
             true
@@ -149,7 +148,7 @@ impl<'a> ServerMsgArgs<'a> {
             };
             caps.insert(key, value);
         }
-        Some(Self { nick, subcmd, is_last, caps })
+        Ok(Self { nick, subcmd, is_last, caps })
     }
     /// Combines a newer [`ServerMsgArgs`] into `self`.
     /// Returns `Some(newer)` if it cannot be combined into `self`.
@@ -177,10 +176,7 @@ impl<'a> ServerMsgArgs<'a> {
 /// whose names are included in `value`.
 ///
 /// If `value` is empty, `auths` is not filtered.
-pub fn filter_sasl<S: crate::client::auth::Sasl>(
-    auths: &mut VecDeque<std::sync::Arc<S>>,
-    mut value: Word<'_>,
-) {
+pub(crate) fn filter_sasl<V>(auths: &mut VecDeque<(Arg<'static>, V)>, mut value: Word<'_>) {
     use crate::string::tf::{AsciiCasemap, Split, SplitFirst};
     use std::collections::BTreeSet;
     let mut names = BTreeSet::new();
@@ -193,7 +189,7 @@ pub fn filter_sasl<S: crate::client::auth::Sasl>(
         value.transform(SplitFirst);
     }
     if !names.is_empty() {
-        auths.retain(|s| names.contains(s.name().as_bytes()));
+        auths.retain(|s| names.contains(s.0.as_bytes()));
     }
 }
 

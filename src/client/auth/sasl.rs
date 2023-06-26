@@ -1,6 +1,6 @@
 //! Implementations of specific SASL mechanisms.
 
-use super::{BoxedErr, Sasl, SaslLogic, Secret};
+use super::{Sasl, SaslLogic, Secret};
 use crate::string::Arg;
 use std::ffi::CString;
 
@@ -8,14 +8,17 @@ use std::ffi::CString;
 ///
 /// This is what is used when authentication occurs out-of-band,
 /// such as when using TLS client certificate authentication.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
+#[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct External;
 
 struct ExternalLogic;
 
 impl SaslLogic for ExternalLogic {
-    fn reply<'a>(&'a mut self, _: &[u8]) -> Result<&'a [u8], BoxedErr> {
+    fn reply<'a>(
+        &'a mut self,
+        _: &[u8],
+    ) -> Result<&'a [u8], Box<dyn std::error::Error + Send + Sync + 'static>> {
         // TODO: Strictness?
         Ok(Default::default())
     }
@@ -25,7 +28,7 @@ impl Sasl for External {
     fn name(&self) -> Arg<'static> {
         Arg::from_str("EXTERNAL")
     }
-    fn logic(&self) -> Result<Box<dyn SaslLogic>, BoxedErr> {
+    fn logic(&self) -> std::io::Result<Box<dyn SaslLogic>> {
         Ok(Box::new(ExternalLogic))
     }
 }
@@ -35,18 +38,12 @@ impl Sasl for External {
 /// This is what is used for typical username/password authentication.
 /// It transmits the password in the clear;
 /// do not use this without some form of secure transport, like TLS.
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Plain<S: Secret> {
+pub struct Plain<S> {
     authzid: CString,
     authcid: CString,
     passwd: S,
-}
-
-impl<S: Secret> Drop for Plain<S> {
-    fn drop(&mut self) {
-        self.passwd.destroy();
-    }
 }
 
 impl<S: Secret> Plain<S> {
@@ -68,16 +65,6 @@ impl<S: Secret> Plain<S> {
     }
 }
 
-impl<S: Secret> std::fmt::Debug for Plain<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Plain")
-            .field("authzid", &self.authzid)
-            .field("authcid", &self.authcid)
-            .field("passwd", &crate::string::DISPLAY_PLACEHOLDER)
-            .finish()
-    }
-}
-
 struct PlainLogic(Vec<u8>);
 
 #[cfg(feature = "zeroize")]
@@ -88,7 +75,10 @@ impl Drop for PlainLogic {
 }
 
 impl SaslLogic for PlainLogic {
-    fn reply<'a>(&'a mut self, _: &[u8]) -> Result<&'a [u8], BoxedErr> {
+    fn reply<'a>(
+        &'a mut self,
+        _: &[u8],
+    ) -> Result<&'a [u8], Box<dyn std::error::Error + Send + Sync + 'static>> {
         // TODO: Strictness?
         Ok(self.0.as_slice())
     }
@@ -98,7 +88,7 @@ impl<S: Secret + 'static> Sasl for Plain<S> {
     fn name(&self) -> Arg<'static> {
         Arg::from_str("PLAIN")
     }
-    fn logic(&self) -> Result<Box<dyn SaslLogic>, BoxedErr> {
+    fn logic(&self) -> std::io::Result<Box<dyn SaslLogic>> {
         let authzid = self.authzid.as_bytes_with_nul();
         let authcid = self.authcid.as_bytes_with_nul();
         let mut data = Vec::with_capacity(16 + authcid.len() + authzid.len());

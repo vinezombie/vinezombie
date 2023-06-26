@@ -69,23 +69,25 @@ impl<'a> Queue<'a> {
     }
     /// Retrieves a message from the queue, subject to rate limits.
     ///
-    /// # Errors
-    /// If the error variant is `None`, the queue is empty.
-    /// Otherwise, the value of the error variant represents how long the program must wait
-    /// before the next item in the queue is available.
-    pub fn pop(&mut self) -> Result<ClientMsg<'a>, Option<Duration>> {
+    /// If this function does not return a message,
+    /// `timeout_fn` is called with the duration until the next message will be available,
+    /// or `None` if the queue is empty.
+    /// The duration is guaranteed to be non-zero. This can be used to adjust read timeouts.
+    pub fn pop(&mut self, timeout_fn: impl FnOnce(Option<Duration>)) -> Option<ClientMsg<'a>> {
         if let Some(value) = self.queue.pop_front() {
             let mut delay = self.timepoint.saturating_duration_since(Instant::now());
             delay = delay.saturating_sub(self.sub);
             if delay.is_zero() {
                 self.timepoint = std::cmp::max(self.timepoint, Instant::now()) + self.delay;
-                Ok(value)
+                Some(value)
             } else {
                 self.queue.push_front(value);
-                Err(Some(delay))
+                timeout_fn(Some(delay));
+                None
             }
         } else {
-            Err(None)
+            timeout_fn(None);
+            None
         }
     }
     // TODO: Queue cleaning.

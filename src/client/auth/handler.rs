@@ -1,6 +1,6 @@
-use super::{BoxedErr, Sasl, SaslLogic};
+use super::{Sasl, SaslLogic};
 use crate::{
-    client::ClientMsgSink,
+    client::{ClientMsgSink, HandlerOk, HandlerResult},
     ircmsg::ClientMsg,
     known::cmd::AUTHENTICATE,
     string::{Arg, Line},
@@ -22,7 +22,7 @@ pub enum HandlerError {
     /// Authentication failed.
     Fail(Line<'static>),
     /// The server's implementation of a SASL mechanism is broken.
-    Broken(BoxedErr),
+    Broken(Box<dyn std::error::Error + Send + Sync>),
     /// An I/O error occurred.
     Io(std::io::Error),
 }
@@ -34,10 +34,15 @@ impl From<HandlerError> for std::io::Error {
             HandlerError::WrongMechanism(_) => {
                 Error::new(ErrorKind::Unsupported, value.to_string())
             }
-            HandlerError::Fail(_) => Error::new(ErrorKind::PermissionDenied, value.to_string()),
+            HandlerError::Fail(e) => Error::new(ErrorKind::PermissionDenied, e.to_utf8_lossy()),
             HandlerError::Broken(e) => Error::new(ErrorKind::InvalidData, e),
             HandlerError::Io(e) => e,
         }
+    }
+}
+impl From<std::io::Error> for HandlerError {
+    fn from(value: std::io::Error) -> Self {
+        HandlerError::Io(value)
     }
 }
 
@@ -63,21 +68,30 @@ impl std::error::Error for HandlerError {
 }
 
 impl Handler {
-    /// Creates a new authenticator.
-    pub fn new(sasl: &(impl Sasl + ?Sized)) -> Result<(ClientMsg<'static>, Self), BoxedErr> {
+    /// Creates a new authenticator from a [`SaslLogic`] implementation.
+    pub fn from_logic(logic: Box<dyn SaslLogic>) -> Self {
+        Handler { logic, decoder: crate::string::base64::ChunkDecoder::new(400) }
+    }
+    /// Creates a new authenticator from a [`Sasl`] implementation.
+    ///
+    /// For convenience, also returns the message to send to initiate authentication.
+    pub fn from_sasl(sasl: &(impl Sasl + ?Sized)) -> std::io::Result<(ClientMsg<'static>, Self)> {
         let auth = Handler {
             logic: sasl.logic()?,
             decoder: crate::string::base64::ChunkDecoder::new(400),
         };
-        Ok((super::msg_auth(sasl), auth))
+        let mut msg = ClientMsg::new_cmd(crate::known::cmd::AUTHENTICATE);
+        msg.args.add(sasl.name());
+        Ok((msg, auth))
     }
     /// Handles a server message sent during SASL authentication.
-    /// Returns `Ok(true)` if authenticated, or `Ok(false)` if more messages are required.
+    ///
+    /// Upon returning an `Ok(HandlerOk::Value(_))`, authentication has completed successfully.
     pub fn handle(
         &mut self,
         msg: &crate::ircmsg::ServerMsg<'_>,
         mut sink: impl ClientMsgSink<'static>,
-    ) -> Result<bool, HandlerError> {
+    ) -> HandlerResult<(), std::convert::Infallible, HandlerError> {
         use crate::string::base64::ChunkEncoder;
         match msg.kind.as_str() {
             "AUTHENTICATE" => {
@@ -95,10 +109,10 @@ impl Handler {
                         sink.send(msg).map_err(HandlerError::Io)?;
                     }
                 }
-                Ok(false)
+                Ok(HandlerOk::NeedMore)
             }
             // Ignore 901.
-            "900" | "903" | "907" => Ok(true),
+            "900" | "903" | "907" => Ok(HandlerOk::Value(())),
             "902" | "904" | "905" | "906" => {
                 let reason = msg.args.split_last().1.cloned().unwrap_or_default();
                 Err(HandlerError::Fail(reason.owning()))
@@ -108,7 +122,7 @@ impl Handler {
                 let set = msg.args.args().iter().map(|a| a.clone().owning()).collect();
                 Err(HandlerError::WrongMechanism(set))
             }
-            _ => Ok(false),
+            _ => Ok(HandlerOk::Ignored),
         }
     }
 }

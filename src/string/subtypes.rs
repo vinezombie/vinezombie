@@ -101,6 +101,17 @@ macro_rules! impl_subtype {
             pub const unsafe fn from_unchecked(bytes: Bytes<'a>) -> Self {
                 $sname(bytes)
             }
+            /// Tries to convert `value` into an owning, secret instance of this type.
+            /// Errors if `value` does not uphold this type's guarantees.
+            pub fn from_secret(value: Vec<u8>) -> Result<Self, InvalidByte> {
+                if let Some(e) = Self::find_invalid(value.as_ref()) {
+                    #[cfg(feature = "zeroize")]
+                    std::mem::drop(zeroize::Zeroizing::new(value));
+                    Err(e)
+                } else {
+                    Ok(Self(Bytes::from_secret(value)))
+                }
+            }
             /// Transforms `self` using the provided [`Transform`]
             /// that upholds `self`'s invariant.
             pub fn transform<T: $tname>(&mut self, tf: T) -> T::Value<'a> {

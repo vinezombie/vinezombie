@@ -1,5 +1,7 @@
 //! Options for connecting to IRC servers.
 
+use std::time::Duration;
+
 use crate::string::Word;
 
 /// The minimal config necessary to connect to an IRC server.
@@ -55,5 +57,85 @@ impl<'a> ServerAddr<'a> {
         } else {
             6667
         }
+    }
+}
+
+/// Types that are usable as synchronous connections.
+pub trait Connection {
+    /// This type as a [`BufRead`][std::io::BufRead].
+    type BufRead: std::io::BufRead;
+    /// This type as a [`Write`][std::io::Write].
+    type Write: std::io::Write;
+    /// Returns self as a `BufRead`.
+    fn as_bufread(&mut self) -> &mut Self::BufRead;
+    /// Returns self as a `Write`.
+    fn as_write(&mut self) -> &mut Self::Write;
+    /// Sets the read timeout for this connection.
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
+}
+
+#[cfg(feature = "native")]
+impl Connection for std::io::BufReader<std::net::TcpStream> {
+    type BufRead = Self;
+
+    type Write = std::net::TcpStream;
+
+    fn as_bufread(&mut self) -> &mut Self::BufRead {
+        self
+    }
+
+    fn as_write(&mut self) -> &mut Self::Write {
+        self.get_mut()
+    }
+
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.get_ref().set_read_timeout(timeout)
+    }
+}
+
+#[cfg(feature = "tls")]
+impl<
+        'a,
+        S: rustls::SideData,
+        C: 'a + std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
+    > Connection for std::io::BufReader<rustls::Stream<'a, C, std::net::TcpStream>>
+{
+    type BufRead = Self;
+
+    type Write = rustls::Stream<'a, C, std::net::TcpStream>;
+
+    fn as_bufread(&mut self) -> &mut Self::BufRead {
+        self
+    }
+
+    fn as_write(&mut self) -> &mut Self::Write {
+        self.get_mut()
+    }
+
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.get_ref().sock.set_read_timeout(timeout)
+    }
+}
+
+#[cfg(feature = "tls")]
+impl<
+        S: rustls::SideData,
+        C: std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
+    > Connection for std::io::BufReader<rustls::StreamOwned<C, std::net::TcpStream>>
+{
+    type BufRead = Self;
+
+    type Write = rustls::StreamOwned<C, std::net::TcpStream>;
+
+    fn as_bufread(&mut self) -> &mut Self::BufRead {
+        self
+    }
+
+    fn as_write(&mut self) -> &mut Self::Write {
+        self.get_mut()
+    }
+
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.get_ref().sock.set_read_timeout(timeout)
     }
 }

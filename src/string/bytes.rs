@@ -33,12 +33,17 @@ impl<'a> Bytes<'a> {
         Bytes { value: &[], ownership: None, utf8: AtomicI8::new(1) }
     }
     /// Cheaply converts a byte slice into a `Bytes`.
-    pub const fn from_bytes(value: &'a [u8]) -> Bytes<'a> {
+    pub const fn from_bytes(value: &'a [u8]) -> Self {
         Bytes { value, ownership: None, utf8: AtomicI8::new(0) }
     }
     /// Cheaply converts an `str` into a `Bytes`.
-    pub const fn from_str(value: &'a str) -> Bytes<'a> {
+    pub const fn from_str(value: &'a str) -> Self {
         Bytes { value: value.as_bytes(), ownership: None, utf8: AtomicI8::new(1) }
+    }
+    /// Cheaply conversts a secret value into a `Bytes`.
+    pub fn from_secret(value: Vec<u8>) -> Self {
+        let (ownership, value) = unsafe { OwnedBytes::from_vec(value, true) };
+        Bytes { value, ownership, utf8: AtomicI8::new(0) }
     }
     /// Returns `true` if `self` is not borrowing its data.
     pub const fn is_owning(&self) -> bool {

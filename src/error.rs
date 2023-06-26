@@ -5,10 +5,14 @@
 use std::num::NonZeroUsize;
 
 /// Errors from parsing an IRC message..
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ParseError {
     /// The message exceeds permissible length limits.
     TooLong,
+    /// An expected field is missing.
+    MissingField(&'static str),
+    /// A field has an invalid value.
+    InvalidField(&'static str, crate::string::Line<'static>),
     /// The string provided to a parse function is not a Line.
     InvalidLine(InvalidByte),
     /// The source fragment of the message contains an invalid nickname.
@@ -23,6 +27,8 @@ impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ParseError::TooLong => write!(f, "message is too long"),
+            ParseError::MissingField(e) => write!(f, "missing field {e}"),
+            ParseError::InvalidField(e, a) => write!(f, "invalid field {e}: got \"{a}\""),
             ParseError::InvalidLine(e) => write!(f, "invalid line: {e}"),
             ParseError::InvalidNick(e) => write!(f, "invalid source nickname: {e}"),
             ParseError::InvalidUser(e) => write!(f, "invalid source username: {e}"),
