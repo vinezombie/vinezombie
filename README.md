@@ -29,11 +29,9 @@ Adds base64 encoding/decoding.
 Adds utilities for building client-side IRC software.
 * `ircmsg`:
 Adds representations of IRC messages.
-* `native`:
-Enables features that do not work under WASM.
 * `state`:
 Adds types for representing network state.
-* `tls`: Uses `native`.
+* `tls`:
 Adds utilities for working with rustls.
 
 The following optional features are also available:
@@ -42,6 +40,11 @@ The following optional features are also available:
 Adds implementations of `Serialize`+`Deserialize` for certain types.
 * `tokio`:
 Adds functions for Tokio-based I/O.
+* `tracing`:
+Adds logging to a few locations in the library.
+If your application uses `log`,
+[this][https://docs.rs/tracing/0.1/tracing/#emitting-log-records]
+explains how to get `log` events from this library.
 * `whoami`:
 Enables functions for creating strings from local user info.
 * `zeroize`:

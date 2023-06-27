@@ -68,14 +68,14 @@ where
     loop {
         let msg = queue.pop(|dur| conn.set_read_timeout(dur).unwrap());
         if let Some(msg) = msg {
-            if let Err(e) = msg.send_to(conn.as_write(), &mut buf) {
-                break Err(e.into());
-            }
+            msg.send_to(conn.as_write(), &mut buf)?;
             continue;
         }
         match ServerMsg::read_owning_from(conn.as_bufread(), &mut buf) {
             Ok(msg) => match handler.handle(&msg, queue) {
                 Ok(HandlerOk::Value(val)) => break Ok(val),
+                #[cfg(feature = "tracing")]
+                Ok(HandlerOk::Warning(w)) => tracing::warn!(target: "vinezombie", "{}", w),
                 Ok(_) => (),
                 Err(e) => break Err(e),
             },

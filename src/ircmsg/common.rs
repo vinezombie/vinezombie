@@ -34,7 +34,11 @@ macro_rules! read_msg {
                     }
                     Some(_) if found_newline => {
                         return match $parse_expr {
-                            Ok(v) => Ok(v),
+                            Ok(msg) => {
+                                #[cfg(feature = "tracing")]
+                                tracing::debug!(target: "vinezombie::recv", "{}", msg);
+                                Ok(msg)
+                            }
                             Err(e) => Err(e.into()),
                         }
                     }

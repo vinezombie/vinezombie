@@ -6,6 +6,8 @@ use vinezombie::{
 };
 
 fn main() -> std::io::Result<()> {
+    // Let's get some logging.
+    tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).compact().init();
     // Connection registration options.
     // `Clear` is a Secret implementation that offers minimal added protection
     // for sensitive data.
@@ -31,7 +33,7 @@ fn main() -> std::io::Result<()> {
     // Let's do connection registration!
     let reg = vinezombie::client::run_handler(&mut sock, &mut queue, &mut handler)?;
     // Connection registration is done!
-    println!("{} connected to Libera!", reg.nick);
+    tracing::info!("{} connected to Libera!", reg.nick);
     // From here, we can keep reading messages (including 004 and 005)
     // but we don't care about any of that, so let's just quit.
     let msg = ClientMsg::new_cmd(vinezombie::known::cmd::QUIT);
