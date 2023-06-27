@@ -1,4 +1,4 @@
-//! [Vinezombie](https://git.sr.ht/~daemoness/vinezombie)
+#![doc = include_str!("../doc/rustdoc.md")]
 #![allow(clippy::borrow_interior_mutable_const)]
 #![allow(clippy::mutable_key_type)]
 #![deny(clippy::missing_safety_doc)]
@@ -11,6 +11,7 @@
 #![deny(rustdoc::invalid_html_tags)]
 #![deny(rustdoc::invalid_rust_codeblocks)]
 #![deny(rustdoc::private_intra_doc_links)]
+#![cfg_attr(doc_unstable, feature(doc_auto_cfg))]
 
 #[cfg(feature = "client")]
 pub mod client;

@@ -47,6 +47,11 @@ Enables functions for creating strings from local user info.
 * `zeroize`:
 Zeroes-out certain byte buffers containing potentially-sensitive data.
 
+## Documentation
+
+To build and view the documentation locally, run
+`RUSTDOCFLAGS="--cfg doc_unstable" cargo +nightly doc --all-features --open`
+
 ## License
 
 `vinezombie` is licensed under the GNU GPL v3 (only).

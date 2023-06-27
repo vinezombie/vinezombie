@@ -5,7 +5,7 @@ edition = "2021"
 
 license = "GPL-3.0-only"
 description = "An abstracting IRCv3 library"
-repository = "https://github.com/TheDaemoness/vinezombie"
+repository = "https://github.com/vinezombie/vinezombie"
 readme = "README.md"
 keywords = ["irc", "ircv3"]
 categories = ["network-programming", "parser-implementations"]
@@ -37,3 +37,7 @@ log = "0.4.18"
 
 # [[example]]
 # name = "hello-libera"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "doc_unstable"]
