@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 use vinezombie::{
     client::{self, auth::Clear},
-    string::Line, ircmsg::ClientMsg,
+    ircmsg::ClientMsg,
+    string::Line,
 };
 
 fn main() -> std::io::Result<()> {
@@ -28,11 +29,7 @@ fn main() -> std::io::Result<()> {
     let mut handler =
         options.handler(BTreeSet::new(), &client::register::BotDefaults, &mut queue)?;
     // Let's do connection registration!
-    // This macro drives `register::Handler::handle`
-    // until it returns success or an error.
-    let reg = vinezombie::run_handler!(
-        sock, queue, handler, client::register::Handler::handle
-    )?;
+    let reg = vinezombie::client::run_handler(&mut sock, &mut queue, &mut handler)?;
     // Connection registration is done!
     println!("{} connected to Libera!", reg.nick);
     // From here, we can keep reading messages (including 004 and 005)

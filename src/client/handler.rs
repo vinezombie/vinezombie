@@ -1,3 +1,7 @@
+use crate::ircmsg::ServerMsg;
+
+use super::Queue;
+
 /// The return type of the `handle` methods on types in this module.
 pub type HandlerResult<T, W, E> = Result<HandlerOk<T, W>, E>;
 
@@ -16,31 +20,67 @@ pub enum HandlerOk<T, W> {
     Value(T),
 }
 
-// Lifetime screwiness with handler methods on the ClientMsgSink param
-// means that using a macro_rules.
+/// Closure-like types that can be run directly off of connections.
+pub trait Handler {
+    /// The type of value this handler yields on completion.
+    type Value;
+    /// The type of this handler's warnings.
+    type Warning: std::fmt::Display;
+    /// The type of this handler's errors.
+    type Error: From<std::io::Error>;
+    /// Handles one message.
+    fn handle(
+        &mut self,
+        msg: &ServerMsg<'static>,
+        queue: &mut Queue<'static>,
+    ) -> HandlerResult<Self::Value, Self::Warning, Self::Error>;
+}
+
+impl<
+        T,
+        W: std::fmt::Display,
+        E: From<std::io::Error>,
+        F: FnMut(&ServerMsg<'static>, &mut Queue<'static>) -> HandlerResult<T, W, E>,
+    > Handler for F
+{
+    type Value = T;
+    type Warning = W;
+    type Error = E;
+    fn handle(
+        &mut self,
+        msg: &ServerMsg<'static>,
+        queue: &mut Queue<'static>,
+    ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
+        self(msg, queue)
+    }
+}
 
 /// Runs a handler function to completion.
-#[macro_export]
-macro_rules! run_handler {
-    ($conn:ident, $queue:ident, $handler:ident, $handler_fn:expr) => {{
-        use vinezombie::client::{conn::Connection, HandlerOk, HandlerResult};
-        use vinezombie::ircmsg::ServerMsg;
-        let mut buf = Vec::new();
-        loop {
-            let msg = $queue.pop(|dur| $conn.set_read_timeout(dur).unwrap());
-            if let Some(msg) = msg {
-                msg.send_to($conn.as_write(), &mut buf)?;
-                continue;
+pub fn run_handler<H, T, W: std::fmt::Display, E: From<std::io::Error>>(
+    conn: &mut impl super::conn::Connection,
+    queue: &mut Queue<'static>,
+    handler: &mut H,
+) -> Result<T, E>
+where
+    H: Handler<Value = T, Warning = W, Error = E>,
+{
+    let mut buf = Vec::new();
+    loop {
+        let msg = queue.pop(|dur| conn.set_read_timeout(dur).unwrap());
+        if let Some(msg) = msg {
+            if let Err(e) = msg.send_to(conn.as_write(), &mut buf) {
+                break Err(e.into());
             }
-            match ServerMsg::read_owning_from($conn.as_bufread(), &mut buf) {
-                Ok(msg) => {
-                    let result = $handler_fn(&mut $handler, &msg, &mut $queue);
-                    if let HandlerOk::Value(val) = result? {
-                        break Ok(val);
-                    }
-                }
-                Err(e) => break Err(e),
-            };
+            continue;
         }
-    }};
+        match ServerMsg::read_owning_from(conn.as_bufread(), &mut buf) {
+            Ok(msg) => match handler.handle(&msg, queue) {
+                Ok(HandlerOk::Value(val)) => break Ok(val),
+                Ok(_) => (),
+                Err(e) => break Err(e),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => (),
+            Err(e) => break Err(e.into()),
+        };
+    }
 }

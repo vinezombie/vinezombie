@@ -339,3 +339,19 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
         }
     }
 }
+
+impl<N1: NickTransformer, N2: NickTransformer + 'static> crate::client::Handler
+    for Handler<N1, N2>
+{
+    type Value = Registration;
+    type Warning = Line<'static>;
+    type Error = HandlerError;
+
+    fn handle(
+        &mut self,
+        msg: &ServerMsg<'static>,
+        queue: &mut crate::client::Queue<'static>,
+    ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
+        self.handle(msg, queue)
+    }
+}

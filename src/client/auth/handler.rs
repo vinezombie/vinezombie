@@ -126,3 +126,17 @@ impl Handler {
         }
     }
 }
+
+impl crate::client::Handler for Handler {
+    type Value = ();
+    type Warning = std::convert::Infallible;
+    type Error = HandlerError;
+
+    fn handle(
+        &mut self,
+        msg: &crate::ircmsg::ServerMsg<'static>,
+        queue: &mut crate::client::Queue<'static>,
+    ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
+        self.handle(msg, queue)
+    }
+}
