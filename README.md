@@ -29,7 +29,7 @@ end users over IRC is also strongly encouraged, but not required.
 
 ## Discussion
 
-The author somtimes rambles about code design in
+The author sometimes rambles about code design in
 [#vinezombie](ircs://irc.libera.chat/#vinezombie)
 on [Libera.Chat](https://libera.chat/).
 A link to a webchat is available at the top by clicking the libera.chat badge.

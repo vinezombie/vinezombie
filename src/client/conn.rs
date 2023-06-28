@@ -74,7 +74,6 @@ pub trait Connection {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
 }
 
-#[cfg(feature = "native")]
 impl Connection for std::io::BufReader<std::net::TcpStream> {
     type BufRead = Self;
 
