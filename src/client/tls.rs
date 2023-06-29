@@ -127,17 +127,3 @@ impl TlsConfig {
         Ok(Arc::new(config))
     }
 }
-
-/// Creates a new synchronous TCP connection using TLS.
-pub fn connect(
-    config: Arc<ClientConfig>,
-    address: &str,
-    port: u16,
-) -> std::io::Result<rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>> {
-    let name = rustls::ServerName::try_from(address)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-    let conn = rustls::ClientConnection::new(config, name)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-    let sock = std::net::TcpStream::connect((address, port))?;
-    Ok(rustls::StreamOwned { conn, sock })
-}

@@ -1,6 +1,8 @@
 //! Options for connecting to IRC servers.
 
-use std::time::Duration;
+mod sync;
+
+pub use sync::*;
 
 use crate::string::Word;
 
@@ -39,6 +41,20 @@ impl<'a> std::hash::Hash for ServerAddr<'a> {
 }
 
 impl<'a> ServerAddr<'a> {
+    /// Creates a new `ServerAddr` with `tls = true` and a default port number.
+    pub fn from_host<A: TryInto<Word<'a>>>(address: A) -> Result<Self, A::Error> {
+        let address = address.try_into()?;
+        Ok(Self {
+            address, tls: true, port: None
+        })
+    }
+    /// As [`ServerAddr::from_host`] but is `const` and panics on invalid input.
+    pub const fn from_host_str(address: &'a str) -> Self {
+        let address = Word::from_str(address);
+        Self {
+            address, tls: true, port: None
+        }
+    }
     /// Returns a string representation of self.
     pub fn to_word(&self) -> Word<'static> {
         use std::io::Write;
@@ -57,84 +73,5 @@ impl<'a> ServerAddr<'a> {
         } else {
             6667
         }
-    }
-}
-
-/// Types that are usable as synchronous connections.
-pub trait Connection {
-    /// This type as a [`BufRead`][std::io::BufRead].
-    type BufRead: std::io::BufRead;
-    /// This type as a [`Write`][std::io::Write].
-    type Write: std::io::Write;
-    /// Returns self as a `BufRead`.
-    fn as_bufread(&mut self) -> &mut Self::BufRead;
-    /// Returns self as a `Write`.
-    fn as_write(&mut self) -> &mut Self::Write;
-    /// Sets the read timeout for this connection.
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
-}
-
-impl Connection for std::io::BufReader<std::net::TcpStream> {
-    type BufRead = Self;
-
-    type Write = std::net::TcpStream;
-
-    fn as_bufread(&mut self) -> &mut Self::BufRead {
-        self
-    }
-
-    fn as_write(&mut self) -> &mut Self::Write {
-        self.get_mut()
-    }
-
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.get_ref().set_read_timeout(timeout)
-    }
-}
-
-#[cfg(feature = "tls")]
-impl<
-        'a,
-        S: rustls::SideData,
-        C: 'a + std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
-    > Connection for std::io::BufReader<rustls::Stream<'a, C, std::net::TcpStream>>
-{
-    type BufRead = Self;
-
-    type Write = rustls::Stream<'a, C, std::net::TcpStream>;
-
-    fn as_bufread(&mut self) -> &mut Self::BufRead {
-        self
-    }
-
-    fn as_write(&mut self) -> &mut Self::Write {
-        self.get_mut()
-    }
-
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.get_ref().sock.set_read_timeout(timeout)
-    }
-}
-
-#[cfg(feature = "tls")]
-impl<
-        S: rustls::SideData,
-        C: std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
-    > Connection for std::io::BufReader<rustls::StreamOwned<C, std::net::TcpStream>>
-{
-    type BufRead = Self;
-
-    type Write = rustls::StreamOwned<C, std::net::TcpStream>;
-
-    fn as_bufread(&mut self) -> &mut Self::BufRead {
-        self
-    }
-
-    fn as_write(&mut self) -> &mut Self::Write {
-        self.get_mut()
-    }
-
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.get_ref().sock.set_read_timeout(timeout)
     }
 }
