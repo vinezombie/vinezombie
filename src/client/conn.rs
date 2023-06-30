@@ -1,10 +1,17 @@
 //! Options for connecting to IRC servers.
 
 mod sync;
+#[cfg(feature = "tokio")]
+mod tokio;
 
+#[cfg(feature = "tokio")]
+pub use self::tokio::*;
 pub use sync::*;
 
 use crate::string::Word;
+
+/// Smallest power of two larger than the largest IRCv3 message.
+pub(self) const BUFSIZE: usize = 16384;
 
 /// The minimal config necessary to connect to an IRC server.
 ///

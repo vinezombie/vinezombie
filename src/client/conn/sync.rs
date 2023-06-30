@@ -9,7 +9,7 @@ impl<'a> super::ServerAddr<'a> {
             .to_utf8()
             .ok_or(Error::new(ErrorKind::InvalidInput, "non-utf8 address"))?;
         let sock = std::net::TcpStream::connect((string, self.port_num()))?;
-        Ok(BufReader::new(Stream(StreamInner::Tcp(sock))))
+        Ok(BufReader::with_capacity(super::BUFSIZE, Stream(StreamInner::Tcp(sock))))
     }
     /// Creates a synchronous connection.
     #[cfg(feature = "tls")]
@@ -23,19 +23,20 @@ impl<'a> super::ServerAddr<'a> {
             .to_utf8()
             .ok_or(Error::new(ErrorKind::InvalidInput, "non-utf8 address"))?;
         let stream = if self.tls {
+            use std::io::Write;
             let name = rustls::ServerName::try_from(string)
                 .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
             let conn = rustls::ClientConnection::new(config, name)
                 .map_err(|e| Error::new(ErrorKind::Other, e))?;
             let sock = std::net::TcpStream::connect((string, self.port_num()))?;
-            let tls = rustls::StreamOwned { conn, sock };
-            StreamInner::Tls(tls)
+            let mut tls = rustls::StreamOwned { conn, sock };
+            tls.flush()?;
+            StreamInner::Tls(Box::new(tls))
         } else {
             let sock = std::net::TcpStream::connect((string, self.port_num()))?;
             StreamInner::Tcp(sock)
         };
-        // Smallest power of two larger than the largest IRCv3 message.
-        Ok(BufReader::with_capacity(16384, Stream(stream)))
+        Ok(BufReader::with_capacity(super::BUFSIZE, Stream(stream)))
     }
 }
 
@@ -49,7 +50,7 @@ enum StreamInner {
     Closed,
     Tcp(TcpStream),
     #[cfg(feature = "tls")]
-    Tls(rustls::StreamOwned<rustls::ClientConnection, TcpStream>),
+    Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
 }
 
 impl Stream {
@@ -130,53 +131,23 @@ impl std::io::Write for Stream {
     }
 }
 
-/// Types that are usable as synchronous connections.
-pub trait Connection {
-    /// This type as a [`BufRead`][std::io::BufRead].
-    type BufRead: std::io::BufRead;
-    /// This type as a [`Write`][std::io::Write].
-    type Write: std::io::Write;
-    /// Returns self as a `BufRead`.
-    fn as_bufread(&mut self) -> &mut Self::BufRead;
-    /// Returns self as a `Write`.
-    fn as_write(&mut self) -> &mut Self::Write;
+/// [`Read`][std::io::Read]s with configurable timeouts.
+pub trait SetReadTimeout: std::io::Read {
     /// Sets the read timeout for this connection.
+    ///
+    /// May error if a duration of zero is provided to `timeout`.
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
 }
 
-impl Connection for BufReader<TcpStream> {
-    type BufRead = Self;
-
-    type Write = TcpStream;
-
-    fn as_bufread(&mut self) -> &mut Self::BufRead {
-        self
-    }
-
-    fn as_write(&mut self) -> &mut Self::Write {
-        self.get_mut()
-    }
-
+impl SetReadTimeout for TcpStream {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.get_ref().set_read_timeout(timeout)
+        Self::set_read_timeout(self, timeout)
     }
 }
 
-impl Connection for BufReader<Stream> {
-    type BufRead = Self;
-
-    type Write = Stream;
-
-    fn as_bufread(&mut self) -> &mut Self::BufRead {
-        self
-    }
-
-    fn as_write(&mut self) -> &mut Self::Write {
-        self.get_mut()
-    }
-
+impl SetReadTimeout for Stream {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.get_ref().set_read_timeout(timeout)
+        Self::set_read_timeout(self, timeout)
     }
 }
 
@@ -185,22 +156,11 @@ impl<
         'a,
         S: rustls::SideData,
         C: 'a + std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
-    > Connection for BufReader<rustls::Stream<'a, C, TcpStream>>
+        T: SetReadTimeout + std::io::Write,
+    > SetReadTimeout for rustls::Stream<'a, C, T>
 {
-    type BufRead = Self;
-
-    type Write = rustls::Stream<'a, C, TcpStream>;
-
-    fn as_bufread(&mut self) -> &mut Self::BufRead {
-        self
-    }
-
-    fn as_write(&mut self) -> &mut Self::Write {
-        self.get_mut()
-    }
-
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.get_ref().sock.set_read_timeout(timeout)
+        self.sock.set_read_timeout(timeout)
     }
 }
 
@@ -208,11 +168,36 @@ impl<
 impl<
         S: rustls::SideData,
         C: std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
-    > Connection for BufReader<rustls::StreamOwned<C, TcpStream>>
+        T: SetReadTimeout + std::io::Write,
+    > SetReadTimeout for rustls::StreamOwned<C, T>
 {
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.sock.set_read_timeout(timeout)
+    }
+}
+
+/// Types that are usable as synchronous connections.
+pub trait Connection: SetReadTimeout {
+    /// This type as a [`BufRead`][std::io::BufRead].
+    type BufRead: std::io::BufRead;
+    /// This type as a [`Write`][std::io::Write].
+    type Write: std::io::Write;
+    /// Returns self as a `BufRead`.
+    fn as_bufread(&mut self) -> &mut Self::BufRead;
+    /// Returns self as a `Write`.
+    fn as_write(&mut self) -> &mut Self::Write;
+}
+
+impl<T: SetReadTimeout> SetReadTimeout for BufReader<T> {
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.get_mut().set_read_timeout(timeout)
+    }
+}
+
+impl<T: SetReadTimeout + std::io::Write> Connection for BufReader<T> {
     type BufRead = Self;
 
-    type Write = rustls::StreamOwned<C, TcpStream>;
+    type Write = T;
 
     fn as_bufread(&mut self) -> &mut Self::BufRead {
         self
@@ -220,9 +205,5 @@ impl<
 
     fn as_write(&mut self) -> &mut Self::Write {
         self.get_mut()
-    }
-
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.get_ref().sock.set_read_timeout(timeout)
     }
 }

@@ -21,6 +21,8 @@ Adds base64 encoding/decoding.
 Adds utilities for building client-side IRC software.
 * `tls`:
 Adds utilities for working with rustls.
+* `tls-tokio`: Implies `tls` and `tokio`.
+Adds support for asynchronous TLS connections.
 * `tokio`:
 Adds functions for Tokio-based I/O.
 
