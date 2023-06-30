@@ -1,9 +1,8 @@
 use super::FallbackNicks;
 use crate::{
     client::{auth::SaslLogic, nick::NickTransformer, ClientMsgSink, HandlerOk, HandlerResult},
-    ircmsg::{ClientMsg, ServerMsg},
-    known::cmd::{CAP, NICK},
-    source::Source,
+    consts::cmd::{CAP, NICK},
+    ircmsg::{ClientMsg, ServerMsg, Source},
     string::{Arg, Key, Line, Nick, Word},
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -29,7 +28,7 @@ pub struct Registration {
 impl Default for Registration {
     fn default() -> Self {
         Self {
-            nick: crate::known::STAR,
+            nick: crate::consts::STAR,
             host: None,
             account: None,
             caps: BTreeMap::new(),
@@ -189,7 +188,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                     .args
                     .args()
                     .first()
-                    .filter(|n| *n != crate::known::STAR.as_bytes())
+                    .filter(|n| *n != crate::consts::STAR.as_bytes())
                     .and_then(|n| Nick::from_super(n.clone()).ok());
                 if let Some(nick) = nick {
                     self.reg.nick = nick;
@@ -313,7 +312,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
     }
     #[cfg(feature = "base64")]
     fn next_sasl(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
-        use crate::known::cmd::AUTHENTICATE;
+        use crate::consts::cmd::AUTHENTICATE;
         let Some((name, logic)) = self.auths.pop_front() else {
             return Ok(());
         };

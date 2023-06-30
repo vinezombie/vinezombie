@@ -13,8 +13,8 @@ pub mod tls;
 
 pub use {handler::*, queue::*, sink::*};
 
+use crate::consts::cmd::{PING, PONG};
 use crate::ircmsg::{ClientMsg, ServerMsg};
-use crate::known::cmd::{PING, PONG};
 
 /// Returns a message in reply to a server ping.
 pub fn pong(msg: &ServerMsg<'_>) -> Option<ClientMsg<'static>> {

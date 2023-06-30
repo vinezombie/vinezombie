@@ -4,10 +4,10 @@ impl<'a> super::ServerAddr<'a> {
     /// Creates a synchronous connection, ignoring the `tls` flag.
     pub fn connect_no_tls(&self) -> std::io::Result<BufReader<Stream>> {
         use std::io::{Error, ErrorKind};
-        let string = self.address.to_utf8().ok_or(Error::new(
-            ErrorKind::InvalidInput,
-            "non-utf8 address"
-        ))?;
+        let string = self
+            .address
+            .to_utf8()
+            .ok_or(Error::new(ErrorKind::InvalidInput, "non-utf8 address"))?;
         let sock = std::net::TcpStream::connect((string, self.port_num()))?;
         Ok(BufReader::new(Stream(StreamInner::Tcp(sock))))
     }
@@ -15,13 +15,13 @@ impl<'a> super::ServerAddr<'a> {
     #[cfg(feature = "tls")]
     pub fn connect(
         &self,
-        config: std::sync::Arc<rustls::ClientConfig>
+        config: std::sync::Arc<rustls::ClientConfig>,
     ) -> std::io::Result<BufReader<Stream>> {
         use std::io::{Error, ErrorKind};
-        let string = self.address.to_utf8().ok_or(Error::new(
-            ErrorKind::InvalidInput,
-            "non-utf8 address"
-        ))?;
+        let string = self
+            .address
+            .to_utf8()
+            .ok_or(Error::new(ErrorKind::InvalidInput, "non-utf8 address"))?;
         let stream = if self.tls {
             let name = rustls::ServerName::try_from(string)
                 .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
@@ -49,7 +49,7 @@ enum StreamInner {
     Closed,
     Tcp(TcpStream),
     #[cfg(feature = "tls")]
-    Tls(rustls::StreamOwned<rustls::ClientConnection, TcpStream>)
+    Tls(rustls::StreamOwned<rustls::ClientConnection, TcpStream>),
 }
 
 impl Stream {
@@ -59,13 +59,9 @@ impl Stream {
         // TODO: Maybe intercept NotConnected?
         match &self.0 {
             StreamInner::Closed => Ok(()),
-            StreamInner::Tcp(s) => {
-                s.shutdown(how)
-            }
+            StreamInner::Tcp(s) => s.shutdown(how),
             #[cfg(feature = "tls")]
-            StreamInner::Tls(s) => {
-                s.sock.shutdown(how)
-            }
+            StreamInner::Tls(s) => s.sock.shutdown(how),
         }
     }
     /// Sets the read timeout for this stream,
@@ -75,13 +71,9 @@ impl Stream {
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         match &self.0 {
             StreamInner::Closed => Ok(()),
-            StreamInner::Tcp(s) => {
-                s.set_read_timeout(timeout)
-            }
+            StreamInner::Tcp(s) => s.set_read_timeout(timeout),
             #[cfg(feature = "tls")]
-            StreamInner::Tls(s) => {
-                s.sock.set_read_timeout(timeout)
-            }
+            StreamInner::Tls(s) => s.sock.set_read_timeout(timeout),
         }
     }
     /// Sets the write timeout for this stream,
@@ -91,13 +83,9 @@ impl Stream {
     pub fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         match &self.0 {
             StreamInner::Closed => Ok(()),
-            StreamInner::Tcp(s) => {
-                s.set_write_timeout(timeout)
-            }
+            StreamInner::Tcp(s) => s.set_write_timeout(timeout),
             #[cfg(feature = "tls")]
-            StreamInner::Tls(s) => {
-                s.sock.set_write_timeout(timeout)
-            }
+            StreamInner::Tls(s) => s.sock.set_write_timeout(timeout),
         }
     }
 }

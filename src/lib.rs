@@ -15,13 +15,7 @@
 
 #[cfg(feature = "client")]
 pub mod client;
+pub mod consts;
 pub mod error;
-#[cfg(feature = "ircmsg")]
 pub mod ircmsg;
-pub mod known;
-pub mod source;
-#[cfg(feature = "state")]
-pub mod state;
 pub mod string;
-#[cfg(feature = "abstract")]
-pub mod update;

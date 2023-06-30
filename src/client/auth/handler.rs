@@ -1,8 +1,8 @@
 use super::{Sasl, SaslLogic};
 use crate::{
     client::{ClientMsgSink, HandlerOk, HandlerResult},
+    consts::cmd::AUTHENTICATE,
     ircmsg::ClientMsg,
-    known::cmd::AUTHENTICATE,
     string::{Arg, Line},
 };
 use std::collections::BTreeSet;
@@ -80,7 +80,7 @@ impl Handler {
             logic: sasl.logic()?,
             decoder: crate::string::base64::ChunkDecoder::new(400),
         };
-        let mut msg = ClientMsg::new_cmd(crate::known::cmd::AUTHENTICATE);
+        let mut msg = ClientMsg::new_cmd(crate::consts::cmd::AUTHENTICATE);
         msg.args.add(sasl.name());
         Ok((msg, auth))
     }

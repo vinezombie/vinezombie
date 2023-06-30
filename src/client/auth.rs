@@ -15,9 +15,9 @@ use crate::{ircmsg::ClientMsg, string::Arg};
 
 /// Returns the [`ClientMsg`] for aborting authentication.
 pub fn msg_abort() -> ClientMsg<'static> {
-    use crate::known::cmd::AUTHENTICATE;
+    use crate::consts::cmd::AUTHENTICATE;
     let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
-    msg.args.add(crate::known::STAR);
+    msg.args.add(crate::consts::STAR);
     msg
 }
 

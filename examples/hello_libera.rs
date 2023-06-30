@@ -43,7 +43,7 @@ fn main() -> std::io::Result<()> {
     // From here, we can keep reading messages (including 004 and 005)
     // but we don't care about any of that, so let's just quit.
     // send_to takes a Vec for buffering writes.
-    let msg = ClientMsg::new_cmd(vinezombie::known::cmd::QUIT);
+    let msg = ClientMsg::new_cmd(vinezombie::consts::cmd::QUIT);
     msg.send_to(sock.get_mut(), &mut Vec::new())?;
     Ok(())
 }

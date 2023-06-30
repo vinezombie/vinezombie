@@ -11,30 +11,23 @@ The examples may be useful in learning how to use this library.
 
 ## Optional Features
 
-Vinezombie aims to have feature gates and minimum mandatory dependencies
-to allow you to use only what you need.
-The default feature set is designed to be enough to write IRC bots,
+Vinezombie has no mandatory dependencies besides `std`.
+The default feature set is chosen to be enough to write IRC bots,
 and includes the following:
 
-* `abstract`: Uses `ircmsg` and `state`.
-Adds abstractions of the raw IRC protocol.
 * `base64`: Required for SASL.
 Adds base64 encoding/decoding.
-* `client`: Uses `ircmsg`.
+* `client`:
 Adds utilities for building client-side IRC software.
-* `ircmsg`:
-Adds representations of IRC messages.
-* `state`:
-Adds types for representing network state.
 * `tls`:
 Adds utilities for working with rustls.
+* `tokio`:
+Adds functions for Tokio-based I/O.
 
 The following optional features are also available:
 
 * `serde`:
 Adds implementations of `Serialize`+`Deserialize` for certain types.
-* `tokio`:
-Adds functions for Tokio-based I/O.
 * `tracing`:
 Adds logging to a few locations in the library.
 If your application uses `log`,
@@ -59,7 +52,7 @@ These enforce invariants on the string that can be checked in
 `const` contexts, helping to prevent certain classes of logic errors and
 the construction of invalid messages.
 
-## Protocol-Level Features
+## Protocol Features
 
 Vinezombie includes parsers for IRCv3 messages and their components
 which can be found in [`ircmsg`][crate::ircmsg].
@@ -69,9 +62,9 @@ and [server-originated messages][crate::ircmsg::ServerMsg].
 
 To make working within `Bytes` newtypes more-convenient,
 vinezombie also includes named constants for common IRC message values in
-[`known`][crate::known].
+[`consts`][crate::consts].
 
-## Low-Level Client Features
+## Client Features
 
 If you are writing client-side software,
 the [`client`][crate::client] module includes an assortment of utilities

@@ -1,7 +1,6 @@
-use super::{Args, Numeric, ServerMsgKind, Tags};
+use super::{Args, Numeric, ServerMsgKind, Source, Tags};
 use crate::{
     error::{InvalidByte, ParseError},
-    source::Source,
     string::{Cmd, Line, Nick},
 };
 use std::io::Write;

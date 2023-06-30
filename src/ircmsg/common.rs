@@ -1,6 +1,5 @@
-use super::{Args, Tags};
+use super::{Args, Source, Tags};
 use crate::error::{InvalidByte, ParseError};
-use crate::source::Source;
 use crate::string::{Line, Word};
 
 macro_rules! read_msg {

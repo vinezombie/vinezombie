@@ -1,10 +1,9 @@
 //! Utilities for working with capability negotiation.
 
 use crate::{
+    consts::cmd::CAP,
     error::ParseError,
-    ircmsg::{Args, ClientMsg},
-    known::cmd::CAP,
-    source::Source,
+    ircmsg::{Args, ClientMsg, Source},
     string::{Arg, Cmd, Key, Line, Nick, Word},
 };
 use std::collections::{BTreeMap, VecDeque};

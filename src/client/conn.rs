@@ -44,16 +44,12 @@ impl<'a> ServerAddr<'a> {
     /// Creates a new `ServerAddr` with `tls = true` and a default port number.
     pub fn from_host<A: TryInto<Word<'a>>>(address: A) -> Result<Self, A::Error> {
         let address = address.try_into()?;
-        Ok(Self {
-            address, tls: true, port: None
-        })
+        Ok(Self { address, tls: true, port: None })
     }
     /// As [`ServerAddr::from_host`] but is `const` and panics on invalid input.
     pub const fn from_host_str(address: &'a str) -> Self {
         let address = Word::from_str(address);
-        Self {
-            address, tls: true, port: None
-        }
+        Self { address, tls: true, port: None }
     }
     /// Returns a string representation of self.
     pub fn to_word(&self) -> Word<'static> {

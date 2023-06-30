@@ -2,21 +2,26 @@
 
 # vinezombie
 
-**An abstracting IRCv3 library in Rust.**
+**A modular IRCv3 library in Rust.**
 
-[![CI](https://github.com/TheDaemoness/vinezombie/actions/workflows/ci.yml/badge.svg)](https://github.com/TheDaemoness/vinezombie/actions/workflows/ci.yml)
+[![CI](https://github.com/vinezombie/vinezombie/actions/workflows/ci.yml/badge.svg)](https://github.com/vinezombie/vinezombie/actions/workflows/ci.yml)
 [![Chat on libera.chat](https://img.shields.io/badge/libera.chat-%23vinezombie-blueviolet)](https://web.libera.chat/gamja/?channel=#vinezombie)
 
-`vinezombie` is an opinionated Rust library for writing IRCv3 software.
-It is designed to provide thin abstractions over the underlying protocol
-while allowing the mapping between them be highly-configurable at runtime.
-The goal is to allow client logic to be written as agnostically as reasonably
-possible to the quirks of whatever server is being connected to.
+`vinezombie` is a Rust library for writing IRCv3 software
+(mostly clients/bots at this time).
+It is a toolbox for creating connections to IRC servers,
+correctly parsing inbound IRC messages,
+and constructing correct outbound IRC messages.
+It is designed to be flexible and modular,
+making minimal assumptions about how it will be used and
+allowing you to use only the parts of it that you need.
 
 ## Building Documentation and Examples
 
-To build and view the documentation locally, run
-`RUSTDOCFLAGS="--cfg doc_unstable" cargo +nightly doc --all-features --open`
+To build and view the documentation locally, run:
+```sh
+RUSTDOCFLAGS="--cfg doc_unstable" cargo +nightly doc --all-features --open`
+````
 
 `vinezombie`'s examples may use any combination of its features,
 and should be built with `--all-features`.

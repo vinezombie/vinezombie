@@ -49,7 +49,7 @@ impl Iterator for ChunkEncoder {
             let rest = std::mem::take(&mut self.0);
             self.1 = 0;
             Some(if rest.is_empty() {
-                crate::known::PLUS
+                crate::consts::PLUS
             } else {
                 unsafe { Arg::from_unchecked(rest) }
             })

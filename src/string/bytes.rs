@@ -166,7 +166,7 @@ impl<'a> Bytes<'a> {
     #[cfg(feature = "base64")]
     pub fn to_base64_plus(&self) -> super::Arg<'static> {
         if self.is_empty() {
-            crate::known::PLUS
+            crate::consts::PLUS
         } else {
             unsafe { super::Arg::from_unchecked(self.to_base64_impl()) }
         }

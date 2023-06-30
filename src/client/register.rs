@@ -101,7 +101,7 @@ impl<P: Secret, S, N: NickTransformer> Register<P, S, N> {
         defaults: &'static impl Defaults<NickGen = N2>,
         mut sink: impl ClientMsgSink<'static>,
     ) -> std::io::Result<FallbackNicks<N, N2>> {
-        use crate::known::cmd::{CAP, NICK, PASS, USER};
+        use crate::consts::cmd::{CAP, NICK, PASS, USER};
         if let Some(pass) = &self.pass {
             let mut msg = ClientMsg::new_cmd(PASS);
             let mut secret = Vec::new();
