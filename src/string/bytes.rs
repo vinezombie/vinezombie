@@ -14,8 +14,6 @@ pub const DISPLAY_PLACEHOLDER: &str = "<?>";
 /// A borrowing or shared-owning immutable byte string. Not to be confused with Bytes
 /// from the crate of the same name.
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(from = "Vec<u8>", into = "Vec<u8>"))]
 pub struct Bytes<'a> {
     value: &'a [u8],
     /// If this is Some, `value` points to data owned by this.
@@ -280,7 +278,7 @@ impl std::borrow::Borrow<[u8]> for Bytes<'_> {
 
 // Conversions to IrcStr.
 
-impl From<Vec<u8>> for Bytes<'static> {
+impl<'a> From<Vec<u8>> for Bytes<'a> {
     fn from(value: Vec<u8>) -> Self {
         unsafe {
             let (ownership, value) = OwnedBytes::from_vec(value, false);
@@ -289,7 +287,7 @@ impl From<Vec<u8>> for Bytes<'static> {
     }
 }
 
-impl From<String> for Bytes<'static> {
+impl<'a> From<String> for Bytes<'a> {
     fn from(value: String) -> Self {
         unsafe {
             let (ownership, value) = OwnedBytes::from_vec(value.into_bytes(), false);

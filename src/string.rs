@@ -15,6 +15,8 @@
 #[cfg(feature = "base64")]
 pub mod base64;
 mod bytes;
+#[cfg(feature = "serde")]
+mod serde;
 mod subtypes;
 #[cfg(test)]
 mod tests;
