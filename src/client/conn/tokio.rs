@@ -4,11 +4,7 @@ use tokio::{io::BufReader, net::TcpStream};
 impl<'a> super::ServerAddr<'a> {
     /// Creates an asynchronous connection, ignoring the `tls` flag.
     pub async fn connect_tokio_no_tls(&self) -> std::io::Result<BufReader<StreamTokio>> {
-        use std::io::{Error, ErrorKind};
-        let string = self
-            .address
-            .to_utf8()
-            .ok_or(Error::new(ErrorKind::InvalidInput, "non-utf8 address"))?;
+        let string = self.address.as_str();
         let sock = tokio::net::TcpStream::connect((string, self.port_num())).await?;
         Ok(BufReader::with_capacity(super::BUFSIZE, StreamTokio(StreamInner::Tcp(sock))))
     }
@@ -19,10 +15,7 @@ impl<'a> super::ServerAddr<'a> {
         config: std::sync::Arc<rustls::ClientConfig>,
     ) -> std::io::Result<BufReader<StreamTokio>> {
         use std::io::{Error, ErrorKind};
-        let string = self
-            .address
-            .to_utf8()
-            .ok_or(Error::new(ErrorKind::InvalidInput, "non-utf8 address"))?;
+        let string = self.address.as_str();
         let stream = if self.tls {
             let name = rustls::ServerName::try_from(string)
                 .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;

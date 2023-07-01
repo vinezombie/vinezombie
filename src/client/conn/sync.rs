@@ -3,11 +3,7 @@ use std::{io::BufReader, net::TcpStream, time::Duration};
 impl<'a> super::ServerAddr<'a> {
     /// Creates a synchronous connection, ignoring the `tls` flag.
     pub fn connect_no_tls(&self) -> std::io::Result<BufReader<Stream>> {
-        use std::io::{Error, ErrorKind};
-        let string = self
-            .address
-            .to_utf8()
-            .ok_or(Error::new(ErrorKind::InvalidInput, "non-utf8 address"))?;
+        let string = self.address.as_str();
         let sock = std::net::TcpStream::connect((string, self.port_num()))?;
         Ok(BufReader::with_capacity(super::BUFSIZE, Stream(StreamInner::Tcp(sock))))
     }
@@ -18,10 +14,7 @@ impl<'a> super::ServerAddr<'a> {
         config: std::sync::Arc<rustls::ClientConfig>,
     ) -> std::io::Result<BufReader<Stream>> {
         use std::io::{Error, ErrorKind};
-        let string = self
-            .address
-            .to_utf8()
-            .ok_or(Error::new(ErrorKind::InvalidInput, "non-utf8 address"))?;
+        let string = self.address.as_str();
         let stream = if self.tls {
             use std::io::Write;
             let name = rustls::ServerName::try_from(string)

@@ -3,7 +3,7 @@ use crate::{
     client::{auth::SaslLogic, nick::NickTransformer, ClientMsgSink, HandlerOk, HandlerResult},
     consts::cmd::{CAP, NICK},
     ircmsg::{ClientMsg, ServerMsg, Source},
-    string::{Arg, Key, Line, Nick, Word},
+    string::{Arg, Host, Key, Line, Nick, Word},
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -16,7 +16,7 @@ pub struct Registration {
     ///
     /// This field will usually not be set unless SASL is completed.
     /// It may contain a spoofed hostname if the server supports those.
-    pub host: Option<Word<'static>>,
+    pub host: Option<Host<'static>>,
     /// The name of logged-into account, if any.
     pub account: Option<Arg<'static>>,
     /// The enabled capabilities and their values.

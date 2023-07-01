@@ -5,7 +5,7 @@ use crate::{
     error::ParseError,
     string::{
         tf::{Split, SplitFirst},
-        Nick, User, Word,
+        Host, Nick, User, Word,
     },
 };
 use std::io::Write;
@@ -25,7 +25,7 @@ pub struct Source<'a> {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UserHost<'a> {
     /// The hostname (or vhost) of the sender.
-    pub host: Word<'a>,
+    pub host: Host<'a>,
     /// The username of the sender.
     pub user: Option<User<'a>>,
 }
@@ -37,7 +37,7 @@ impl<'a> Source<'a> {
         Source { nick: server_name, userhost: None }
     }
     /// Creates a new source representing a user.
-    pub const fn new_user(nick: Nick<'a>, user: User<'a>, host: Word<'a>) -> Self {
+    pub const fn new_user(nick: Nick<'a>, user: User<'a>, host: Host<'a>) -> Self {
         Source { nick, userhost: Some(UserHost { user: Some(user), host }) }
     }
     /// Converts `self` into a version that owns its data.
@@ -80,7 +80,7 @@ impl<'a> Source<'a> {
         let mut word = word.into();
         let nick = word.transform(Split(crate::string::is_invalid_for_nick::<false>));
         // TODO: We know things that make the full from_bytes check here redundant,
-        // but we still need to check Args's conditions for Word (non-empty, no leading colon).
+        // but we still need to check Args's conditions for Host (non-empty, no leading colon).
         let nick = Nick::from_bytes(nick).map_err(ParseError::InvalidNick)?;
         let user = match word.transform(SplitFirst) {
             Some(b'!') => {
@@ -89,13 +89,15 @@ impl<'a> Source<'a> {
                 user
             }
             Some(b'@') => {
-                let address = UserHost { user: None, host: word };
+                let host = word.try_into().map_err(ParseError::InvalidHost)?;
+                let address = UserHost { user: None, host };
                 return Ok(Source { nick, userhost: Some(address) });
             }
             _ => return Ok(Source { nick, userhost: None }),
         };
         let user = User::from_bytes(user).map_err(ParseError::InvalidUser)?;
-        Ok(Source { nick, userhost: Some(UserHost { user: Some(user), host: word }) })
+        let host = word.try_into().map_err(ParseError::InvalidHost)?;
+        Ok(Source { nick, userhost: Some(UserHost { user: Some(user), host }) })
     }
 }
 

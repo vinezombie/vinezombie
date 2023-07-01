@@ -6,6 +6,7 @@ use std::num::NonZeroUsize;
 
 /// Errors from parsing an IRC message..
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum ParseError {
     /// The message exceeds permissible length limits.
     TooLong,
@@ -19,6 +20,8 @@ pub enum ParseError {
     InvalidNick(InvalidByte),
     /// The source fragment of the message contains an invalid username.
     InvalidUser(InvalidByte),
+    /// The source fragment of the message contains an invalid hostname.
+    InvalidHost(InvalidByte),
     /// The message's kind is invalid.
     InvalidKind(InvalidByte),
 }
@@ -32,6 +35,7 @@ impl std::fmt::Display for ParseError {
             ParseError::InvalidLine(e) => write!(f, "invalid line: {e}"),
             ParseError::InvalidNick(e) => write!(f, "invalid source nickname: {e}"),
             ParseError::InvalidUser(e) => write!(f, "invalid source username: {e}"),
+            ParseError::InvalidHost(e) => write!(f, "invalid source hostname: {e}"),
             ParseError::InvalidKind(e) => write!(f, "invalid message kind: {e}"),
         }
     }

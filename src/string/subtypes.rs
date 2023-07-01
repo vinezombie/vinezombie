@@ -359,6 +359,42 @@ impl<'a> Default for Word<'a> {
 }
 
 #[inline]
+pub(crate) const fn is_not_ascii(byte: &u8) -> bool {
+    !byte.is_ascii()
+}
+
+impl_subtype! {
+    "A non-empty [`Word`] that contains only ASCII."
+    Host: Word
+    HostSafe: WordSafe
+    |bytes| {
+        if bytes.is_empty() {
+            Some(InvalidByte::new_empty())
+        } else {
+            check_bytes!(bytes, is_not_ascii)
+        }
+    }
+    |bytes| {
+        if bytes.is_empty() {
+            Some(InvalidByte::new_empty())
+        } else {
+            check_bytes!(bytes, is_not_ascii)
+        }
+    }
+}
+conversions!(Host: NoNul);
+conversions!(Host: Line);
+conversions!(Host: Word);
+
+impl<'a> Host<'a> {
+    /// Returns a reference to `self`'s value as a `str`.
+    pub const fn as_str(&self) -> &str {
+        // Safety: This should only contain ASCII characters.
+        unsafe { std::str::from_utf8_unchecked(self.0.as_bytes()) }
+    }
+}
+
+#[inline]
 const fn arg_first_check(bytes: &[u8]) -> Option<InvalidByte> {
     match bytes.first() {
         None => Some(InvalidByte::new_empty()),
@@ -520,7 +556,7 @@ impl<'a> Cmd<'a> {
     }
     /// Returns a reference to `self`'s value as a `str`.
     pub const fn as_str(&self) -> &str {
-        // Safety: Cmd should only contain ASCII characters.
+        // Safety: This should only contain ASCII characters.
         unsafe { std::str::from_utf8_unchecked(self.0.as_bytes()) }
     }
 }

@@ -8,7 +8,7 @@ mod tokio;
 pub use self::tokio::*;
 pub use sync::*;
 
-use crate::string::Word;
+use crate::string::Host;
 
 /// Smallest power of two larger than the largest IRCv3 message.
 pub(self) const BUFSIZE: usize = 16384;
@@ -20,9 +20,8 @@ pub(self) const BUFSIZE: usize = 16384;
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ServerAddr<'a> {
-    // Can't use Arg here because of `::1`.
     /// The address to connect to.
-    pub address: Word<'a>,
+    pub address: Host<'a>,
     /// Whether to use TLS.
     pub tls: bool,
     /// An optional port number if a non-default one should be used.
@@ -49,23 +48,23 @@ impl<'a> std::hash::Hash for ServerAddr<'a> {
 
 impl<'a> ServerAddr<'a> {
     /// Creates a new `ServerAddr` with `tls = true` and a default port number.
-    pub fn from_host<A: TryInto<Word<'a>>>(address: A) -> Result<Self, A::Error> {
+    pub fn from_host<A: TryInto<Host<'a>>>(address: A) -> Result<Self, A::Error> {
         let address = address.try_into()?;
         Ok(Self { address, tls: true, port: None })
     }
     /// As [`ServerAddr::from_host`] but is `const` and panics on invalid input.
     pub const fn from_host_str(address: &'a str) -> Self {
-        let address = Word::from_str(address);
+        let address = Host::from_str(address);
         Self { address, tls: true, port: None }
     }
     /// Returns a string representation of self.
-    pub fn to_word(&self) -> Word<'static> {
+    pub fn to_word(&self) -> Host<'static> {
         use std::io::Write;
         let mut vec = Vec::with_capacity(self.address.len() + 9);
         vec.extend_from_slice(self.address.as_bytes());
         let _ = write!(vec, ":{}{}", if self.tls { "+" } else { "" }, self.port_num());
         // TODO: We're pretty UTF-8 safe here.
-        unsafe { Word::from_unchecked(vec.into()) }
+        unsafe { Host::from_unchecked(vec.into()) }
     }
     /// Returns the port number that should be used for connecting to the network.
     pub const fn port_num(&self) -> u16 {
