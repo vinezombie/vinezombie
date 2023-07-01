@@ -1,6 +1,6 @@
 use crate::string::{
-    ArgSafe, Bytes, CmdSafe, KeySafe, LineSafe, NickSafe, Transform, Transformation, UserSafe,
-    Utf8Policy, WordSafe,
+    ArgSafe, Bytes, CmdSafe, KeySafe, LineSafe, NickSafe, NoNulSafe, Transform, Transformation,
+    UserSafe, Utf8Policy, WordSafe,
 };
 
 /// ASCII casemapping, generic over whether it's uppercase or lowercase.
@@ -26,6 +26,7 @@ unsafe impl<const UPPERCASE: bool> Transform for AsciiCasemap<UPPERCASE> {
         }
     }
 }
+unsafe impl<const UC: bool> NoNulSafe for AsciiCasemap<UC> {}
 unsafe impl<const UC: bool> LineSafe for AsciiCasemap<UC> {}
 unsafe impl<const UC: bool> WordSafe for AsciiCasemap<UC> {}
 unsafe impl<const UC: bool> KeySafe for AsciiCasemap<UC> {}
@@ -91,6 +92,7 @@ unsafe impl Transform for IrcCasemap {
         }
     }
 }
+unsafe impl NoNulSafe for IrcCasemap {}
 unsafe impl LineSafe for IrcCasemap {}
 unsafe impl WordSafe for IrcCasemap {}
 unsafe impl ArgSafe for IrcCasemap {}

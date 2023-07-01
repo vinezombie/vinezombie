@@ -1,4 +1,4 @@
-use crate::string::{Bytes, Word};
+use crate::string::{NoNul, Word};
 use std::num::NonZeroU8;
 
 /// Returns the unescaped value for an tag value escape code.
@@ -26,11 +26,11 @@ pub fn escape_byte(byte: &u8) -> Option<NonZeroU8> {
 }
 
 /// Returns an escaped form of the provided tag value.
-pub fn escape<'a>(tag_value: impl Into<Bytes<'a>>) -> Word<'a> {
+pub fn escape<'a>(tag_value: impl Into<NoNul<'a>>) -> Word<'a> {
     let tag_value = tag_value.into();
     let Some(first_idx) = tag_value.iter().position(|c| escape_byte(c).is_some()) else {
         return unsafe {
-            Word::from_unchecked(tag_value)
+            Word::from_unchecked(tag_value.into_bytes())
         }
     };
     let (mut new_bytes, rest) = unsafe {
@@ -56,7 +56,7 @@ pub fn escape<'a>(tag_value: impl Into<Bytes<'a>>) -> Word<'a> {
 }
 
 /// Returns an unescaped form of the provided tag value.
-pub fn unescape<'a>(tag_value: impl Into<Bytes<'a>>) -> Bytes<'a> {
+pub fn unescape<'a>(tag_value: impl Into<NoNul<'a>>) -> NoNul<'a> {
     let tag_value = tag_value.into();
     let Some(first_idx) = tag_value.iter().position(|c| *c == b'\\') else {
         return tag_value;
@@ -81,5 +81,5 @@ pub fn unescape<'a>(tag_value: impl Into<Bytes<'a>>) -> Bytes<'a> {
             new_bytes.push(*byte);
         }
     }
-    new_bytes.into()
+    unsafe { NoNul::from_unchecked(new_bytes.into()) }
 }

@@ -1,8 +1,7 @@
 //! Implementations of specific SASL mechanisms.
 
 use super::{Sasl, SaslLogic, Secret};
-use crate::string::Arg;
-use std::ffi::CString;
+use crate::string::{Arg, NoNul};
 
 /// The [EXTERNAL SASL mechanism](https://www.rfc-editor.org/rfc/rfc4422#appendix-A).
 ///
@@ -41,8 +40,8 @@ impl Sasl for External {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Plain<S> {
-    authzid: CString,
-    authcid: CString,
+    authzid: NoNul<'static>,
+    authcid: NoNul<'static>,
     passwd: S,
 }
 
@@ -52,15 +51,16 @@ impl<S: Secret> Plain<S> {
     ///
     /// `passwd` should be UTF-8 encoded and not contain a null character,
     /// but this is not enforced.
-    pub fn new(account: CString, passwd: S) -> Self {
-        Plain { authzid: CString::new("").unwrap(), authcid: account, passwd }
+    pub const fn new(account: NoNul<'static>, passwd: S) -> Self {
+        // TODO: NoNul::empty()
+        Plain { authzid: NoNul::from_str(""), authcid: account, passwd }
     }
     /// Creates a `Plain` that logs into the account specified by authzid
     /// using the credentials for the account specified by authcid.
     ///
     /// `passwd` should be UTF-8 encoded and not contain a null character,
     /// but this is not enforced.
-    pub fn new_as(authzid: CString, authcid: CString, passwd: S) -> Self {
+    pub const fn new_as(authzid: NoNul<'static>, authcid: NoNul<'static>, passwd: S) -> Self {
         Plain { authzid, authcid, passwd }
     }
 }
@@ -89,11 +89,14 @@ impl<S: Secret + 'static> Sasl for Plain<S> {
         Arg::from_str("PLAIN")
     }
     fn logic(&self) -> std::io::Result<Box<dyn SaslLogic>> {
-        let authzid = self.authzid.as_bytes_with_nul();
-        let authcid = self.authcid.as_bytes_with_nul();
-        let mut data = Vec::with_capacity(16 + authcid.len() + authzid.len());
+        let authzid = self.authzid.as_bytes();
+        let authcid = self.authcid.as_bytes();
+        // 16 + 2 nul bytes.
+        let mut data = Vec::with_capacity(18 + authcid.len() + authzid.len());
         data.extend(authzid);
+        data.push(b'\0');
         data.extend(authcid);
+        data.push(b'\0');
         self.passwd.load(&mut data)?;
         Ok(Box::new(PlainLogic(data)))
     }

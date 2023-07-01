@@ -21,7 +21,12 @@ allowing you to use only the parts of it that you need.
 To build and view the documentation locally, run:
 ```sh
 RUSTDOCFLAGS="--cfg doc_unstable" cargo +nightly doc --all-features --open`
-````
+```
+
+The strings diagram in `doc` can be re-rendered using:
+```sh
+d2 -t 200 -l dagre --pad 0 doc/strings.d2 doc/strings.d2.svg
+```
 
 `vinezombie`'s examples may use any combination of its features,
 and should be built with `--all-features`.

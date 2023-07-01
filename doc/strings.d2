@@ -1,14 +1,18 @@
-Bytes <- Line: "No CR, LF, or NUL"
+direction: up
+Bytes <- NoNul: "No NUL character"
+NoNul <- Line: "No CR or LF"
 Line <- Word: "No spaces"
 Word <- Arg: "Non-empty; no leading :"
+
 Arg <- Cmd: "Only uppercase ASCII letters"
 Arg <- Key: "No = or ;"
 Arg <- Nick: "No ! or @"
 Arg <- User: "No @ or %"
 
 Bytes.shape: class
+NoNul.shape: class
 Line.shape: class 
-Word.shape: class 
+Word.shape: class
 Arg.shape: class 
 Nick.shape: class 
 User.shape: class 

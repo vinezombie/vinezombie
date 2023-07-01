@@ -4,9 +4,9 @@ use super::{Bytes, Transform};
 use crate::{error::InvalidByte, string::tf::AsciiCasemap};
 use std::borrow::Borrow;
 
-/// # Safety
-/// Here be transmutes. $ssuper must be either Bytes
-/// or a an $sname from a previous use of this macro.
+// # Safety
+// Here be transmutes. $ssuper must be either Bytes
+// or a an $sname from a previous use of this macro.
 macro_rules! impl_subtype {
     (
         $doc:literal
@@ -276,18 +276,42 @@ macro_rules! check_bytes {
 }
 
 #[inline]
-pub(crate) const fn is_invalid_for_line(byte: &u8) -> bool {
-    matches!(*byte, b'\0' | b'\r' | b'\n')
+pub(crate) const fn is_invalid_for_nonul(byte: &u8) -> bool {
+    *byte == b'\0'
 }
 
 impl_subtype! {
-    "A [`Bytes`] that does not contain NUL, CR, or LF."
-    Line: Bytes
-    LineSafe: Transform
+    "A [`Bytes`] that does not contain NUL."
+    NoNul: Bytes
+    NoNulSafe: Transform
     |bytes| {
-        check_bytes!(bytes, is_invalid_for_line)
+        check_bytes!(bytes, is_invalid_for_nonul)
     }
 }
+
+impl<'a> Default for NoNul<'a> {
+    fn default() -> Self {
+        NoNul(Bytes::default())
+    }
+}
+
+#[inline]
+pub(crate) const fn is_invalid_for_line<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(byte, b'\r' | b'\n') || if CHAIN { is_invalid_for_nonul(byte) } else { false }
+}
+
+impl_subtype! {
+    "A [`NoNul`] that does not contain CR or LF."
+    Line: NoNul
+    LineSafe: NoNulSafe
+    |bytes| {
+        check_bytes!(bytes, is_invalid_for_line::<true>)
+    }
+    |bytes| {
+        check_bytes!(bytes, is_invalid_for_line::<false>)
+    }
+}
+conversions!(Line: NoNul);
 
 impl Line<'static> {
     /// Returns the realname of the local user running this program.
@@ -311,7 +335,7 @@ impl<'a> Default for Line<'a> {
 
 #[inline]
 pub(crate) const fn is_invalid_for_word<const CHAIN: bool>(byte: &u8) -> bool {
-    *byte == b' ' || if CHAIN { is_invalid_for_line(byte) } else { false }
+    *byte == b' ' || if CHAIN { is_invalid_for_line::<true>(byte) } else { false }
 }
 
 impl_subtype! {
@@ -325,6 +349,7 @@ impl_subtype! {
         check_bytes!(bytes, is_invalid_for_word::<false>)
     }
 }
+conversions!(Word: NoNul);
 conversions!(Word: Line);
 
 impl<'a> Default for Word<'a> {
@@ -357,6 +382,7 @@ impl_subtype! {
         arg_first_check(bytes)
     }
 }
+conversions!(Arg: NoNul);
 conversions!(Arg: Line);
 conversions!(Arg: Word);
 
@@ -380,6 +406,7 @@ impl_subtype! {
         check_bytes!(bytes, is_invalid_for_key::<false>)
     }
 }
+conversions!(Key: NoNul);
 conversions!(Key: Line);
 conversions!(Key: Word);
 conversions!(Key: Arg);
@@ -417,6 +444,7 @@ impl_subtype! {
         check_bytes!(bytes, is_invalid_for_nick::<false>)
     }
 }
+conversions!(Nick: NoNul);
 conversions!(Nick: Line);
 conversions!(Nick: Word);
 conversions!(Nick: Arg);
@@ -436,6 +464,7 @@ impl_subtype! {
         check_bytes!(bytes, is_invalid_for_user::<false>)
     }
 }
+conversions!(User: NoNul);
 conversions!(User: Line);
 conversions!(User: Word);
 conversions!(User: Arg);
@@ -474,6 +503,7 @@ impl_subtype! {
         check_bytes!(bytes, cmd_byte_check)
     }
 }
+conversions!(Cmd: NoNul);
 conversions!(Cmd: Line);
 conversions!(Cmd: Word);
 conversions!(Cmd: Arg);

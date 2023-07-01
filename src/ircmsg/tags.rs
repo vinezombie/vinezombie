@@ -2,7 +2,7 @@
 
 use crate::string::{
     tf::{escape, unescape, SplitKey},
-    Bytes, Key,
+    Key, NoNul,
 };
 use std::collections::BTreeMap;
 
@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct Tags<'a> {
     // Might replace with a sorted Vec.
-    map: BTreeMap<Key<'a>, Bytes<'a>>,
+    map: BTreeMap<Key<'a>, NoNul<'a>>,
     //avail: isize,
 }
 
@@ -41,23 +41,27 @@ impl<'a> Tags<'a> {
         self.map.is_empty()
     }
     /// Returns a reference to the value associated with the provided key, if any.
-    pub fn get(&self, key: impl TryInto<Key<'a>>) -> Option<&Bytes<'a>> {
+    pub fn get(&self, key: impl TryInto<Key<'a>>) -> Option<&NoNul<'a>> {
         self.map.get(&key.try_into().ok()?)
     }
     /// Inserts a key with no value into this map.
     ///
     /// This is equivalent to inserting a key-value pair with an empty value.
-    pub fn insert_key(&mut self, key: impl Into<Key<'a>>) -> Option<Bytes<'a>> {
-        self.insert_pair(key.into(), String::new())
+    pub fn insert_key(&mut self, key: impl Into<Key<'a>>) -> Option<NoNul<'a>> {
+        self.insert_pair(key.into(), NoNul::default())
     }
     /// Inserts a key-value pair into this map, returning the old value if present.
-    pub fn insert_pair(&mut self, key: impl Into<Key<'a>>, value: String) -> Option<Bytes<'a>> {
+    pub fn insert_pair(
+        &mut self,
+        key: impl Into<Key<'a>>,
+        value: impl Into<NoNul<'a>>,
+    ) -> Option<NoNul<'a>> {
         let key = key.into();
         // TODO: Length calculations based off of the escaped size of `value`.
         self.map.insert(key, value.into())
     }
     /// Removes a key-value pair from this map, returning the value, if any.
-    pub fn remove(&mut self, key: impl TryInto<Key<'a>>) -> Option<Bytes<'a>> {
+    pub fn remove(&mut self, key: impl TryInto<Key<'a>>) -> Option<NoNul<'a>> {
         let key = key.try_into().ok()?;
         self.map.remove(&key)
     }
@@ -97,9 +101,10 @@ impl<'a> Tags<'a> {
             let value = if matches!(delim, Some(b'=')) {
                 let value = word.transform(Split(|b: &u8| *b == b';'));
                 word.transform(SplitFirst);
-                unescape(value)
+                // `value` at this point is Word-valid.
+                unescape(unsafe { NoNul::from_unchecked(value) })
             } else {
-                Bytes::empty()
+                NoNul::default()
             };
             tags.map.insert(key, value);
         }
@@ -124,8 +129,8 @@ impl std::fmt::Display for Tags<'_> {
     }
 }
 
-impl<'a> FromIterator<(Key<'a>, String)> for Tags<'a> {
-    fn from_iter<T: IntoIterator<Item = (Key<'a>, String)>>(iter: T) -> Self {
+impl<'a> FromIterator<(Key<'a>, NoNul<'a>)> for Tags<'a> {
+    fn from_iter<T: IntoIterator<Item = (Key<'a>, NoNul<'a>)>>(iter: T) -> Self {
         let mut map = Tags::new();
         for (k, v) in iter {
             map.insert_pair(k, v);
@@ -136,9 +141,9 @@ impl<'a> FromIterator<(Key<'a>, String)> for Tags<'a> {
 }
 
 impl<'a> IntoIterator for Tags<'a> {
-    type Item = (Key<'a>, Bytes<'a>);
+    type Item = (Key<'a>, NoNul<'a>);
 
-    type IntoIter = std::collections::btree_map::IntoIter<Key<'a>, Bytes<'a>>;
+    type IntoIter = std::collections::btree_map::IntoIter<Key<'a>, NoNul<'a>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.into_iter()

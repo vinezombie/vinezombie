@@ -4,7 +4,7 @@ use crate::{
     string::{
         is_invalid_for_key,
         subtypes::{is_invalid_for_line, is_invalid_for_word},
-        Bytes, Key, Line, LineSafe, Word, WordSafe,
+        Bytes, Key, Line, LineSafe, NoNulSafe, Word, WordSafe,
     },
 };
 
@@ -27,12 +27,12 @@ unsafe impl Transform for SplitLine {
         unsafe {
             let slice = bytes.as_bytes_unsafe();
             let Some(first_valid_idx) = slice.iter().position(
-                |b| !is_invalid_for_line(b)
+                |b| !is_invalid_for_line::<true>(b)
             ) else {
                 return Transformation::empty(Line::default())
             };
             let slice = slice.split_at(first_valid_idx).1;
-            let end_idx = slice.iter().position(is_invalid_for_line).unwrap_or(slice.len());
+            let end_idx = slice.iter().position(is_invalid_for_line::<true>).unwrap_or(slice.len());
             let (line, rest) = slice.split_at(end_idx);
             Transformation {
                 value: Line::from_unchecked(bytes.using_value(line, Utf8Policy::Preserve)),
@@ -42,6 +42,7 @@ unsafe impl Transform for SplitLine {
         }
     }
 }
+unsafe impl NoNulSafe for SplitLine {}
 unsafe impl LineSafe for SplitLine {}
 unsafe impl WordSafe for SplitLine {}
 
@@ -75,6 +76,7 @@ unsafe impl Transform for SplitWord {
         }
     }
 }
+unsafe impl NoNulSafe for SplitWord {}
 unsafe impl LineSafe for SplitWord {}
 unsafe impl WordSafe for SplitWord {}
 
@@ -122,6 +124,7 @@ unsafe impl Transform for SplitKey {
         }
     }
 }
+unsafe impl NoNulSafe for SplitKey {}
 unsafe impl LineSafe for SplitKey {}
 unsafe impl WordSafe for SplitKey {}
 
@@ -148,6 +151,7 @@ unsafe impl Transform for SplitFirst {
         }
     }
 }
+unsafe impl NoNulSafe for SplitFirst {}
 unsafe impl LineSafe for SplitFirst {}
 unsafe impl WordSafe for SplitFirst {}
 
@@ -175,6 +179,7 @@ unsafe impl<F: FnMut(&u8) -> bool> Transform for Split<F> {
         }
     }
 }
+unsafe impl<F: FnMut(&u8) -> bool> NoNulSafe for Split<F> {}
 unsafe impl<F: FnMut(&u8) -> bool> LineSafe for Split<F> {}
 unsafe impl<F: FnMut(&u8) -> bool> WordSafe for Split<F> {}
 
@@ -202,6 +207,7 @@ unsafe impl<F: FnMut(&u8) -> bool> Transform for TrimStart<F> {
         }
     }
 }
+unsafe impl<F: FnMut(&u8) -> bool> NoNulSafe for TrimStart<F> {}
 unsafe impl<F: FnMut(&u8) -> bool> LineSafe for TrimStart<F> {}
 unsafe impl<F: FnMut(&u8) -> bool> WordSafe for TrimStart<F> {}
 
@@ -232,5 +238,6 @@ unsafe impl Transform for SplitAt {
         }
     }
 }
+unsafe impl NoNulSafe for SplitAt {}
 unsafe impl LineSafe for SplitAt {}
 unsafe impl WordSafe for SplitAt {}
