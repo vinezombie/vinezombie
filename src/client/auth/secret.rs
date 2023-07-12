@@ -33,7 +33,10 @@ impl Secret for () {
 /// This implementation stores secret data in main memory over its lifetime.
 /// If the `zeroize` feature is enabled, the underlying vector is zeroed out
 /// at the end of its lifetime.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+///
+/// If the `serde` and `base64` features are enabled, `Clear`
+/// can be serialized as a Base64-encoded string.
+#[derive(Clone)]
 pub struct Clear(pub Vec<u8>);
 
 impl Secret for Clear {
@@ -52,6 +55,39 @@ impl Secret for Clear {
 
     fn new(data: Vec<u8>) -> std::io::Result<Self> {
         Ok(Clear(data))
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "base64"))]
+impl serde::Serialize for Clear {
+    fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use base64::engine::{general_purpose::STANDARD as ENGINE, Engine};
+        #[allow(unused_mut)]
+        let mut encoded = ENGINE.encode(&self.0);
+        let ok = encoded.serialize(ser)?;
+        #[cfg(feature = "zeroize")]
+        zeroize::Zeroize::zeroize(&mut encoded);
+        Ok(ok)
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "base64"))]
+impl<'de> serde::Deserialize<'de> for Clear {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use base64::engine::{general_purpose::STANDARD as ENGINE, Engine};
+        use serde::de::Error;
+        #[allow(unused_mut)]
+        let mut encoded = String::deserialize(de)?;
+        let decoded = ENGINE.decode(&encoded).map_err(D::Error::custom)?;
+        #[cfg(feature = "zeroize")]
+        zeroize::Zeroize::zeroize(&mut encoded);
+        Ok(Clear(decoded))
     }
 }
 

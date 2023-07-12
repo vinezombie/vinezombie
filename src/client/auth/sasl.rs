@@ -40,6 +40,7 @@ impl Sasl for External {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Plain<S> {
+    #[cfg_attr(feature = "serde", serde(default))]
     authzid: NoNul<'static>,
     authcid: NoNul<'static>,
     passwd: S,
