@@ -105,16 +105,27 @@ impl<'a> Bytes<'a> {
     pub const fn len(&self) -> usize {
         self.value.len()
     }
+    /// Checks if `self` is known to be UTF-8 without checking the whole string.
+    ///
+    /// This operation does not perform UTF-8 validity checks.
+    #[inline]
+    pub fn is_utf8_lazy(&self) -> Option<bool> {
+        match self.utf8.load(Relaxed) {
+            1 => Some(true),
+            -1 => Some(false),
+            _ => None,
+        }
+    }
     /// Returns a reference to `self`'s value as a UTF-8 string if it's correctly encoded.
     ///
     /// This operation may do a UTF-8 validity check.
     /// If `self` was constructed from a UTF-8 string
     /// or a UTF-8 check was done previously, this check will be skipped.
     pub fn to_utf8(&self) -> Option<&str> {
-        match self.utf8.load(Relaxed) {
-            1 => Some(unsafe { std::str::from_utf8_unchecked(self.value) }),
-            -1 => None,
-            _ => {
+        match self.is_utf8_lazy() {
+            Some(true) => Some(unsafe { std::str::from_utf8_unchecked(self.value) }),
+            Some(false) => None,
+            None => {
                 let so = std::str::from_utf8(self.value).ok();
                 let utf8 = if so.is_some() { 1i8 } else { -1i8 };
                 self.utf8.store(utf8, Relaxed);
@@ -170,10 +181,10 @@ impl<'a> Bytes<'a> {
         }
     }
     unsafe fn utf8_cow(&self) -> Cow<'a, str> {
-        match self.utf8.load(Relaxed) {
-            1 => Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(self.value) }),
-            -1 => String::from_utf8_lossy(self.value),
-            _ => {
+        match self.is_utf8_lazy() {
+            Some(true) => Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(self.value) }),
+            Some(false) => String::from_utf8_lossy(self.value),
+            None => {
                 let sl = String::from_utf8_lossy(self.value);
                 let utf8 = if matches!(&sl, Cow::Borrowed(_)) { 1i8 } else { -1i8 };
                 self.utf8.store(utf8, Relaxed);
@@ -329,6 +340,15 @@ impl<'a> From<Cow<'a, str>> for Bytes<'a> {
 impl<'a> From<Bytes<'a>> for Vec<u8> {
     fn from(value: Bytes<'a>) -> Self {
         value.into_vec()
+    }
+}
+
+impl<'a> From<Bytes<'a>> for Cow<'a, [u8]> {
+    fn from(value: Bytes<'a>) -> Self {
+        match value.ownership {
+            Some(v) => Cow::Owned(unsafe { v.into_vec(value.value) }),
+            None => Cow::Borrowed(value.value),
+        }
     }
 }
 
@@ -494,14 +514,23 @@ impl OwnedBytes {
     ///
     /// # Safety
     /// `slice` is assumed to be a slice of the data owned by self.
-    pub unsafe fn into_vec(self, slice: &[u8]) -> Vec<u8> {
+    pub unsafe fn into_vec(mut self, slice: &[u8]) -> Vec<u8> {
         let slice_start = slice.as_ptr();
         let data_start = self.data.as_ptr();
-        let rc = self.rc.as_ref();
-        if slice_start == data_start && rc.fetch_sub(2, Ordering::Release) < 4 {
-            Vec::from_raw_parts(data_start, slice.len(), self.size)
+        let destroy = self.rc.as_ref().fetch_sub(2, Ordering::Release) < 4;
+        if destroy {
+            std::mem::drop(Box::from_raw(self.rc.as_mut()));
+        }
+        let capacity = self.size;
+        std::mem::forget(self);
+        if destroy && slice_start == data_start {
+            Vec::from_raw_parts(data_start, slice.len(), capacity)
         } else {
-            slice.to_vec()
+            let retval = slice.to_vec();
+            if destroy {
+                std::mem::drop(Vec::from_raw_parts(data_start, 0, capacity));
+            }
+            retval
         }
     }
 }

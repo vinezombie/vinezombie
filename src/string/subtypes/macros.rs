@@ -6,6 +6,7 @@ macro_rules! impl_subtype {
         $doc:literal
         $sname:ident: $ssuper:ident
         $tname:ident: $tsuper:ident
+        $bcheck:expr;
         |$targ:ident| $tbody:block
         |$uarg:ident| $ubody:block
     ) => {
@@ -13,6 +14,7 @@ macro_rules! impl_subtype {
             $doc
             $sname: $ssuper
             $tname: $tsuper
+            $bcheck;
             |$targ| $tbody
         }
         impl<'a> $sname<'a> {
@@ -41,6 +43,7 @@ macro_rules! impl_subtype {
         $doc:literal
         $sname: ident: $ssuper:ident
         $tname:ident: $tsuper:ident
+        $bcheck:expr;
         |$targ:ident| $tbody:block
     ) => {
         #[doc = $doc]
@@ -59,10 +62,15 @@ macro_rules! impl_subtype {
         pub unsafe trait $tname: $tsuper {}
 
         impl<'a> $sname<'a> {
+            /// Returns `true` if this string cannot contain `byte`.
+            #[must_use]
+            #[inline]
+            pub const fn is_invalid(byte: &u8) -> bool {
+                $bcheck(byte)
+            }
             /// Returns the first byte and its index that violate this type's guarantees.
             #[inline]
             pub const fn find_invalid(bytes: &[u8]) -> Option<InvalidByte> {
-                // TODO: It seems like this could be made const for some cases.
                 // Optimization: the block here can also do a test for ASCII-validity
                 // and use that to infer UTF-8 validity.
                 let $targ = bytes;
@@ -248,6 +256,196 @@ macro_rules! impl_subtype {
             }
         }
     };
+}
+
+/// Creates a builder for a Bytes newtype that is NOT
+/// invalidated by appending bytes for which is_invalid returns false.
+macro_rules! impl_builder {
+    ($name:ident from $pname:ident with $tname:ident for $sname:ident default) => {
+        impl_builder!($name from $pname with $tname for $sname);
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+        impl $name {
+            /// Creates a new empty builder.
+            pub const fn new() -> Self {
+                Self{ bytes: Vec::new(), utf8: true }
+            }
+            /// Creates a new empty builder with the specified capacity.
+            pub fn with_capacity(capacity: usize) -> Self {
+                Self{ bytes: Vec::with_capacity(capacity), utf8: true }
+            }
+        }
+    };
+    ($name:ident from $pname:ident with $tname:ident for $sname:ident) => {
+        #[doc = concat!("Builder for creating [`", stringify!($sname), "`]s.")]
+        ///
+        /// This type contains a `Vec` of bytes that upholds the string type's invariant.
+        /// It also tracks UTF-8 validity.
+        #[derive(Clone, Debug)]
+        pub struct $name {
+            bytes: Vec<u8>,
+            utf8: bool
+        }
+
+        impl $name {
+            /// Creates a new builder containing the provided initial value.
+            pub fn new_from<'a>(init: impl Into<$sname<'a>>) -> Self {
+                let init = init.into();
+                let utf8 = init.is_utf8_lazy().unwrap_or_default();
+                Self { bytes: init.into(), utf8 }
+            }
+            /// Shrinks the capacity of this builder as much as possible.
+            pub fn shrink_to_fit(&mut self) {
+                self.bytes.shrink_to_fit()
+            }
+            /// Ensures space for at least `bytes` additional bytes.
+            /// May reserve additional space.
+            ///
+            /// See [`Vec::reserve`].
+            pub fn reserve(&mut self, len: usize) {
+                self.bytes.reserve(len)
+            }
+            /// Ensures space for at least `bytes` additional bytes.
+            /// Reserves as little additional spaces as possible.
+            ///
+            /// See [`Vec::reserve_exact`].
+            pub fn reserve_exact(&mut self, len: usize) {
+                self.bytes.reserve_exact(len)
+            }
+            /// Checks `self`'s UTF-8 validity.
+            pub fn check_utf8(&mut self) -> Result<(), std::str::Utf8Error> {
+                if !self.utf8 {
+                    std::str::from_utf8(&self.bytes)?;
+                    self.utf8 = true;
+                }
+                Ok(())
+            }
+            /// Consumes `self` to build an owning byte string.
+            pub fn build<'a>(self) -> $sname<'a> {
+                unsafe {
+                    if self.utf8 {
+                        let string = String::from_utf8_unchecked(self.bytes);
+                        $sname::from_unchecked(string.into())
+                    } else {
+                        $sname::from_unchecked(self.bytes.into())
+                    }
+                }
+            }
+            /// Appends `string` to the end of `self` without checking validity.
+            ///
+            /// `utf8` must be false unless `string` is entirely valid UTF-8.
+            ///
+            /// # Safety
+            /// Misuse of this function can easily result in invariant violations
+            /// or the construction of invalid UTF-8 strings that are assumed to be valid.
+            /// It is your responsibility to ensure that `self`'s data
+            /// is valid for [`
+            #[doc = stringify!($sname)]
+            /// `] after calling this function.
+            pub unsafe fn append_unchecked(
+                &mut self,
+                string: impl AsRef<[u8]>,
+                utf8: bool
+            ) {
+                let string = string.as_ref();
+                self.utf8 &= utf8;
+                self.bytes.extend_from_slice(string);
+            }
+            /// Adds `string` to the end of `self`.
+            pub fn append<'a>(&mut self, string: impl Into<$pname<'a>>) {
+                let string = string.into();
+                unsafe {self.append_unchecked(
+                    string.as_bytes(),
+                    string.is_utf8_lazy().unwrap_or_default()
+                )}
+            }
+
+            /// Checks `string`'s validity and adds it to the end of `self`.
+            pub fn try_append(
+                &mut self,
+                string: impl AsRef<[u8]>
+            ) -> Result<(), InvalidByte> {
+                let string = string.as_ref();
+                let mut idx = 0usize;
+                let mut ascii = true;
+                for byte in string {
+                    if $sname::is_invalid(byte) {
+                        return Err(InvalidByte::new(*byte, idx))
+                    }
+                    ascii &= byte.is_ascii();
+                    idx += 1;
+                }
+                self.utf8 &= ascii;
+                self.bytes.extend_from_slice(string);
+                Ok(())
+            }
+            /// Checks `string`'s validity and adds it to the end of `self`.
+            pub fn try_append_str(
+                &mut self,
+                string: impl AsRef<str>
+            ) -> Result<(), InvalidByte> {
+                let string = string.as_ref();
+                let mut idx = 0usize;
+                for byte in string.as_bytes() {
+                    if $sname::is_invalid(byte) {
+                        return Err(InvalidByte::new(*byte, idx))
+                    }
+                    idx += 1;
+                }
+                self.bytes.extend_from_slice(string.as_bytes());
+                Ok(())
+            }
+            /// Tries to append a byte.
+            pub fn try_push(&mut self, byte: u8) -> Result<(), InvalidByte> {
+                if $sname::is_invalid(&byte) {
+                    Err(InvalidByte::new(byte, self.bytes.len()))
+                } else {
+                    self.utf8 &= byte.is_ascii();
+                    self.bytes.push(byte);
+                    Ok(())
+                }
+            }
+            /// Tries to append a `char`.
+            pub fn try_push_char(&mut self, c: char) -> Result<(), InvalidByte> {
+                let mut buf = [0u8; 4];
+                self.try_append_str(c.encode_utf8(&mut buf))
+            }
+            /// Transforms `self` using the provided [`Transform`].
+            ///
+            /// This operation is slightly more-expensive than the equivalent operation
+            /// on the string type this builder is for.
+            pub fn transform<'a, T: $tname>(&mut self, tf: T) -> T::Value<'a> {
+                let this = std::mem::replace(self, Self { bytes: Vec::new(), utf8: false });
+                let mut this = this.build();
+                let retval = this.transform(tf);
+                *self = Self::new_from(this);
+                retval
+            }
+        }
+
+        impl std::ops::Deref for $name {
+            type Target = [u8];
+            fn deref(&self) -> &[u8] {
+                &self.bytes
+            }
+        }
+        impl AsRef<[u8]> for $name {
+            fn as_ref(&self) -> &[u8] {
+                &self.bytes
+            }
+        }
+
+        impl<'a> From<$name> for $sname<'a> {
+            fn from(value: $name) -> Self {
+                value.build()
+            }
+        }
+
+        // TODO: impl Extend a bunch.
+    }
 }
 
 macro_rules! conversions {

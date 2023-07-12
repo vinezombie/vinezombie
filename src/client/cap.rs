@@ -4,7 +4,7 @@ use crate::{
     consts::cmd::CAP,
     error::ParseError,
     ircmsg::{Args, ClientMsg, Source},
-    string::{Arg, Cmd, Key, Line, Nick, Word},
+    string::{Arg, Cmd, Key, LineBuilder, Nick, Word},
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -29,25 +29,24 @@ pub fn req<'a>(
     let len_mod = 4 + client.map(|c| c.len()).unwrap_or(1) as isize;
     // This should never be negative, but just in case.
     let base_len = (msg.bytes_left(server) - len_mod).try_into().unwrap_or_default();
-    let mut cap_string = Vec::new();
+    let mut cap_string = LineBuilder::new();
     for cap in caps {
         if cap_string.len() + cap.len() < base_len {
-            cap_string.extend_from_slice(cap.as_bytes());
-            cap_string.push(b' ');
+            if !cap_string.is_empty() {
+                cap_string.push_space();
+            }
+            cap_string.append(cap);
         } else {
             if !cap_string.is_empty() {
-                // Remove the last space.
-                cap_string.pop();
                 let msg_clone = msg.clone();
-                // TODO: Need a LineBuilder to avoid having to do this.
-                msg.args.add_last(unsafe { Line::from_unchecked(cap_string.into()) });
+                msg.args.add_last(cap_string.build());
                 sink.send(msg)?;
                 msg = msg_clone;
             }
-            cap_string = cap.as_bytes().to_vec();
+            cap_string = LineBuilder::new_from(cap);
         }
     }
-    msg.args.add_last(unsafe { Line::from_unchecked(cap_string.into()) });
+    msg.args.add_last(cap_string.build());
     sink.send(msg)
 }
 

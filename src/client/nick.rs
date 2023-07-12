@@ -1,6 +1,6 @@
 //! Nickname generation and fallback strategies.
 
-use crate::string::Nick;
+use crate::string::{Nick, NickBuilder};
 use std::{borrow::Cow, error::Error};
 
 /// Error indicating that a nickname generator cannot generate any more nicknames.
@@ -58,18 +58,20 @@ pub enum NickSuffix {
 }
 
 impl NickSuffix {
-    fn append(&self, num: u8, nick: &mut Vec<u8>) {
+    fn append(&self, num: u8, nick: &mut NickBuilder) {
         match self {
-            NickSuffix::Letter(true) => nick.push(b'A' + num % 26),
-            NickSuffix::Letter(false) => nick.push(b'a' + num % 26),
-            NickSuffix::Base8 => nick.push(b'0' + (num & 7)),
-            NickSuffix::Base10 => nick.push(b'0' + num % 10),
+            NickSuffix::Letter(true) => nick.try_push(b'A' + num % 26),
+            NickSuffix::Letter(false) => nick.try_push(b'a' + num % 26),
+            NickSuffix::Base8 => nick.try_push(b'0' + (num & 7)),
+            NickSuffix::Base10 => nick.try_push(b'0' + num % 10),
             NickSuffix::Choice(opts) if !opts.is_empty() => {
                 let idx = num as usize % opts.len();
-                nick.extend_from_slice(opts[idx].as_bytes());
+                nick.append(opts[idx].clone());
+                Ok(())
             }
-            _ => (),
+            _ => Ok(()),
         }
+        .unwrap();
     }
 }
 
@@ -90,8 +92,8 @@ pub struct SuffixRandom {
 impl SuffixRandom {
     fn gen(&self, prefix: &Nick<'static>, seed: &mut u32) -> Nick<'static> {
         // TODO: Incorrect preallocation when one of the NickSuffixes is Choice.
-        let mut retval = Vec::with_capacity(prefix.len() + self.suffixes.len());
-        retval.extend_from_slice(prefix.as_bytes());
+        let mut retval = NickBuilder::new_from(prefix.clone());
+        retval.reserve(self.suffixes.len());
         let mut cycle = true;
         for suffix in self.suffixes.as_ref() {
             if cycle {
@@ -104,7 +106,7 @@ impl SuffixRandom {
                 cycle = true;
             }
         }
-        unsafe { Nick::from_unchecked(retval.into()) }
+        retval.build()
     }
 }
 

@@ -58,10 +58,14 @@ impl InvalidByte {
     pub const fn new_empty() -> InvalidByte {
         InvalidByte(0u8, None)
     }
-    /// Creates an `InvalidBytes` for an invalid bytes.
+    /// Creates an `InvalidBytes` for an invalid byte in a slice.
     pub const fn new_at(bytes: &[u8], idx: usize) -> InvalidByte {
-        // Assuming that it's impossible to ever have an array where `usize::MAX` is a valid index.
-        InvalidByte(bytes[idx], Some(unsafe { NonZeroUsize::new_unchecked(idx + 1) }))
+        Self::new(bytes[idx], idx)
+    }
+    /// Creates an `InvalidBytes` out of a byte and index.
+    pub const fn new(byte: u8, idx: usize) -> InvalidByte {
+        // Assume that it's impossible to ever have an array where `usize::MAX` is a valid index.
+        InvalidByte(byte, Some(unsafe { NonZeroUsize::new_unchecked(idx + 1) }))
     }
     /// Returns `true` if `self` is an error representing an invalid byte at some position.
     pub fn has_index(&self) -> bool {

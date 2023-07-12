@@ -1,11 +1,7 @@
 use crate::string::{Transform, Transformation, Utf8Policy};
 use crate::{
     error::InvalidByte,
-    string::{
-        is_invalid_for_key,
-        subtypes::{is_invalid_for_line, is_invalid_for_word},
-        Bytes, Key, Line, LineSafe, NoNulSafe, Word, WordSafe,
-    },
+    string::{Bytes, Key, Line, LineSafe, NoNulSafe, Word, WordSafe},
 };
 
 // TODO: Dedup SplitLine and SplitWord.
@@ -27,12 +23,12 @@ unsafe impl Transform for SplitLine {
         unsafe {
             let slice = bytes.as_bytes_unsafe();
             let Some(first_valid_idx) = slice.iter().position(
-                |b| !is_invalid_for_line::<true>(b)
+                |b| !Line::is_invalid(b)
             ) else {
                 return Transformation::empty(Line::default())
             };
             let slice = slice.split_at(first_valid_idx).1;
-            let end_idx = slice.iter().position(is_invalid_for_line::<true>).unwrap_or(slice.len());
+            let end_idx = slice.iter().position(Line::is_invalid).unwrap_or(slice.len());
             let (line, rest) = slice.split_at(end_idx);
             Transformation {
                 value: Line::from_unchecked(bytes.using_value(line, Utf8Policy::Preserve)),
@@ -61,12 +57,12 @@ unsafe impl Transform for SplitWord {
         unsafe {
             let slice = bytes.as_bytes_unsafe();
             let Some(first_valid_idx) = slice.iter().position(
-                |b| !is_invalid_for_word::<true>(b)
+                |b| !Word::is_invalid(b)
             ) else {
                 return Transformation::empty(Word::default())
             };
             let slice = slice.split_at(first_valid_idx).1;
-            let end_idx = slice.iter().position(is_invalid_for_word::<true>).unwrap_or(slice.len());
+            let end_idx = slice.iter().position(Word::is_invalid).unwrap_or(slice.len());
             let (word, rest) = slice.split_at(end_idx);
             Transformation {
                 value: Word::from_unchecked(bytes.using_value(word, Utf8Policy::Preserve)),
@@ -96,7 +92,7 @@ unsafe impl Transform for SplitKey {
     fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
         unsafe {
             let slice = bytes.as_bytes_unsafe();
-            let first_invalid_idx = slice.iter().position(is_invalid_for_key::<true>);
+            let first_invalid_idx = slice.iter().position(Key::is_invalid);
             let (key, rest, inval) = if let Some(first_invalid_idx) = first_invalid_idx {
                 let (key, rest) = slice.split_at(first_invalid_idx);
                 if let Some((first, rest)) = rest.split_first() {

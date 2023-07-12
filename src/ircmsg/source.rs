@@ -78,7 +78,7 @@ impl<'a> Source<'a> {
     /// [`InvalidUser`][crate::error::ParseError::InvalidUser].
     pub fn parse(word: impl Into<Word<'a>>) -> Result<Self, ParseError> {
         let mut word = word.into();
-        let nick = word.transform(Split(crate::string::is_invalid_for_nick::<false>));
+        let nick = word.transform(Split(Nick::is_invalid));
         // TODO: We know things that make the full from_bytes check here redundant,
         // but we still need to check Args's conditions for Host (non-empty, no leading colon).
         let nick = Nick::from_bytes(nick).map_err(ParseError::InvalidNick)?;

@@ -1,4 +1,4 @@
-use super::{Bytes, Cmd, Word};
+use super::{Bytes, Cmd, Line, LineBuilder, Word};
 
 macro_rules! test_kind {
     ($word:expr) => {{
@@ -29,6 +29,18 @@ fn secrecy() {
     assert!(bytes_s.is_secret());
     let bytes_s2 = bytes_s.clone();
     assert!(bytes_s2.is_secret());
+}
+
+#[test]
+fn line_builder() {
+    let mut builder = LineBuilder::new_from(Line::from_str("foo"));
+    builder.try_push(b' ').unwrap();
+    builder.append(Word::from_str("bar"));
+    builder.try_push_char(' ').unwrap();
+    builder.try_append(b"baz").unwrap();
+    let built = builder.build();
+    assert_eq!(built, "foo bar baz");
+    assert_eq!(built.is_utf8_lazy(), Some(true));
 }
 
 #[cfg(feature = "base64")]
