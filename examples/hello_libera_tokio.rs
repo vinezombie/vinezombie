@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use vinezombie::{
     client::{self, auth::Clear},
     ircmsg::ClientMsg,
@@ -23,8 +22,7 @@ async fn main() -> std::io::Result<()> {
     // but instead we run it using a run_handler_tokio function.
     // This function is actually more general than run_handler,
     // but we're not going to make use of its functionality in this example.
-    let mut handler =
-        options.handler(BTreeSet::new(), &client::register::BotDefaults, &mut queue)?;
+    let mut handler = options.handler(&client::register::BotDefaults, &mut queue)?;
     let reg = vinezombie::client::run_handler_tokio(&mut sock, &mut queue, &mut handler).await?;
     tracing::info!("{} connected to Libera!", reg.nick);
     // As with the earlier example, let's just quit here.

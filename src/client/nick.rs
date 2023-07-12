@@ -3,6 +3,20 @@
 use crate::string::{Nick, NickBuilder};
 use std::{borrow::Cow, error::Error};
 
+/// Standard nickname options.
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Nicks<N> {
+    /// The list of nicknames to use.
+    pub nicks: Vec<Nick<'static>>,
+    /// Whether to skip attempting to use the first nickname,
+    /// using it only for fallbacks.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub skip_first: bool,
+    /// The [`NickTransformer`] for generating new nicknames from the first one.
+    pub gen: std::sync::Arc<N>,
+}
+
 /// Error indicating that a nickname generator cannot generate any more nicknames.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct EndOfNicks;

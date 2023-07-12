@@ -1,11 +1,10 @@
-use super::Register;
 use crate::{
-    client::nick::{NickSuffix, NickTransformer, SuffixRandom},
+    client::nick::{NickSuffix, NickTransformer, Nicks, SuffixRandom},
     string::{Line, Nick, User},
 };
 use std::{collections::VecDeque, sync::Arc};
 
-/// Source of fallback nicks from a [`Register`] and [`Defaults`].
+/// Source of fallback nicks from a [`Register`][super::Register] and [`Defaults`].
 #[derive(Clone, Debug)]
 pub struct FallbackNicks<N1: NickTransformer, N2: NickTransformer + 'static> {
     state: FallbackNicksState<N1::State, N2::State>,
@@ -13,20 +12,34 @@ pub struct FallbackNicks<N1: NickTransformer, N2: NickTransformer + 'static> {
     n2: &'static N2,
 }
 
+#[allow(clippy::type_complexity)]
+fn nicks_init<N1: NickTransformer, N2: NickTransformer + 'static>(
+    reg: &Nicks<N1>,
+) -> Option<(Nick<'static>, FallbackNicksState<N1::State, N2::State>)> {
+    let (first, rest) = reg.nicks.split_first()?;
+    let nicks = if reg.skip_first { rest } else { &reg.nicks };
+    if let Some((nick, rest)) = nicks.split_first() {
+        let rest: VecDeque<Nick<'static>> = rest.to_vec().into();
+        Some((nick.clone(), FallbackNicksState::Select(first.clone(), rest)))
+    } else if let Some((nick, state)) = reg.gen.init(first) {
+        let state = state.map(FallbackNicksState::Gen1).unwrap_or(FallbackNicksState::Done);
+        Some((nick, state))
+    } else {
+        None
+    }
+}
+
 impl<N1: NickTransformer, N2: NickTransformer> FallbackNicks<N1, N2> {
     /// Generate the first nickname and a `FallbackNicks` for more.
-    pub fn new<P, S>(
-        reg: &Register<P, S, N1>,
+    pub fn new(
+        reg: &Nicks<N1>,
         reg_def: &'static impl Defaults<NickGen = N2>,
     ) -> (Nick<'static>, Self) {
-        let (nick, state) = if let Some((nick, rest)) = reg.nicks.split_first() {
-            let rest: VecDeque<Nick<'static>> = rest.to_vec().into();
-            (nick.clone(), FallbackNicksState::Select(nick.clone(), rest))
-        } else {
+        let (nick, state) = nicks_init::<N1, N2>(reg).unwrap_or_else(|| {
             let (nick, state) = reg_def.nick();
             (nick, state.map(FallbackNicksState::Gen2).unwrap_or(FallbackNicksState::Done))
-        };
-        (nick, FallbackNicks { state, n1: reg.nickgen.clone(), n2: reg_def.nick_gen() })
+        });
+        (nick, Self { state, n1: reg.gen.clone(), n2: reg_def.nick_gen() })
     }
     /// Returns `true` if the next nickname yielded by `self` is a user-specified one.
     pub fn has_user_nicks(&self) -> bool {

@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use vinezombie::{
     client::{self, auth::Clear},
     ircmsg::ClientMsg,
@@ -28,14 +27,10 @@ fn main() -> std::io::Result<()> {
     let mut sock = address.connect(tls_config)?;
     // The initial connection registration handshake needs to happen,
     // so let's build a handler for that.
-    // The provided set is a set of capabilities to request.
-    // We don't need anything, so this set is empty.
-    // If we need SASL, that's added automatically.
     // `BotDefaults` provides default values for anything we didn't specify
     // in `options` above.
     // Passing the `queue` populates it with the initial message burst.
-    let mut handler =
-        options.handler(BTreeSet::new(), &client::register::BotDefaults, &mut queue)?;
+    let mut handler = options.handler(&client::register::BotDefaults, &mut queue)?;
     // Let's do connection registration!
     let reg = vinezombie::client::run_handler(&mut sock, &mut queue, &mut handler)?;
     // Connection registration is done!
