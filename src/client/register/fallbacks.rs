@@ -1,5 +1,5 @@
 use crate::{
-    client::nick::{NickSuffix, NickTransformer, Nicks, SuffixRandom},
+    client::nick::{NickTransformer, Nicks, Suffix, SuffixStrategy, SuffixType},
     string::{Line, Nick, User},
 };
 use std::{collections::VecDeque, sync::Arc};
@@ -9,7 +9,6 @@ use std::{collections::VecDeque, sync::Arc};
 pub struct FallbackNicks<N1: NickTransformer, N2: NickTransformer + 'static> {
     state: FallbackNicksState<N1::State, N2::State>,
     n1: Arc<N1>,
-    n2: &'static N2,
 }
 
 #[allow(clippy::type_complexity)]
@@ -39,7 +38,7 @@ impl<N1: NickTransformer, N2: NickTransformer> FallbackNicks<N1, N2> {
             let (nick, state) = reg_def.nick();
             (nick, state.map(FallbackNicksState::Gen2).unwrap_or(FallbackNicksState::Done))
         });
-        (nick, Self { state, n1: reg.gen.clone(), n2: reg_def.nick_gen() })
+        (nick, Self { state, n1: reg.gen.clone() })
     }
     /// Returns `true` if the next nickname yielded by `self` is a user-specified one.
     pub fn has_user_nicks(&self) -> bool {
@@ -65,14 +64,14 @@ impl<N1: NickTransformer, N2: NickTransformer> Iterator for FallbackNicks<N1, N2
                 }
             }
             FallbackNicksState::Gen1(g) => {
-                let (nick, state) = self.n1.step(g);
+                let (nick, state) = N1::step(g);
                 if let Some(state) = state {
                     self.state = FallbackNicksState::Gen1(state);
                 }
                 Some(nick)
             }
             FallbackNicksState::Gen2(g) => {
-                let (nick, state) = self.n2.step(g);
+                let (nick, state) = N2::step(g);
                 if let Some(state) = state {
                     self.state = FallbackNicksState::Gen2(state);
                 }
@@ -96,8 +95,6 @@ enum FallbackNicksState<S1, S2> {
 pub trait Defaults {
     /// Nick transformer for the client-wide default nick.
     type NickGen: NickTransformer;
-    /// Returns the nick transformers for fallback nicks.
-    fn nick_gen(&self) -> &Self::NickGen;
     /// Returns the default nick and optional transformer state for it.
     fn nick(&self) -> (Nick<'static>, Option<<Self::NickGen as NickTransformer>::State>);
     /// Returns the default username.
@@ -108,23 +105,19 @@ pub trait Defaults {
 
 /// Sensible default implementation of [`Defaults`].
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct DefaultDefaults(pub SuffixRandom);
+pub struct DefaultDefaults(pub Suffix);
 
 impl Default for DefaultDefaults {
     fn default() -> Self {
-        DefaultDefaults(SuffixRandom {
-            seed: None,
-            suffixes: std::borrow::Cow::Borrowed(&[NickSuffix::Base10, NickSuffix::Base8]),
+        DefaultDefaults(Suffix {
+            strategy: Default::default(),
+            suffixes: std::borrow::Cow::Borrowed(&[SuffixType::Base10, SuffixType::Base8]),
         })
     }
 }
 
 impl Defaults for DefaultDefaults {
-    type NickGen = SuffixRandom;
-
-    fn nick_gen(&self) -> &Self::NickGen {
-        &self.0
-    }
+    type NickGen = Suffix;
 
     fn nick(&self) -> (Nick<'static>, Option<<Self::NickGen as NickTransformer>::State>) {
         let nick = unsafe { Nick::from_unchecked("Guest".into()) };
@@ -146,15 +139,15 @@ impl Defaults for DefaultDefaults {
     }
 }
 
-static BNG: SuffixRandom = SuffixRandom {
-    seed: None,
+static BNG: Suffix = Suffix {
+    strategy: SuffixStrategy::Rng(None),
     suffixes: std::borrow::Cow::Borrowed(&[
-        NickSuffix::Base10,
-        NickSuffix::Base8,
-        NickSuffix::Base10,
-        NickSuffix::Base8,
-        NickSuffix::Base10,
-        NickSuffix::Base8,
+        SuffixType::Base10,
+        SuffixType::Base8,
+        SuffixType::Base10,
+        SuffixType::Base8,
+        SuffixType::Base10,
+        SuffixType::Base8,
     ]),
 };
 
@@ -162,14 +155,10 @@ static BNG: SuffixRandom = SuffixRandom {
 pub struct BotDefaults;
 
 impl Defaults for BotDefaults {
-    type NickGen = SuffixRandom;
-
-    fn nick_gen(&self) -> &Self::NickGen {
-        &BNG
-    }
+    type NickGen = Suffix;
 
     fn nick(&self) -> (Nick<'static>, Option<<Self::NickGen as NickTransformer>::State>) {
-        self.nick_gen().init(&Nick::from_str("VZB")).unwrap()
+        BNG.init(&Nick::from_str("VZB")).unwrap()
     }
 
     fn username(&self) -> User<'static> {
