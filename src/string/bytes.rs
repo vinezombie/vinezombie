@@ -74,8 +74,6 @@ impl<'a> Bytes<'a> {
     /// For forward compatibility reasons, the value returned by this function
     /// has a lifetime bound of `'a`. It may be cheaply converted to `'static`
     /// using [`owning`][Bytes::owning]; secret strings are always owning.
-    ///
-    /// Currently, empty strings cannot be secret. This is a limitation that will be fixed.
     pub fn secret(self) -> Bytes<'a> {
         // Sneaky interior mutation.
         if self.ownership.as_ref().is_some_and(|o| o.set_secret()) {
@@ -475,18 +473,23 @@ impl OwnedBytes {
     /// Returns `None` and an empty slice if `value` is empty.
     ///
     /// # Safety
-    /// Unbound lifetimes are the devil.
+    /// Unbound lifetimes are the devil, and this returns a reference with one.
     pub unsafe fn from_vec<'a>(mut value: Vec<u8>, secret: bool) -> (Option<Self>, &'a [u8]) {
-        if value.is_empty() {
+        if value.is_empty() && !secret {
             return (None, Default::default());
         }
         // We're at the mercy of what the global allocator does here,
         // but at least this potentially does NOT copy.
-        value.shrink_to_fit();
-        // value is non-empty at this point, therefore the pointer is not null.
+        // To be sure, don't shrink to fit if we're secret.
+        if !secret {
+            value.shrink_to_fit();
+        }
+        // as_mut_ptr returns a dangling pointer if capacity is 0.
+        // https://doc.rust-lang.org/std/vec/struct.Vec.html#method.as_mut_ptr
         let data = NonNull::new_unchecked(value.as_mut_ptr());
         let len = value.len();
         let size = value.capacity();
+        // Don't run the Vec's destructor as we're stealing ownership of its data.
         std::mem::forget(value);
         let init_rc = if secret { 3usize } else { 2usize };
         // into_raw returns a non-null pointer.
@@ -517,17 +520,24 @@ impl OwnedBytes {
     pub unsafe fn into_vec(mut self, slice: &[u8]) -> Vec<u8> {
         let slice_start = slice.as_ptr();
         let data_start = self.data.as_ptr();
-        let destroy = self.rc.as_ref().fetch_sub(2, Ordering::Release) < 4;
+        let capacity = self.size;
+        let count = self.rc.as_ref().fetch_sub(2, Ordering::Release);
+        let destroy = count < 4;
         if destroy {
             std::mem::drop(Box::from_raw(self.rc.as_mut()));
         }
-        let capacity = self.size;
+        // Don't run self's destructor.
         std::mem::forget(self);
         if destroy && slice_start == data_start {
             Vec::from_raw_parts(data_start, slice.len(), capacity)
         } else {
             let retval = slice.to_vec();
             if destroy {
+                #[cfg(feature = "zeroize")]
+                if count & 1 != 0 {
+                    use zeroize::Zeroize;
+                    std::slice::from_raw_parts_mut(data_start, capacity).zeroize();
+                }
                 std::mem::drop(Vec::from_raw_parts(data_start, 0, capacity));
             }
             retval

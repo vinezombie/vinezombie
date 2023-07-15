@@ -32,6 +32,16 @@ fn secrecy() {
 }
 
 #[test]
+fn secrecy_empty() {
+    let bytes_o = Bytes::empty();
+    assert!(!bytes_o.is_secret());
+    let bytes_s = bytes_o.secret();
+    assert!(bytes_s.is_secret());
+    let bytes_c = bytes_s.clone();
+    assert!(bytes_c.is_secret());
+}
+
+#[test]
 fn line_builder() {
     let mut builder = LineBuilder::new_from(Line::from_str("foo"));
     builder.try_push(b' ').unwrap();
