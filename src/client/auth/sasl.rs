@@ -7,11 +7,13 @@ use crate::string::{Arg, NoNul};
 ///
 /// This is what is used when authentication occurs out-of-band,
 /// such as when using TLS client certificate authentication.
-#[derive(Clone, Copy, Debug)]
+///
+/// The provided string, if non-empty, is an authzid.
+#[derive(Clone, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct External;
+pub struct External(#[cfg_attr(feature = "serde", serde(default))] pub NoNul<'static>);
 
-struct ExternalLogic;
+struct ExternalLogic(NoNul<'static>);
 
 impl SaslLogic for ExternalLogic {
     fn reply<'a>(
@@ -19,7 +21,7 @@ impl SaslLogic for ExternalLogic {
         _: &[u8],
     ) -> Result<&'a [u8], Box<dyn std::error::Error + Send + Sync + 'static>> {
         // TODO: Strictness?
-        Ok(Default::default())
+        Ok(self.0.as_bytes())
     }
 }
 
@@ -28,7 +30,7 @@ impl Sasl for External {
         Arg::from_str("EXTERNAL")
     }
     fn logic(&self) -> std::io::Result<Box<dyn SaslLogic>> {
-        Ok(Box::new(ExternalLogic))
+        Ok(Box::new(ExternalLogic(self.0.clone())))
     }
 }
 
