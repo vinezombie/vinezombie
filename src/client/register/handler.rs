@@ -2,7 +2,7 @@ use super::FallbackNicks;
 use crate::{
     client::{auth::SaslLogic, nick::NickTransformer, ClientMsgSink, HandlerOk, HandlerResult},
     consts::cmd::{CAP, NICK},
-    ircmsg::{ClientMsg, ServerMsg, Source},
+    ircmsg::{Args, ClientMsg, ServerMsg, Source},
     string::{Arg, Host, Key, Line, Nick, Word},
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -23,6 +23,8 @@ pub struct Registration {
     pub caps: BTreeMap<Key<'static>, Word<'static>>,
     /// The source associated with the server you're connected to.
     pub source: Option<Source<'static>>,
+    /// The arguments of the welcome (001) message.
+    pub welcome: Args<'static>,
 }
 
 impl Default for Registration {
@@ -33,6 +35,7 @@ impl Default for Registration {
             account: None,
             caps: BTreeMap::new(),
             source: None,
+            welcome: Args::default(),
         }
     }
 }
@@ -193,6 +196,10 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                 if let Some(nick) = nick {
                     self.reg.nick = nick;
                 }
+                if msg.source.is_some() {
+                    self.reg.source = msg.source.clone();
+                }
+                self.reg.welcome = msg.args.clone();
                 Ok(HandlerOk::Value(std::mem::take(&mut self.reg)))
             }
             "432" => {
