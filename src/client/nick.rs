@@ -1,7 +1,9 @@
 //! Nickname generation and fallback strategies.
 
-use crate::string::{Nick, NickBuilder};
+use crate::string::{Builder, Nick};
 use std::{borrow::Cow, error::Error};
+
+type NickBuilder = Builder<Nick<'static>>;
 
 /// Standard nickname options.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -230,7 +232,7 @@ impl NickTransformer for Suffix {
     }
 
     fn step(mut state: Self::State) -> (Nick<'static>, Option<Self::State>) {
-        let mut nick = NickBuilder::new_from(state.prefix.clone());
+        let mut nick = NickBuilder::new(state.prefix.clone());
         match state.cfg.strategy {
             SuffixStrategy::Rng(_) => {
                 nick.reserve(state.cfg.suffixes.len());

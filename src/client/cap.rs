@@ -1,14 +1,15 @@
 //! Utilities for working with capability negotiation.
 
+use super::ClientMsgSink;
 use crate::{
     consts::cmd::CAP,
     error::ParseError,
     ircmsg::{Args, ClientMsg, Source},
-    string::{Arg, Cmd, Key, LineBuilder, Nick, Word},
+    string::{Arg, Builder, Cmd, Key, Line, Nick, Word},
 };
 use std::collections::{BTreeMap, VecDeque};
 
-use super::ClientMsgSink;
+type LineBuilder = Builder<Line<'static>>;
 
 /// Requests capabilities to be enabled.
 ///
@@ -29,11 +30,11 @@ pub fn req<'a>(
     let len_mod = 4 + client.map(|c| c.len()).unwrap_or(1) as isize;
     // This should never be negative, but just in case.
     let base_len = (msg.bytes_left(server) - len_mod).try_into().unwrap_or_default();
-    let mut cap_string = LineBuilder::new();
+    let mut cap_string = LineBuilder::default();
     for cap in caps {
         if cap_string.len() + cap.len() < base_len {
             if !cap_string.is_empty() {
-                cap_string.push_space();
+                let _ = cap_string.try_push_char(' ');
             }
             cap_string.append(cap);
         } else {
@@ -43,7 +44,7 @@ pub fn req<'a>(
                 sink.send(msg)?;
                 msg = msg_clone;
             }
-            cap_string = LineBuilder::new_from(cap);
+            cap_string = LineBuilder::new(cap.into());
         }
     }
     msg.args.add_last(cap_string.build());

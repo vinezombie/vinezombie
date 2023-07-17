@@ -14,16 +14,20 @@
 
 #[cfg(feature = "base64")]
 pub mod base64;
+mod builder;
 mod bytes;
 #[cfg(feature = "serde")]
 mod serde;
+//mod splitter;
 mod subtypes;
 #[cfg(test)]
 mod tests;
 pub mod tf;
 
+pub use builder::*;
 pub use bytes::*;
 pub use subtypes::*;
+//pub use splitter::*;
 
 use std::borrow::Cow;
 

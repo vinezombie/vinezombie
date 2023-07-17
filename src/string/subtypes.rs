@@ -3,7 +3,6 @@
 #[macro_use]
 mod macros;
 
-mod builders;
 mod impls;
 #[cfg(test)]
 mod tests;
@@ -11,6 +10,74 @@ mod tests;
 use super::{Bytes, Transform};
 use crate::{error::InvalidByte, string::tf::AsciiCasemap};
 use std::borrow::Borrow;
+
+/// [`Bytes`] newtypes that uphold some invariant.
+///
+/// # Safety
+/// This trait is not meant to be implemented by foreign types and is NOT stable.
+///
+/// It is assumed that is_invalid will either reject no non-ASCII bytes or all non-ASCII bytes,
+/// in effect ensuring that byte invalidity checks on UTF-8 strings will only result in
+/// invalidity on character boundaries.
+#[allow(missing_docs)]
+pub unsafe trait BytesNewtype<'a>: AsRef<[u8]> {
+    /// Generic Self type.
+    ///
+    /// Used as a hack to write functions that don't care about self's lifetime.
+    type WithLifetime<'b>: BytesNewtype<'b>;
+    #[doc(hidden)]
+    unsafe fn as_bytes_unsafe(&self) -> &'a [u8];
+    #[doc(hidden)]
+    fn check_others(bytes: &[u8]) -> Option<InvalidByte>;
+    #[doc(hidden)]
+    unsafe fn from_unchecked(bytes: Bytes<'a>) -> Self;
+    #[doc(hidden)]
+    fn into_bytes(self) -> Bytes<'a>;
+    #[doc(hidden)]
+    fn into_vec(this: Self::WithLifetime<'_>) -> Vec<u8>;
+    #[doc(hidden)]
+    fn is_invalid(byte: &u8) -> bool;
+    #[doc(hidden)]
+    fn is_utf8_lazy(&self) -> bool;
+    #[doc(hidden)]
+    unsafe fn using_value(&self, bytes: &'a [u8], utf8: bool) -> Self;
+}
+
+/// This implementation allows [`Bytes`] to be used wherever any bytes newtype is expected.
+unsafe impl<'a> BytesNewtype<'a> for Bytes<'a> {
+    type WithLifetime<'b> = Bytes<'b>;
+
+    unsafe fn as_bytes_unsafe(&self) -> &'a [u8] {
+        self.as_bytes_unsafe()
+    }
+    fn check_others(_: &[u8]) -> Option<InvalidByte> {
+        None
+    }
+    unsafe fn from_unchecked(bytes: Bytes<'a>) -> Self {
+        bytes
+    }
+    fn into_bytes(self) -> Bytes<'a> {
+        self
+    }
+    fn into_vec(this: Self::WithLifetime<'_>) -> Vec<u8> {
+        this.into()
+    }
+    fn is_invalid(_: &u8) -> bool {
+        false
+    }
+    fn is_utf8_lazy(&self) -> bool {
+        self.is_utf8_lazy().unwrap_or_default()
+    }
+    unsafe fn using_value(&self, bytes: &'a [u8], utf8: bool) -> Self {
+        use super::Utf8Policy;
+        self.using_value(bytes, if utf8 { Utf8Policy::Valid } else { Utf8Policy::Recheck })
+    }
+}
+
+#[inline(always)]
+const fn return_none(_: &[u8]) -> Option<InvalidByte> {
+    None
+}
 
 #[inline(always)]
 const fn is_invalid_for_nonul(byte: &u8) -> bool {
@@ -22,11 +89,8 @@ impl_subtype! {
     NoNul: Bytes
     NoNulSafe: Transform
     is_invalid_for_nonul;
-    |bytes| {
-        check_bytes!(bytes, is_invalid_for_nonul)
-    }
+    return_none;
 }
-impl_builder!(NoNulBuilder from NoNul with NoNulSafe for NoNul default);
 
 #[inline(always)]
 const fn is_invalid_for_line<const CHAIN: bool>(byte: &u8) -> bool {
@@ -38,14 +102,11 @@ impl_subtype! {
     Line: NoNul
     LineSafe: NoNulSafe
     is_invalid_for_line::<true>;
-    |bytes| {
-        check_bytes!(bytes, is_invalid_for_line::<true>)
-    }
+    return_none;
     |bytes| {
         check_bytes!(bytes, is_invalid_for_line::<false>)
     }
 }
-impl_builder!(LineBuilder from Line with LineSafe for Line default);
 conversions!(Line: NoNul);
 
 #[inline(always)]
@@ -58,16 +119,22 @@ impl_subtype! {
     Word: Line
     WordSafe: LineSafe
     is_invalid_for_word::<true>;
-    |bytes| {
-        check_bytes!(bytes, is_invalid_for_word::<true>)
-    }
+    return_none;
     |bytes| {
         check_bytes!(bytes, is_invalid_for_word::<false>)
     }
 }
-impl_builder!(WordBuilder from Word with WordSafe for Word default);
 conversions!(Word: NoNul);
 conversions!(Word: Line);
+
+#[inline(always)]
+const fn check_empty(bytes: &[u8]) -> Option<InvalidByte> {
+    if bytes.is_empty() {
+        Some(InvalidByte::new_empty())
+    } else {
+        None
+    }
+}
 
 #[inline(always)]
 const fn is_not_ascii(byte: &u8) -> bool {
@@ -79,22 +146,12 @@ impl_subtype! {
     Host: Word
     HostSafe: WordSafe
     is_not_ascii;
+    check_empty;
     |bytes| {
-        if bytes.is_empty() {
-            Some(InvalidByte::new_empty())
-        } else {
-            check_bytes!(bytes, is_not_ascii)
-        }
-    }
-    |bytes| {
-        if bytes.is_empty() {
-            Some(InvalidByte::new_empty())
-        } else {
-            check_bytes!(bytes, is_not_ascii)
-        }
+        check_empty(bytes)?;
+        check_bytes!(bytes, is_not_ascii)
     }
 }
-impl_builder!(HostBuilder from Host with HostSafe for Host);
 conversions!(Host: NoNul);
 conversions!(Host: Line);
 conversions!(Host: Word);
@@ -113,18 +170,11 @@ impl_subtype! {
     Arg: Word
     ArgSafe: WordSafe
     is_invalid_for_word::<true>;
-    |bytes| {
-        if let Some(e) = arg_first_check(bytes) {
-            Some(e)
-        } else {
-            check_bytes!(bytes, is_invalid_for_word::<true>)
-        }
-    }
+    arg_first_check;
     |bytes| {
         arg_first_check(bytes)
     }
 }
-impl_builder!(ArgBuilder from Word with ArgSafe for Arg);
 conversions!(Arg: NoNul);
 conversions!(Arg: Line);
 conversions!(Arg: Word);
@@ -139,18 +189,11 @@ impl_subtype! {
     Key: Arg
     KeySafe: ArgSafe
     is_invalid_for_key::<true>;
-    |bytes| {
-        if let Some(e) = arg_first_check(bytes) {
-            Some(e)
-        } else {
-            check_bytes!(bytes, is_invalid_for_key::<true>)
-        }
-    }
+    arg_first_check;
     |bytes| {
         check_bytes!(bytes, is_invalid_for_key::<false>)
     }
 }
-impl_builder!(KeyBuilder from Key with KeySafe for Key);
 conversions!(Key: NoNul);
 conversions!(Key: Line);
 conversions!(Key: Word);
@@ -171,18 +214,11 @@ impl_subtype! {
     Nick: Arg
     NickSafe: ArgSafe
     is_invalid_for_nick::<true>;
-    |bytes| {
-        if let Some(e) = arg_first_check(bytes) {
-            Some(e)
-        } else {
-            check_bytes!(bytes, is_invalid_for_nick::<true>)
-        }
-    }
+    arg_first_check;
     |bytes| {
         check_bytes!(bytes, is_invalid_for_nick::<false>)
     }
 }
-impl_builder!(NickBuilder from Nick with NickSafe for Nick);
 conversions!(Nick: NoNul);
 conversions!(Nick: Line);
 conversions!(Nick: Word);
@@ -193,18 +229,11 @@ impl_subtype! {
     User: Arg
     UserSafe: ArgSafe
     is_invalid_for_user::<true>;
-    |bytes| {
-        if let Some(e) = arg_first_check(bytes) {
-            Some(e)
-        } else {
-            check_bytes!(bytes, is_invalid_for_user::<true>)
-        }
-    }
+    arg_first_check;
     |bytes| {
         check_bytes!(bytes, is_invalid_for_user::<false>)
     }
 }
-impl_builder!(UserBuilder from User with UserSafe for User);
 conversions!(User: NoNul);
 conversions!(User: Line);
 conversions!(User: Word);
@@ -220,13 +249,7 @@ impl_subtype! {
     Cmd: Arg
     CmdSafe: ArgSafe
     cmd_byte_check;
-    |bytes| {
-        if bytes.is_empty() {
-            Some(InvalidByte::new_empty())
-        } else {
-            check_bytes!(bytes, cmd_byte_check)
-        }
-    }
+    arg_first_check;
     |bytes| {
         check_bytes!(bytes, cmd_byte_check)
     }
