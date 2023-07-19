@@ -8,7 +8,7 @@ mod impls;
 mod tests;
 
 use super::{Bytes, Transform};
-use crate::{error::InvalidByte, string::tf::AsciiCasemap};
+use crate::{error::InvalidString, string::tf::AsciiCasemap};
 use std::borrow::Borrow;
 
 /// [`Bytes`] newtypes that uphold some invariant.
@@ -28,7 +28,7 @@ pub unsafe trait BytesNewtype<'a>: AsRef<[u8]> {
     #[doc(hidden)]
     unsafe fn as_bytes_unsafe(&self) -> &'a [u8];
     #[doc(hidden)]
-    fn check_others(bytes: &[u8]) -> Option<InvalidByte>;
+    fn check_others(bytes: &[u8]) -> Option<InvalidString>;
     #[doc(hidden)]
     unsafe fn from_unchecked(bytes: Bytes<'a>) -> Self;
     #[doc(hidden)]
@@ -52,7 +52,7 @@ unsafe impl<'a> BytesNewtype<'a> for Bytes<'a> {
     unsafe fn as_bytes_unsafe(&self) -> &'a [u8] {
         self.as_bytes_unsafe()
     }
-    fn check_others(_: &[u8]) -> Option<InvalidByte> {
+    fn check_others(_: &[u8]) -> Option<InvalidString> {
         None
     }
     unsafe fn from_unchecked(bytes: Bytes<'a>) -> Self {
@@ -80,7 +80,7 @@ unsafe impl<'a> BytesNewtype<'a> for Bytes<'a> {
 }
 
 #[inline(always)]
-const fn return_none(_: &[u8]) -> Option<InvalidByte> {
+const fn return_none(_: &[u8]) -> Option<InvalidString> {
     None
 }
 
@@ -133,9 +133,9 @@ conversions!(Word: NoNul);
 conversions!(Word: Line);
 
 #[inline(always)]
-const fn check_empty(bytes: &[u8]) -> Option<InvalidByte> {
+const fn check_empty(bytes: &[u8]) -> Option<InvalidString> {
     if bytes.is_empty() {
-        Some(InvalidByte::new_empty())
+        Some(InvalidString::Empty)
     } else {
         None
     }
@@ -162,10 +162,10 @@ conversions!(Host: Line);
 conversions!(Host: Word);
 
 #[inline(always)]
-const fn arg_first_check(bytes: &[u8]) -> Option<InvalidByte> {
+const fn arg_first_check(bytes: &[u8]) -> Option<InvalidString> {
     match bytes.first() {
-        None => Some(InvalidByte::new_empty()),
-        Some(b':') => Some(InvalidByte::new_at(bytes, 0)),
+        None => Some(InvalidString::Empty),
+        Some(b':') => Some(InvalidString::Colon),
         _ => None,
     }
 }

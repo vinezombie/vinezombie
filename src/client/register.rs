@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     client::auth::Secret,
-    error::InvalidByte,
+    error::InvalidString,
     ircmsg::ClientMsg,
     string::{Key, Line, User},
 };
@@ -78,7 +78,7 @@ impl<P, S, N> Register<P, S, N> {
     /// Uses the provided password.
     pub fn with_pass<'a, P2: Secret>(
         self,
-        pass: impl TryInto<Line<'a>, Error = impl Into<InvalidByte>>,
+        pass: impl TryInto<Line<'a>, Error = impl Into<InvalidString>>,
     ) -> std::io::Result<Register<P2, S, N>> {
         let pass = pass.try_into().map_err(|e| e.into())?.secret();
         let secret = P2::new(pass.into())?;

@@ -1,5 +1,5 @@
 use super::{Bytes, BytesNewtype};
-use crate::error::InvalidByte;
+use crate::error::InvalidString;
 
 /// Type for creating [`Bytes`] newtypes by concatenation.
 ///
@@ -94,12 +94,12 @@ impl<'a, T: BytesNewtype<'a>> Builder<T> {
     }
 
     /// Checks `string`'s validity and adds it to the end of `self`.
-    pub fn try_append(&mut self, string: impl AsRef<[u8]>) -> Result<(), InvalidByte> {
+    pub fn try_append(&mut self, string: impl AsRef<[u8]>) -> Result<(), InvalidString> {
         let string = string.as_ref();
         let mut ascii = true;
-        for (idx, byte) in string.iter().enumerate() {
+        for byte in string.iter() {
             if T::is_invalid(byte) {
-                return Err(InvalidByte::new(*byte, idx));
+                return Err(InvalidString::Byte(*byte));
             }
             ascii &= byte.is_ascii();
         }
@@ -108,20 +108,20 @@ impl<'a, T: BytesNewtype<'a>> Builder<T> {
         Ok(())
     }
     /// Checks `string`'s validity and adds it to the end of `self`.
-    pub fn try_append_str(&mut self, string: impl AsRef<str>) -> Result<(), InvalidByte> {
+    pub fn try_append_str(&mut self, string: impl AsRef<str>) -> Result<(), InvalidString> {
         let string = string.as_ref().as_bytes();
-        for (idx, byte) in string.iter().enumerate() {
+        for byte in string.iter() {
             if T::is_invalid(byte) {
-                return Err(InvalidByte::new(*byte, idx));
+                return Err(InvalidString::Byte(*byte));
             }
         }
         self.bytes.extend_from_slice(string);
         Ok(())
     }
     /// Tries to append a byte.
-    pub fn try_push(&mut self, byte: u8) -> Result<(), InvalidByte> {
+    pub fn try_push(&mut self, byte: u8) -> Result<(), InvalidString> {
         if T::is_invalid(&byte) {
-            Err(InvalidByte::new(byte, self.bytes.len()))
+            Err(InvalidString::Byte(byte))
         } else {
             self.utf8 &= byte.is_ascii();
             self.bytes.push(byte);
@@ -129,7 +129,7 @@ impl<'a, T: BytesNewtype<'a>> Builder<T> {
         }
     }
     /// Tries to append a `char`.
-    pub fn try_push_char(&mut self, c: char) -> Result<(), InvalidByte> {
+    pub fn try_push_char(&mut self, c: char) -> Result<(), InvalidString> {
         let mut buf = [0u8; 4];
         self.try_append_str(c.encode_utf8(&mut buf))
     }

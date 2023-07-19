@@ -1,5 +1,5 @@
 use super::BytesNewtype;
-use crate::error::InvalidByte;
+use crate::error::InvalidString;
 
 /// Type for creating [`Bytes`][crate::string::Bytes] newtypes by splitting strings.
 #[derive(Clone, Copy, Debug)]
@@ -219,7 +219,7 @@ impl<'a, T: BytesNewtype<'a>> Splitter<T> {
     /// This method is significantly more performant than
     /// [`self.peek_string(true)`][Splitter::peek_string]
     /// but is only defined for a subset of string types.
-    pub fn peek_rest<U: BytesNewtype<'a> + From<T>>(&self) -> Result<U, InvalidByte> {
+    pub fn peek_rest<U: BytesNewtype<'a> + From<T>>(&self) -> Result<U, InvalidString> {
         if let Some(e) = U::check_others(self.as_slice()) {
             return Err(e);
         }
@@ -233,7 +233,7 @@ impl<'a, T: BytesNewtype<'a>> Splitter<T> {
     ///
     /// If `require_rest` is true, errors if this string does not contain all the remaining
     /// bytes in `self.`
-    pub fn peek_string<U: BytesNewtype<'a>>(&self, require_rest: bool) -> Result<U, InvalidByte> {
+    pub fn peek_string<U: BytesNewtype<'a>>(&self, require_rest: bool) -> Result<U, InvalidString> {
         unsafe {
             let mut slice = self.as_slice_unsafe();
             // Safety: We trust that U invalidity only happens on UTF-8 character boundries.
@@ -241,7 +241,7 @@ impl<'a, T: BytesNewtype<'a>> Splitter<T> {
                 if !require_rest {
                     &slice[..idx]
                 } else {
-                    return Err(InvalidByte::new_at(slice, idx));
+                    return Err(InvalidString::Byte(slice[idx]));
                 }
             } else {
                 slice
@@ -261,7 +261,7 @@ impl<'a, T: BytesNewtype<'a>> Splitter<T> {
     /// This method is significantly more performant than
     /// [`self.string(true)`][Splitter::string]
     /// but is only defined for a subset of string types.
-    pub fn rest<U: BytesNewtype<'a> + From<T>>(&mut self) -> Result<U, InvalidByte> {
+    pub fn rest<U: BytesNewtype<'a> + From<T>>(&mut self) -> Result<U, InvalidString> {
         let rest = self.peek_rest::<U>()?;
         self.range.start += rest.as_ref().len();
         Ok(rest)
@@ -280,7 +280,7 @@ impl<'a, T: BytesNewtype<'a>> Splitter<T> {
     ///
     /// If `require_rest` is true, errors if this string does not contain all the remaining
     /// bytes in `self.`
-    pub fn string<U: BytesNewtype<'a>>(&mut self, require_rest: bool) -> Result<U, InvalidByte> {
+    pub fn string<U: BytesNewtype<'a>>(&mut self, require_rest: bool) -> Result<U, InvalidString> {
         let next = self.peek_string::<U>(require_rest)?;
         self.range.start += next.as_ref().len();
         Ok(next)

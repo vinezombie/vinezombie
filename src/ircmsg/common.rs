@@ -1,5 +1,5 @@
 use super::{Args, Source, Tags};
-use crate::error::{InvalidByte, ParseError};
+use crate::error::{InvalidString, ParseError};
 use crate::string::{Line, Splitter, Word};
 
 macro_rules! read_msg {
@@ -70,7 +70,7 @@ pub(crate) fn parse<'a, S: 'a, K: 'a>(
         msg.consume_whitespace();
         let word: Word = msg.string_or_default(false);
         if word.is_empty() {
-            return Err(ParseError::InvalidKind(InvalidByte::new_empty()));
+            return Err(ParseError::InvalidKind(InvalidString::Empty));
         }
         match word.first() {
             Some(b'@') if expect_tags => {
@@ -89,7 +89,7 @@ pub(crate) fn parse<'a, S: 'a, K: 'a>(
                 source = Some(parse_source(word.rest_or_default())?);
             }
             Some(_) => break word,
-            None => return Err(ParseError::InvalidKind(InvalidByte::new_empty())),
+            None => return Err(ParseError::InvalidKind(InvalidString::Empty)),
         }
     };
     let kind = parse_kind(kind)?;

@@ -2,8 +2,6 @@
 
 // All lovingly made without thiserror!
 
-use std::num::NonZeroUsize;
-
 /// Errors from parsing an IRC message..
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
@@ -15,15 +13,15 @@ pub enum ParseError {
     /// A field has an invalid value.
     InvalidField(&'static str, crate::string::Line<'static>),
     /// The string provided to a parse function is not a Line.
-    InvalidLine(InvalidByte),
+    InvalidLine(InvalidString),
     /// The source fragment of the message contains an invalid nickname.
-    InvalidNick(InvalidByte),
+    InvalidNick(InvalidString),
     /// The source fragment of the message contains an invalid username.
-    InvalidUser(InvalidByte),
+    InvalidUser(InvalidString),
     /// The source fragment of the message contains an invalid hostname.
-    InvalidHost(InvalidByte),
+    InvalidHost(InvalidString),
     /// The message's kind is invalid.
-    InvalidKind(InvalidByte),
+    InvalidKind(InvalidString),
 }
 
 impl std::fmt::Display for ParseError {
@@ -51,57 +49,36 @@ impl From<ParseError> for std::io::Error {
 /// Error indicating that the invariant of a [`Bytes`][crate::string::Bytes] newtype
 /// has been violated.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct InvalidByte(u8, Option<NonZeroUsize>);
-
-impl InvalidByte {
-    /// Creates an `InvalidByte` representing a violation of a "non-empty string" invariant.
-    pub const fn new_empty() -> InvalidByte {
-        InvalidByte(0u8, None)
-    }
-    /// Creates an `InvalidBytes` for an invalid byte in a slice.
-    pub const fn new_at(bytes: &[u8], idx: usize) -> InvalidByte {
-        Self::new(bytes[idx], idx)
-    }
-    /// Creates an `InvalidBytes` out of a byte and index.
-    pub const fn new(byte: u8, idx: usize) -> InvalidByte {
-        // Assume that it's impossible to ever have an array where `usize::MAX` is a valid index.
-        InvalidByte(byte, Some(unsafe { NonZeroUsize::new_unchecked(idx + 1) }))
-    }
-    /// Returns `true` if `self` is an error representing an invalid byte at some position.
-    pub fn has_index(&self) -> bool {
-        self.1.is_some()
-    }
-    /// Returns the invalid byte, which will be `0u8` for non-empty string invariant violations.
-    pub fn byte(&self) -> u8 {
-        self.0
-    }
-    /// Returns the index at which the invalid byte was found.
-    pub fn index(&self) -> Option<usize> {
-        self.1.map(|v| v.get() - 1usize)
-    }
+pub enum InvalidString {
+    /// The string is empty.
+    Empty,
+    /// The string begins with a colon, which is not allowed for this type.
+    Colon,
+    /// The string contains an invalid byte.
+    Byte(u8),
 }
 
-impl std::fmt::Display for InvalidByte {
+impl std::fmt::Display for InvalidString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(idx) = self.index() {
-            write!(f, "invalid byte {} @ index {idx}", self.0.escape_ascii())
-        } else {
-            write!(f, "empty byte string")
+        match self {
+            InvalidString::Empty => write!(f, "empty substring"),
+            InvalidString::Colon => write!(f, "substring begins with colon"),
+            InvalidString::Byte(b) => write!(f, "invalid byte '{}'", b.escape_ascii()),
         }
     }
 }
 
-impl std::error::Error for InvalidByte {}
+impl std::error::Error for InvalidString {}
 
-impl From<std::convert::Infallible> for InvalidByte {
+impl From<std::convert::Infallible> for InvalidString {
     fn from(value: std::convert::Infallible) -> Self {
         // Forward compat idiom, also used by std.
         match value {}
     }
 }
 
-impl From<InvalidByte> for std::io::Error {
-    fn from(value: InvalidByte) -> Self {
+impl From<InvalidString> for std::io::Error {
+    fn from(value: InvalidString) -> Self {
         std::io::Error::new(std::io::ErrorKind::InvalidData, value)
     }
 }

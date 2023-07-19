@@ -1,6 +1,6 @@
 use super::{Args, Source, Tags};
 use crate::{
-    error::{InvalidByte, ParseError},
+    error::{InvalidString, ParseError},
     string::{Cmd, Line},
 };
 use std::io::Write;
@@ -128,7 +128,7 @@ impl<'a> ClientMsg<'a> {
     }
     /// Parses a message from a [`Line`].
     pub fn parse(
-        msg: impl TryInto<Line<'a>, Error = impl Into<InvalidByte>>,
+        msg: impl TryInto<Line<'a>, Error = impl Into<InvalidString>>,
     ) -> Result<ClientMsg<'a>, ParseError> {
         let msg = msg.try_into().map_err(|e| ParseError::InvalidLine(e.into()))?;
         let (tags, _, cmd, args) = super::parse(

@@ -1,6 +1,6 @@
 use super::{Args, Numeric, ServerMsgKind, Source, Tags};
 use crate::{
-    error::{InvalidByte, ParseError},
+    error::{InvalidString, ParseError},
     string::{Cmd, Line, Nick},
 };
 use std::io::Write;
@@ -144,7 +144,7 @@ impl<'a> ServerMsg<'a> {
     }
     /// Parses a message from a [`Line`].
     pub fn parse(
-        msg: impl TryInto<Line<'a>, Error = impl Into<InvalidByte>>,
+        msg: impl TryInto<Line<'a>, Error = impl Into<InvalidString>>,
     ) -> Result<ServerMsg<'a>, ParseError> {
         let msg = msg.try_into().map_err(|e| ParseError::InvalidLine(e.into()))?;
         let (tags, source, kind, args) = super::parse(msg, Source::parse, |kind| {

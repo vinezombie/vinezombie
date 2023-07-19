@@ -1,3 +1,16 @@
+macro_rules! check_bytes {
+    ($bytes:ident, $f:expr) => {{
+        let mut i = 0usize;
+        while i < $bytes.len() {
+            if $f(&$bytes[i]) {
+                return Some(InvalidString::Byte($bytes[i]));
+            }
+            i += 1;
+        }
+        None
+    }};
+}
+
 /// # Safety
 /// Here be transmutes. $ssuper must be either Bytes
 /// or a an $sname from a previous use of this macro.
@@ -20,10 +33,10 @@ macro_rules! impl_subtype {
         impl<'a> $sname<'a> {
             /// Tries to convert `sup` into an instance of this type.
             /// Errors if `sup` does not uphold this type's guarantees.
-            pub fn from_super(sup: impl Into<$ssuper<'a>>) -> Result<Self, InvalidByte> {
+            pub fn from_super(sup: impl Into<$ssuper<'a>>) -> Result<Self, InvalidString> {
                 let sup = sup.into();
                 #[inline]
-                fn check($sarg: &[u8]) -> Option<InvalidByte> {
+                fn check($sarg: &[u8]) -> Option<InvalidString> {
                     $sbody
                 }
                 if let Some(e) = check(sup.as_ref()) {
@@ -70,7 +83,7 @@ macro_rules! impl_subtype {
             }
             /// Returns the first byte and its index that violate this type's guarantees.
             #[inline]
-            pub const fn find_invalid(bytes: &[u8]) -> Option<InvalidByte> {
+            pub const fn find_invalid(bytes: &[u8]) -> Option<InvalidString> {
                 // Optimization: the block here can also do a test for ASCII-validity
                 // and use that to infer UTF-8 validity.
                 if let Some(e) = $ocheck(bytes) {
@@ -80,7 +93,7 @@ macro_rules! impl_subtype {
             }
             /// Tries to convert `bytes` into an instance of this type.
             /// Errors if `bytes` does not uphold this type's guarantees.
-            pub fn from_bytes(bytes: impl Into<Bytes<'a>>) -> Result<Self, InvalidByte> {
+            pub fn from_bytes(bytes: impl Into<Bytes<'a>>) -> Result<Self, InvalidString> {
                 let bytes = bytes.into();
                 if let Some(e) = Self::find_invalid(bytes.as_ref()) {
                     Err(e)
@@ -107,7 +120,7 @@ macro_rules! impl_subtype {
             }
             /// Tries to convert `value` into an owning, secret instance of this type.
             /// Errors if `value` does not uphold this type's guarantees.
-            pub fn from_secret(value: Vec<u8>) -> Result<Self, InvalidByte> {
+            pub fn from_secret(value: Vec<u8>) -> Result<Self, InvalidString> {
                 if let Some(e) = Self::find_invalid(value.as_ref()) {
                     #[cfg(feature = "zeroize")]
                     std::mem::drop(zeroize::Zeroizing::new(value));
@@ -160,7 +173,7 @@ macro_rules! impl_subtype {
             unsafe fn as_bytes_unsafe(&self) -> &'a [u8] {
                 self.0.as_bytes_unsafe()
             }
-            fn check_others(bytes: &[u8]) -> Option<InvalidByte> {
+            fn check_others(bytes: &[u8]) -> Option<InvalidString> {
                 $ocheck(bytes)
             }
             unsafe fn from_unchecked(bytes: Bytes<'a>) -> Self {
@@ -199,8 +212,8 @@ macro_rules! impl_subtype {
             }
         }
         impl<'a> TryFrom<Bytes<'a>> for $sname<'a> {
-            type Error = InvalidByte;
-            fn try_from(value: Bytes<'a>) -> Result<$sname<'a>, InvalidByte> {
+            type Error = InvalidString;
+            fn try_from(value: Bytes<'a>) -> Result<$sname<'a>, InvalidString> {
                 $sname::from_bytes(value)
             }
         }
@@ -256,25 +269,25 @@ macro_rules! impl_subtype {
             }
         }
         impl<'a> TryFrom<&'a [u8]> for $sname<'a> {
-            type Error = InvalidByte;
+            type Error = InvalidString;
             fn try_from(value: &'a [u8]) -> Result<$sname<'a>, Self::Error> {
                 Bytes::from(value).try_into()
             }
         }
         impl<'a> TryFrom<&'a str> for $sname<'a> {
-            type Error = InvalidByte;
+            type Error = InvalidString;
             fn try_from(value: &'a str) -> Result<$sname<'a>, Self::Error> {
                 Bytes::from(value).try_into()
             }
         }
         impl TryFrom<Vec<u8>> for $sname<'static> {
-            type Error = InvalidByte;
+            type Error = InvalidString;
             fn try_from(value: Vec<u8>) -> Result<$sname<'static>, Self::Error> {
                 Bytes::from(value).try_into()
             }
         }
         impl TryFrom<String> for $sname<'static> {
-            type Error = InvalidByte;
+            type Error = InvalidString;
             fn try_from(value: String) -> Result<$sname<'static>, Self::Error> {
                 Bytes::from(value).try_into()
             }
@@ -302,23 +315,10 @@ macro_rules! conversions {
             }
         }
         impl<'a> TryFrom<$ssuper<'a>> for $sname<'a> {
-            type Error = InvalidByte;
-            fn try_from(value: $ssuper<'a>) -> Result<$sname<'a>, InvalidByte> {
+            type Error = InvalidString;
+            fn try_from(value: $ssuper<'a>) -> Result<$sname<'a>, InvalidString> {
                 $sname::from_bytes(value.into_bytes())
             }
         }
     };
-}
-
-macro_rules! check_bytes {
-    ($bytes:ident, $f:expr) => {{
-        let mut i = 0usize;
-        while i < $bytes.len() {
-            if $f(&$bytes[i]) {
-                return Some(InvalidByte::new_at($bytes, i));
-            }
-            i += 1;
-        }
-        None
-    }};
 }

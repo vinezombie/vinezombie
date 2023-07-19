@@ -64,10 +64,10 @@ impl User<'static> {
 
 impl<'a> Cmd<'a> {
     /// Tries to convert `word` into an instance of this type, uppercasing where necessary.
-    pub fn from_word(word: impl Into<Word<'a>>) -> Result<Self, InvalidByte> {
+    pub fn from_word(word: impl Into<Word<'a>>) -> Result<Self, InvalidString> {
         let mut word = word.into();
-        if let Some(idx) = word.iter().position(|b| !b.is_ascii_alphabetic()) {
-            return Err(InvalidByte::new_at(word.as_ref(), idx));
+        if let Some(inval) = word.iter().find(|b| !b.is_ascii_alphabetic()) {
+            return Err(InvalidString::Byte(*inval));
         };
         word.transform(AsciiCasemap::<true>);
         Ok(unsafe { Cmd::from_unchecked(word.into()) })
