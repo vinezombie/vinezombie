@@ -1,8 +1,8 @@
 //! Stuctures and utilities for IRCv3 message tags.
 
 use crate::string::{
-    tf::{escape, unescape, SplitKey},
-    Key, NoNul,
+    tf::{escape, unescape},
+    Key, NoNul, Splitter,
 };
 use std::collections::BTreeMap;
 
@@ -90,19 +90,17 @@ impl<'a> Tags<'a> {
     ///
     /// The provided word should NOT contain the leading '@'.
     pub fn parse(word: impl Into<crate::string::Word<'a>>) -> Self {
-        use crate::string::tf::{Split, SplitFirst};
-        let mut word = word.into();
+        let mut splitter = Splitter::new(word.into());
         let mut tags = Tags::new();
         // TODO: Tag bytes available.
-        while !word.is_empty() {
-            let (Ok(key), delim) = word.transform(SplitKey) else {
+        while !splitter.is_empty() {
+            let Ok(key) = splitter.string::<Key>(false) else {
                 continue;
             };
-            let value = if matches!(delim, Some(b'=')) {
-                let value = word.transform(Split(|b: &u8| *b == b';'));
-                word.transform(SplitFirst);
-                // `value` at this point is Word-valid.
-                unescape(unsafe { NoNul::from_unchecked(value) })
+            let value = if matches!(splitter.next_byte(), Some(b'=')) {
+                let value = splitter.save_end().until_byte(b';').rest::<NoNul>().unwrap();
+                splitter.next_byte();
+                unescape(value)
             } else {
                 NoNul::default()
             };

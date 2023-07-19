@@ -1,6 +1,6 @@
 //! Base64 encoding and decoding.
 
-use super::{tf::SplitAt, Arg};
+use super::{Arg, Splitter};
 use crate::string::Bytes;
 use base64::DecodeError;
 
@@ -10,24 +10,36 @@ use base64::DecodeError;
 /// Encodes data using Base64, then splits them into chunks no longer
 /// than some pre-determined number of bytes.
 #[derive(Clone)]
-pub struct ChunkEncoder(Bytes<'static>, usize);
+pub struct ChunkEncoder {
+    splitter: Option<Splitter<Arg<'static>>>,
+    max: usize,
+}
 
 impl ChunkEncoder {
     /// Constructs a new chunk encoder with a maximum chunk size of `max`.
     /// If `secret` is true, the `Arg`s yielded by this encoder will be secret.
     pub fn new<B: AsRef<[u8]>>(bytes: B, max: usize, secret: bool) -> Self {
         use base64::engine::{general_purpose::STANDARD as ENGINE, Engine};
+        if max == 0 {
+            return ChunkEncoder::empty();
+        }
         let encoded: Bytes<'static> = ENGINE.encode(bytes).into();
         let encoded = if secret { encoded.secret() } else { encoded };
-        ChunkEncoder(encoded, max)
+        let splitter = if !encoded.is_empty() {
+            let encoded = unsafe { Arg::from_unchecked(encoded) };
+            Some(Splitter::new(encoded))
+        } else {
+            None
+        };
+        ChunkEncoder { splitter, max }
     }
     /// Constructs an empty chunk encoder.
     pub const fn empty() -> Self {
-        ChunkEncoder(Bytes::empty(), 0)
+        ChunkEncoder { splitter: None, max: 0 }
     }
     /// Returns `true` if this chunk encoder is empty.
-    pub const fn is_empty(&self) -> bool {
-        self.1 == 0
+    pub fn is_empty(&self) -> bool {
+        self.splitter.is_some()
     }
 }
 
@@ -41,23 +53,22 @@ impl Iterator for ChunkEncoder {
     type Item = Arg<'static>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.is_empty() {
-            None
-        } else if let Some(chunk) = self.0.transform(SplitAt(self.1)) {
-            Some(unsafe { Arg::from_unchecked(chunk) })
-        } else {
-            let rest = std::mem::take(&mut self.0);
-            self.1 = 0;
-            Some(if rest.is_empty() {
-                if rest.is_secret() {
-                    crate::consts::PLUS.secret()
-                } else {
-                    crate::consts::PLUS
-                }
+        let Some(splitter) = &mut self.splitter else {
+            return None;
+        };
+        let Ok(chunk) = splitter.save_end().until_count(self.max).rest::<Arg>() else {
+            let retval = if splitter.is_secret() {
+                crate::consts::PLUS.secret()
             } else {
-                unsafe { Arg::from_unchecked(rest) }
-            })
+                crate::consts::PLUS
+            };
+            self.splitter = None;
+            return Some(retval);
+        };
+        if chunk.len() < self.max {
+            self.splitter = None;
         }
+        Some(chunk)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

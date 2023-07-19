@@ -5,7 +5,7 @@ use crate::{
     consts::cmd::CAP,
     error::ParseError,
     ircmsg::{Args, ClientMsg, Source},
-    string::{Arg, Builder, Cmd, Key, Line, Nick, Word},
+    string::{Arg, Builder, Cmd, Key, Line, Nick, Splitter, Word},
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -132,14 +132,17 @@ impl<'a> ServerMsgArgs<'a> {
             true
         };
         let mut caps = BTreeMap::new();
-        let mut last = last.clone();
+        let mut last = Splitter::new(last.clone());
         while !last.is_empty() {
-            let mut word = last.transform(crate::string::tf::SplitWord);
-            let (Ok(key), sep) = word.transform(crate::string::tf::SplitKey) else {
+            last.consume_whitespace();
+            let word = last.string_or_default::<Word>(false);
+            let mut word = Splitter::new(word);
+            let Ok(key) = word.string::<Key>(false) else {
                 continue;
             };
+            let sep = word.next_byte();
             let value = match sep {
-                Some(b'=') => word,
+                Some(b'=') => word.rest().unwrap(),
                 None => Word::default(),
                 // We've hit a capability name that vinezombie can't represent.
                 // Skip it.
@@ -175,17 +178,18 @@ impl<'a> ServerMsgArgs<'a> {
 /// whose names are included in `value`.
 ///
 /// If `value` is empty, `auths` is not filtered.
-pub(crate) fn filter_sasl<V>(auths: &mut VecDeque<(Arg<'static>, V)>, mut value: Word<'_>) {
-    use crate::string::tf::{AsciiCasemap, Split, SplitFirst};
+pub(crate) fn filter_sasl<V>(auths: &mut VecDeque<(Arg<'static>, V)>, value: Word<'_>) {
+    use crate::string::{tf::AsciiCasemap, Bytes};
     use std::collections::BTreeSet;
     let mut names = BTreeSet::new();
-    while !value.is_empty() {
-        let mut name = value.transform(Split(|c: &u8| *c == b','));
+    let mut splitter = Splitter::new(value);
+    while !splitter.is_empty() {
+        let mut name = splitter.save_end().until_byte(b',').rest_or_default::<Bytes>();
         if !name.is_empty() {
             name.transform(AsciiCasemap::<true>);
             names.insert(name);
         }
-        value.transform(SplitFirst);
+        splitter.next_byte();
     }
     if !names.is_empty() {
         auths.retain(|s| names.contains(s.0.as_bytes()));

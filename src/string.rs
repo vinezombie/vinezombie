@@ -18,7 +18,7 @@ mod builder;
 mod bytes;
 #[cfg(feature = "serde")]
 mod serde;
-//mod splitter;
+mod splitter;
 mod subtypes;
 #[cfg(test)]
 mod tests;
@@ -26,8 +26,8 @@ pub mod tf;
 
 pub use builder::*;
 pub use bytes::*;
+pub use splitter::*;
 pub use subtypes::*;
-//pub use splitter::*;
 
 use std::borrow::Cow;
 

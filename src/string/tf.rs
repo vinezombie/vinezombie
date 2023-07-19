@@ -2,15 +2,12 @@
 
 mod casemap;
 mod escape;
-mod parse;
-#[cfg(test)]
-mod tests;
 
-pub use {casemap::*, escape::*, parse::*};
+pub use {casemap::*, escape::*};
 
 use super::{Transformation, Utf8Policy};
 
-pub(self) unsafe fn map_bytes(
+pub(super) unsafe fn map_bytes(
     bytes: &[u8],
     utf8: Utf8Policy,
     mut f: impl FnMut(&u8) -> u8,

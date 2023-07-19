@@ -1,9 +1,6 @@
 //! IRC message argument utilities.
 
-use crate::string::{
-    tf::{SplitFirst, SplitWord, TrimStart},
-    Arg, Line,
-};
+use crate::string::{Arg, Line, Splitter, Word};
 
 #[inline(always)]
 unsafe fn downcast_line_slice<'a, 's>(lines: &'s [Line<'a>]) -> &'s [Arg<'a>] {
@@ -29,17 +26,17 @@ impl<'a> Args<'a> {
     }
     /// Parses an argument array from a string.
     pub fn parse(line: impl Into<Line<'a>>) -> Args<'a> {
-        let mut line = line.into();
+        let mut line = Splitter::new(line.into());
         let mut args = Args::new();
         loop {
-            line.transform(TrimStart(|b: &u8| *b == b' '));
-            if matches!(line.first(), Some(b':')) {
-                line.transform(SplitFirst);
-                args.0.push(line);
+            line.consume_whitespace();
+            if matches!(line.peek_byte(), Some(b':')) {
+                line.next_byte();
+                args.0.push(line.rest_or_default());
                 args.1 = true;
                 break;
             }
-            let word = line.transform(SplitWord);
+            let word = line.string_or_default::<Word>(false);
             if word.is_empty() {
                 break;
             }

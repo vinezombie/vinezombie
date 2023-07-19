@@ -1,4 +1,4 @@
-use super::{Builder, Bytes, Cmd, Line, Word};
+use super::{Builder, Bytes, Cmd, Line, Splitter, Word};
 
 macro_rules! test_kind {
     ($word:expr) => {{
@@ -51,6 +51,57 @@ fn builder() {
     let built: Line<'static> = builder.build();
     assert_eq!(built, "foo bar baz");
     assert_eq!(built.is_utf8_lazy(), Some(true));
+}
+
+#[test]
+fn splitter_basic() {
+    let mut splitter = Splitter::new(Line::from_str("foo  bar baz"));
+    let word = splitter.string::<Word<'static>>(false).unwrap();
+    assert_eq!(word, "foo");
+    let empty = splitter.string::<Word<'static>>(false).unwrap();
+    assert_eq!(empty, "");
+    splitter.consume_whitespace();
+    let word = splitter.rest::<Line<'static>>().unwrap();
+    assert_eq!(word, "bar baz");
+}
+
+#[test]
+fn splitter_until() {
+    let mut splitter = Splitter::new(Line::from_str("foo.bar"));
+    let word: Word = splitter.save_end().until_byte(b'.').string_or_default(true);
+    assert_eq!(word, "foo");
+    assert_eq!(splitter.next_byte(), Some(b'.'));
+}
+
+#[test]
+fn map_bytes() {
+    fn minus_to_plus(byte: &u8) -> u8 {
+        let byte = *byte;
+        if byte == b'-' {
+            b'+'
+        } else {
+            byte
+        }
+    }
+    use super::tf::map_bytes;
+    use crate::string::Utf8Policy;
+    macro_rules! test_map_bytes {
+        ($a:literal, $b:literal) => {
+            assert_eq!(
+                unsafe { map_bytes($a, Utf8Policy::PreserveStrict, minus_to_plus) }
+                    .transformed
+                    .as_ref(),
+                $b
+            )
+        };
+    }
+    test_map_bytes!(b"+++", b"+++");
+    test_map_bytes!(b"+-+", b"+++");
+    test_map_bytes!(b"++-", b"+++");
+    test_map_bytes!(b"--+", b"+++");
+    test_map_bytes!(b"---", b"+++");
+    test_map_bytes!(b"", b"");
+    test_map_bytes!(b"-", b"+");
 }
 
 #[cfg(feature = "base64")]

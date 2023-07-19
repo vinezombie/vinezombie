@@ -132,7 +132,7 @@ macro_rules! impl_subtype {
             }
             /// Returns `true` if `self` is a sensitive byte-string.
             pub fn is_secret(&self) -> bool {
-                self.0.is_owning()
+                self.0.is_secret()
             }
             /// Returns an owning version of this string.
             ///
@@ -183,6 +183,9 @@ macro_rules! impl_subtype {
                 let utf8 = if utf8 { Utf8Policy::Valid } else { Utf8Policy::Recheck };
                 let bytes = self.0.using_value(bytes, utf8);
                 Self::from_unchecked(bytes)
+            }
+            fn is_secret(&self) -> bool {
+                self.0.is_secret()
             }
         }
         impl<'a> From<$sname<'a>> for Bytes<'a> {

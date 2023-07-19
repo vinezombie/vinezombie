@@ -41,6 +41,8 @@ pub unsafe trait BytesNewtype<'a>: AsRef<[u8]> {
     fn is_utf8_lazy(&self) -> bool;
     #[doc(hidden)]
     unsafe fn using_value(&self, bytes: &'a [u8], utf8: bool) -> Self;
+    #[doc(hidden)]
+    fn is_secret(&self) -> bool;
 }
 
 /// This implementation allows [`Bytes`] to be used wherever any bytes newtype is expected.
@@ -71,6 +73,9 @@ unsafe impl<'a> BytesNewtype<'a> for Bytes<'a> {
     unsafe fn using_value(&self, bytes: &'a [u8], utf8: bool) -> Self {
         use super::Utf8Policy;
         self.using_value(bytes, if utf8 { Utf8Policy::Valid } else { Utf8Policy::Recheck })
+    }
+    fn is_secret(&self) -> bool {
+        self.is_secret()
     }
 }
 

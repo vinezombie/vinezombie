@@ -1,6 +1,6 @@
 use super::{Args, Source, Tags};
 use crate::error::{InvalidByte, ParseError};
-use crate::string::{Line, Word};
+use crate::string::{Line, Splitter, Word};
 
 macro_rules! read_msg {
     (
@@ -57,40 +57,43 @@ macro_rules! read_msg {
 
 #[inline(always)]
 pub(crate) fn parse<'a, S: 'a, K: 'a>(
-    mut msg: Line<'a>,
+    msg: Line<'a>,
     parse_source: impl Fn(Word<'a>) -> Result<S, ParseError>,
     parse_kind: impl FnOnce(Word<'a>) -> Result<K, ParseError>,
 ) -> Result<(Tags<'a>, Option<S>, K, Args<'a>), ParseError> {
-    use crate::string::tf::{SplitFirst, SplitWord};
     let mut tags = Tags::new();
     let mut source = None;
     let mut expect_tags = true;
     let mut expect_source = true;
+    let mut msg = Splitter::new(msg);
     let kind = loop {
-        let mut word = msg.transform(SplitWord);
+        msg.consume_whitespace();
+        let word: Word = msg.string_or_default(false);
         if word.is_empty() {
             return Err(ParseError::InvalidKind(InvalidByte::new_empty()));
         }
         match word.first() {
             Some(b'@') if expect_tags => {
+                let mut word = Splitter::new(word);
                 expect_tags = false;
-                word.transform(SplitFirst);
-                tags = Tags::parse(word);
+                word.next_byte();
+                tags = Tags::parse(word.rest_or_default::<Word>());
             }
             Some(b':') if expect_source => {
+                let mut word = Splitter::new(word);
                 expect_tags = false;
                 expect_source = false;
-                word.transform(SplitFirst);
+                word.next_byte();
                 // Maybe not quiet failure here?
                 // Non-parsed sources can sometimes still be useful.
-                source = Some(parse_source(word)?);
+                source = Some(parse_source(word.rest_or_default())?);
             }
             Some(_) => break word,
             None => return Err(ParseError::InvalidKind(InvalidByte::new_empty())),
         }
     };
     let kind = parse_kind(kind)?;
-    let args = Args::parse(msg);
+    let args = Args::parse(msg.rest_or_default::<Line>());
     Ok((tags, source, kind, args))
 }
 
