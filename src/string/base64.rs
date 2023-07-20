@@ -11,7 +11,7 @@ use base64::DecodeError;
 /// than some pre-determined number of bytes.
 #[derive(Clone)]
 pub struct ChunkEncoder {
-    splitter: Option<Splitter<Arg<'static>>>,
+    splitter: Result<Splitter<Arg<'static>>, bool>,
     max: usize,
 }
 
@@ -24,22 +24,24 @@ impl ChunkEncoder {
             return ChunkEncoder::empty();
         }
         let encoded: Bytes<'static> = ENGINE.encode(bytes).into();
-        let encoded = if secret { encoded.secret() } else { encoded };
         let splitter = if !encoded.is_empty() {
-            let encoded = unsafe { Arg::from_unchecked(encoded) };
-            Some(Splitter::new(encoded))
+            let mut encoded = unsafe { Arg::from_unchecked(encoded) };
+            if secret {
+                encoded = encoded.secret();
+            }
+            Ok(Splitter::new(encoded))
         } else {
-            None
+            Err(secret)
         };
         ChunkEncoder { splitter, max }
     }
     /// Constructs an empty chunk encoder.
     pub const fn empty() -> Self {
-        ChunkEncoder { splitter: None, max: 0 }
+        ChunkEncoder { splitter: Err(false), max: 0 }
     }
     /// Returns `true` if this chunk encoder is empty.
     pub fn is_empty(&self) -> bool {
-        self.splitter.is_some()
+        self.max == 0
     }
 }
 
@@ -53,34 +55,47 @@ impl Iterator for ChunkEncoder {
     type Item = Arg<'static>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(splitter) = &mut self.splitter else {
+        if self.max == 0 {
             return None;
-        };
-        let Ok(chunk) = splitter.save_end().until_count(self.max).rest::<Arg>() else {
-            let retval = if splitter.is_secret() {
-                crate::consts::PLUS.secret()
-            } else {
-                crate::consts::PLUS
-            };
-            self.splitter = None;
-            return Some(retval);
-        };
-        if chunk.len() < self.max {
-            self.splitter = None;
         }
-        Some(chunk)
+        match &mut self.splitter {
+            Ok(splitter) => {
+                let chunk = splitter.save_end().until_count(self.max).rest::<Arg>().unwrap();
+                if chunk.len() < self.max {
+                    *self = Self::empty();
+                } else if splitter.is_empty() {
+                    self.splitter = Err(splitter.is_secret());
+                }
+                Some(chunk)
+            }
+            Err(secret) => {
+                let retval =
+                    if *secret { crate::consts::PLUS.secret() } else { crate::consts::PLUS };
+                *self = Self::empty();
+                Some(retval)
+            }
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        // TODO: Can do better.
-        if self.is_empty() {
-            (0, Some(0))
-        } else {
-            (1, None)
-        }
+        let chunks = std::iter::ExactSizeIterator::len(self);
+        (chunks, Some(chunks))
     }
 }
 impl std::iter::FusedIterator for ChunkEncoder {}
+impl std::iter::ExactSizeIterator for ChunkEncoder {
+    fn len(&self) -> usize {
+        if self.max == 0 {
+            0
+        } else if let Ok(splitter) = &self.splitter {
+            // Integer division plus one is intended here.
+            // On exactly max bytes, we need to send an extra +.
+            splitter.len() / self.max + 1
+        } else {
+            1
+        }
+    }
+}
 
 /// `AUTHENTICATE`-style Base64 decoder.
 /// Accepts chunks until it receives one that is not a pre-determined number of bytes long.

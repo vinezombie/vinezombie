@@ -134,17 +134,33 @@ mod base64 {
     fn chunk_encoder() {
         // Test 1: 1 short chunk.
         let mut encoder = base64::ChunkEncoder::new(STRING_DEC, 400, false);
+        assert_eq!(encoder.len(), 1);
         assert_eq!(encoder.next().unwrap(), STRING_ENC);
+        assert_eq!(encoder.len(), 0);
         assert!(encoder.next().is_none());
         // Test 2: 1 full chunk, 1 short chunk.
         encoder = base64::ChunkEncoder::new(STRING_DEC, 20, false);
+        assert_eq!(encoder.len(), 2);
         assert_eq!(encoder.next().unwrap(), STRING_ENC_PARTS.0);
+        assert_eq!(encoder.len(), 1);
         assert_eq!(encoder.next().unwrap(), STRING_ENC_PARTS.1);
+        assert_eq!(encoder.len(), 0);
         assert!(encoder.next().is_none());
         // Test 3: 1 full chunk, 1 empty chunk.
         encoder = base64::ChunkEncoder::new(STRING_DEC, 28, false);
+        assert_eq!(encoder.len(), 2);
         assert_eq!(encoder.next().unwrap(), STRING_ENC);
+        assert_eq!(encoder.len(), 1);
         assert_eq!(encoder.next().unwrap(), b"+");
+        assert_eq!(encoder.len(), 0);
         assert!(encoder.next().is_none());
+    }
+    #[test]
+    fn chunk_encoder_empty() {
+        let mut encoder = base64::ChunkEncoder::new("", 2, false);
+        assert_eq!(encoder.len(), 1);
+        assert_eq!(encoder.next().unwrap(), "+");
+        assert_eq!(encoder.len(), 0);
+        assert_eq!(encoder.next(), None);
     }
 }
