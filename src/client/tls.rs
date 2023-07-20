@@ -13,13 +13,12 @@ use std::{
 pub enum Trust {
     /// Only use the provided root certificates.
     Only(Vec<PathBuf>),
-    // TODO: Opt-out of validation.
     /// Use system root certificates.
     #[default]
     Default,
     /// Use these root certificates in addition to system root certificates.
     Also(Vec<PathBuf>),
-    /// Disables server verification.
+    /// Disables server identity verification.
     ///
     /// This is usually a bad idea, but may be necessary to connect to some servers.
     NoVerify,
@@ -44,11 +43,14 @@ impl rustls::client::ServerCertVerifier for NoVerifier {
     }
 }
 
-/// Builder for rustls `Arc<ClientConfig>`s.
+/// `rustls` client configuration wrapped in an [`Arc`].
+pub type TlsConfig = Arc<ClientConfig>;
+
+/// Basic options for creating a [`TlsConfig`].
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct TlsConfig {
-    /// Server validation settings.
+pub struct TlsConfigOptions {
+    /// Options for validating the server's identity.
     pub trust: Trust,
     /// An optional path to a PEM-encoded file containing
     /// one `PKCS#8` private key and client certificate chain.
@@ -86,11 +88,11 @@ fn load_client_cert(path: &Path) -> std::io::Result<(Vec<Certificate>, rustls::P
         .ok_or(std::io::Error::new(std::io::ErrorKind::InvalidData, "missing PKCS#8 private key"))
 }
 
-impl TlsConfig {
-    /// Builds a [`ClientConfig`] from `self`.
+impl TlsConfigOptions {
+    /// Builds a [`TlsConfig`] from `self`.
     ///
     /// This is an expensive operation. It should ideally be done only once per network.
-    pub fn build(&self) -> std::io::Result<Arc<ClientConfig>> {
+    pub fn build(&self) -> std::io::Result<TlsConfig> {
         let cli_auth =
             if let Some(path) = &self.cert { Some(load_client_cert(path)?) } else { None };
         let builder = ClientConfig::builder().with_safe_defaults();
@@ -98,7 +100,7 @@ impl TlsConfig {
             let builder = builder.with_custom_certificate_verifier(Arc::new(NoVerifier));
             if let Some((certs, key)) = cli_auth {
                 builder
-                    .with_single_cert(certs, key)
+                    .with_client_auth_cert(certs, key)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
             } else {
                 builder.with_no_client_auth()
@@ -118,7 +120,7 @@ impl TlsConfig {
             let builder = builder.with_root_certificates(certs);
             if let Some((certs, key)) = cli_auth {
                 builder
-                    .with_single_cert(certs, key)
+                    .with_client_auth_cert(certs, key)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
             } else {
                 builder.with_no_client_auth()

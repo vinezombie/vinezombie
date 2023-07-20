@@ -14,7 +14,7 @@ categories = ["network-programming", "parser-implementations"]
 
 [dependencies]
 base64 = { version = "0.21.2", optional = true }
-rustls = { version = "0.21.2", optional = true, features = ["dangerous_configuration"] }
+rustls = { version = "0.21.4", optional = true, features = ["dangerous_configuration"] }
 rustls-native-certs = { version = "0.6.3", optional = true }
 rustls-pemfile = { version = "1.0.2", optional = true }
 serde = { version = "1.0.164", features = ["derive", "rc"], optional = true }

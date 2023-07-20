@@ -14,9 +14,6 @@ fn main() -> std::io::Result<()> {
     // reasonably be assumed to not be compromised.
     let mut options = client::register::new::<Clear>();
     options.realname = Some(Line::from_str("Vinezombie Example: hello_libera"));
-    // TLS can be pretty complicated, but there are sensible defaults.
-    // Use those defaults to build a TLS client configuration that we can use later.
-    let tls_config = client::tls::TlsConfig::default().build()?;
     // Rate-limited queue. Used to avoid excess-flooding oneself off the server,
     // even though that shouldn't be a risk for this minimal example.
     let mut queue = client::Queue::new();
@@ -24,7 +21,13 @@ fn main() -> std::io::Result<()> {
     // To disable TLS, we can set `address.tls`.
     // To change the port number to something non-default, we can set `address.port`.
     let address = client::conn::ServerAddr::from_host_str("irc.libera.chat");
-    let mut sock = address.connect(tls_config)?;
+    let mut sock = address.connect(|| {
+        // TLS can be pretty complicated, but there are sensible defaults.
+        // Use those defaults to build a TLS client configuration.
+        client::tls::TlsConfigOptions::default().build()
+        // If we may need to reconnect, the client configuration should be stored
+        // outside this function, possibly using a `OnceCell` or `OnceLock`.
+    })?;
     // The initial connection registration handshake needs to happen,
     // so let's build a handler for that.
     // `BotDefaults` provides default values for anything we didn't specify

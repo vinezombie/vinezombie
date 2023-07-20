@@ -1,3 +1,4 @@
+use crate::client::tls::TlsConfig;
 use std::pin::Pin;
 use tokio::{io::BufReader, net::TcpStream};
 
@@ -9,16 +10,21 @@ impl<'a> super::ServerAddr<'a> {
         Ok(BufReader::with_capacity(super::BUFSIZE, StreamTokio(StreamInner::Tcp(sock))))
     }
     /// Creates an asynchronous connection.
+    ///
+    /// `tls_fn` is called if a TLS client configuration is needed.
+    /// If this function may be called multiple times,
+    /// the client configuration should be stored outside of the closure.
     #[cfg(feature = "tls-tokio")]
     pub async fn connect_tokio(
         &self,
-        config: std::sync::Arc<rustls::ClientConfig>,
+        tls_fn: impl FnOnce() -> std::io::Result<TlsConfig>,
     ) -> std::io::Result<BufReader<StreamTokio>> {
         use std::io::{Error, ErrorKind};
         let string = self.address.as_str();
         let stream = if self.tls {
             let name = rustls::ServerName::try_from(string)
                 .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+            let config = tls_fn()?;
             let conn: tokio_rustls::TlsConnector = config.into();
             let sock = tokio::net::TcpStream::connect((string, self.port_num())).await?;
             let tls = conn.connect(name, sock).await?;

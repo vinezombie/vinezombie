@@ -10,14 +10,12 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).compact().init();
     let mut options = client::register::new::<Clear>();
     options.realname = Some(Line::from_str("Vinezombie Example: hello_libera_tokio"));
-    let tls_config = client::tls::TlsConfig::default().build()?;
     let mut queue = client::Queue::new();
     let address = client::conn::ServerAddr::from_host_str("irc.libera.chat");
     // First difference! We use a different function here to connect asynchronously.
-    // Many of the synchronous functions have `_tokio` variants for
-    // Tokio-flavored async. Whenever the standard library gets better async support,
-    // there will also be `_async` variants.
-    let mut sock = address.connect_tokio(tls_config).await?;
+    // Many of the synchronous functions have `_tokio` variants for Tokio-flavored async.
+    let mut sock =
+        address.connect_tokio(|| client::tls::TlsConfigOptions::default().build()).await?;
     // We still use the same handler for connection registration,
     // but instead we run it using a run_handler_tokio function.
     // This function is actually more general than run_handler,

@@ -1,3 +1,4 @@
+use crate::client::tls::TlsConfig;
 use std::{io::BufReader, net::TcpStream, time::Duration};
 
 impl<'a> super::ServerAddr<'a> {
@@ -8,10 +9,13 @@ impl<'a> super::ServerAddr<'a> {
         Ok(BufReader::with_capacity(super::BUFSIZE, Stream(StreamInner::Tcp(sock))))
     }
     /// Creates a synchronous connection.
+    ///
+    /// `tls_fn` is called if a TLS client configuration is needed.
+    /// If this function may be called multiple times,
     #[cfg(feature = "tls")]
     pub fn connect(
         &self,
-        config: std::sync::Arc<rustls::ClientConfig>,
+        tls_fn: impl FnOnce() -> std::io::Result<TlsConfig>,
     ) -> std::io::Result<BufReader<Stream>> {
         use std::io::{Error, ErrorKind};
         let string = self.address.as_str();
@@ -19,6 +23,7 @@ impl<'a> super::ServerAddr<'a> {
             use std::io::Write;
             let name = rustls::ServerName::try_from(string)
                 .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+            let config = tls_fn()?;
             let conn = rustls::ClientConnection::new(config, name)
                 .map_err(|e| Error::new(ErrorKind::Other, e))?;
             let sock = std::net::TcpStream::connect((string, self.port_num()))?;
