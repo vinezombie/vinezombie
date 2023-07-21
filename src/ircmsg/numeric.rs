@@ -6,6 +6,42 @@ use std::io::Write;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Numeric([u8; 3]);
 
+impl AsRef<str> for Numeric {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<[u8]> for Numeric {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl std::borrow::Borrow<str> for Numeric {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::borrow::Borrow<[u8]> for Numeric {
+    fn borrow(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Numeric {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_str().fmt(f)
+    }
+}
+
+impl std::fmt::Display for Numeric {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 impl Numeric {
     /// Attempts to convert the provided byte slice into a `Numeric`.
     /// Returns `None` if the slice is not three digits.
@@ -71,47 +107,39 @@ impl Numeric {
     }
     /// Returns `Some(true)` if `self` represents an error,
     /// `Some(false)` if it does not, or `None` if it's unknown.
+    ///
+    /// This function interprets the entire 000-399 range as non-errors,
+    /// the 400-568 range as errors, and is defined for select numerics
+    /// outside that range that are generally standard.
     pub const fn is_error(&self) -> Option<bool> {
-        match self.0[0] {
-            b'0' | b'1' | b'2' | b'3' => Some(false),
-            b'4' => Some(true),
-            _ => None,
+        let num = self.into_int();
+        if num < 400 {
+            Some(false)
+        } else if num < 569 {
+            Some(true)
+        } else {
+            match num {
+                670 => Some(false),
+                671 => Some(false),
+                691 => Some(true),
+                696 => Some(true),
+                704 => Some(false),
+                705 => Some(false),
+                706 => Some(false),
+                723 => Some(true),
+                740 => Some(false),
+                741 => Some(false),
+                900 => Some(false),
+                901 => Some(false),
+                902 => Some(true),
+                903 => Some(false),
+                904 => Some(true),
+                905 => Some(true),
+                906 => Some(true),
+                907 => Some(true),
+                908 => Some(false),
+                _ => None,
+            }
         }
-    }
-}
-
-impl AsRef<str> for Numeric {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl AsRef<[u8]> for Numeric {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl std::borrow::Borrow<str> for Numeric {
-    fn borrow(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl std::borrow::Borrow<[u8]> for Numeric {
-    fn borrow(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl std::fmt::Debug for Numeric {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.as_str().fmt(f)
-    }
-}
-
-impl std::fmt::Display for Numeric {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
     }
 }
