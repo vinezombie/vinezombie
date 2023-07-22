@@ -5,7 +5,7 @@
 **A modular IRCv3 library in Rust.**
 
 [![CI](https://github.com/vinezombie/vinezombie/actions/workflows/ci.yml/badge.svg)](https://github.com/vinezombie/vinezombie/actions/workflows/ci.yml)
-[![Chat on libera.chat](https://img.shields.io/badge/libera.chat-%23vinezombie-blueviolet)](https://web.libera.chat/gamja/?channel=#vinezombie)
+[![Chat on libera.chat](https://img.shields.io/badge/libera.chat-%23vinezombie-rgb?logo=liberadotchat&color=%23ff55dd)](https://web.libera.chat/gamja#vinezombie)
 
 `vinezombie` is a Rust library for writing IRCv3 software
 (mostly clients/bots at this time).
