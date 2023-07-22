@@ -89,6 +89,8 @@ pub fn parse_tag_keyvalues() {
     assert_eq!(tags.get("foo").unwrap(), "");
     let tags = irc_msg!("@foo=; TAGMSG").tags;
     assert_eq!(tags.get("foo").unwrap(), "");
+    let tags = irc_msg!("@foo=bar;foo=baz TAGMSG").tags;
+    assert_eq!(tags.get("foo").unwrap(), "baz");
 }
 
 #[test]
