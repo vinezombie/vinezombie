@@ -189,7 +189,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
             "001" => {
                 let nick = msg
                     .args
-                    .args()
+                    .words()
                     .first()
                     .filter(|n| *n != crate::consts::STAR.as_bytes())
                     .and_then(|n| Nick::from_super(n.clone()).ok());
@@ -312,7 +312,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
     fn next_nick(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
         let nick = self.nicks.next().ok_or(HandlerError::NoNicks)?;
         let mut msg = ClientMsg::new_cmd(NICK);
-        msg.args.add(nick.clone());
+        msg.args.edit().add_word(nick.clone());
         sink.send(msg).map_err(HandlerError::Io)?;
         self.reg.nick = nick;
         Ok(())
@@ -324,7 +324,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
             return Ok(());
         };
         let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
-        msg.args.add(name);
+        msg.args.edit().add_word(name);
         sink.send(msg).map_err(HandlerError::Io)?;
         self.auth = Some(crate::client::auth::Handler::from_logic(logic));
         self.state = HandlerState::Sasl;
@@ -336,7 +336,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                 return Err(HandlerError::NoLogin);
             }
             let mut msg = crate::ircmsg::ClientMsg::new_cmd(CAP);
-            msg.args.add_literal("END");
+            msg.args.edit().add_literal("END");
             sink.send(msg).map_err(HandlerError::Io)?;
             self.state = HandlerState::Done;
             Ok(true)

@@ -130,7 +130,7 @@ impl<'a> ServerMsg<'a> {
             tags: Tags::new(),
             source: Some(Source::new_server(server_name)),
             kind: ServerMsgKind::Numeric(num),
-            args: Args::new(),
+            args: Args::empty(),
         }
     }
     /// Creates a new `ServerMsg` with the provided command.
@@ -139,7 +139,7 @@ impl<'a> ServerMsg<'a> {
             tags: Tags::new(),
             source: Some(source),
             kind: ServerMsgKind::Cmd(cmd),
-            args: Args::new(),
+            args: Args::empty(),
         }
     }
     /// Parses a message from a [`Line`].

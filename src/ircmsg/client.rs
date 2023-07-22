@@ -124,7 +124,7 @@ impl<'a> ClientMsg<'a> {
     pub const MAX_LEN: usize = 4608;
     /// Creates a new `ServerMsg` with the provided command.
     pub const fn new_cmd(cmd: Cmd<'a>) -> Self {
-        ClientMsg { tags: Tags::new(), cmd, args: Args::new() }
+        ClientMsg { tags: Tags::new(), cmd, args: Args::empty() }
     }
     /// Parses a message from a [`Line`].
     pub fn parse(

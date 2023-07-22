@@ -25,7 +25,7 @@ pub fn req<'a>(
     mut sink: impl ClientMsgSink<'static>,
 ) -> Result<(), std::io::Error> {
     let mut msg = ClientMsg::new_cmd(CAP);
-    msg.args.add_literal("REQ");
+    msg.args.edit().add_literal("REQ");
     // " clientname :" plus one space to simplify length calcs.
     let len_mod = 4 + client.map(|c| c.len()).unwrap_or(1) as isize;
     // This should never be negative, but just in case.
@@ -39,15 +39,14 @@ pub fn req<'a>(
             cap_string.append(cap);
         } else {
             if !cap_string.is_empty() {
-                let msg_clone = msg.clone();
-                msg.args.add_last(cap_string.build());
-                sink.send(msg)?;
-                msg = msg_clone;
+                let mut msg_clone = msg.clone();
+                msg_clone.args.edit().add(cap_string.build());
+                sink.send(msg_clone)?;
             }
             cap_string = LineBuilder::new(cap.into());
         }
     }
-    msg.args.add_last(cap_string.build());
+    msg.args.edit().add(cap_string.build());
     sink.send(msg)
 }
 

@@ -81,7 +81,7 @@ impl Handler {
             decoder: crate::string::base64::ChunkDecoder::new(400),
         };
         let mut msg = ClientMsg::new_cmd(crate::consts::cmd::AUTHENTICATE);
-        msg.args.add(sasl.name());
+        msg.args.edit().add_word(sasl.name());
         Ok((msg, auth))
     }
     /// Handles a server message sent during SASL authentication.
@@ -95,7 +95,7 @@ impl Handler {
         use crate::string::base64::ChunkEncoder;
         match msg.kind.as_str() {
             "AUTHENTICATE" => {
-                let res = if let Some(first) = msg.args.args().first() {
+                let res = if let Some(first) = msg.args.words().first() {
                     self.decoder.add(first.as_bytes())
                 } else {
                     Some(self.decoder.decode())
@@ -105,7 +105,7 @@ impl Handler {
                     let reply = self.logic.reply(&chal).map_err(HandlerError::Broken)?;
                     for chunk in ChunkEncoder::new(reply, 400, true) {
                         let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
-                        msg.args.add(chunk);
+                        msg.args.edit().add_word(chunk);
                         sink.send(msg).map_err(HandlerError::Io)?;
                     }
                 }
@@ -119,7 +119,7 @@ impl Handler {
             }
             "908" => {
                 #[allow(clippy::mutable_key_type)]
-                let set = msg.args.args().iter().map(|a| a.clone().owning()).collect();
+                let set = msg.args.split_last().0.iter().map(|a| a.clone().owning()).collect();
                 Err(HandlerError::WrongMechanism(set))
             }
             _ => Ok(HandlerOk::Ignored),

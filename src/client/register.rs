@@ -132,28 +132,29 @@ impl<P: Secret, S, N: NickTransformer> Register<P, S, N> {
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e))?;
             let pass = Line::from_secret(secret)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-            msg.args.add_last(pass);
+            msg.args.edit().add(pass);
             sink.send(msg)?;
         }
         // CAP message.
         let mut msg = ClientMsg::new_cmd(CAP);
-        msg.args.add_literal("LS");
+        let mut args = msg.args.edit();
+        args.add_literal("LS");
         // TODO: Don't hardcode this, or at least name this constant.
-        msg.args.add_literal("302");
+        args.add_literal("302");
         sink.send(msg)?;
         // USER message.
         msg = ClientMsg::new_cmd(USER);
-        let args = &mut msg.args;
-        args.add(self.username.clone().unwrap_or_else(|| defaults.username()));
+        let mut args = msg.args.edit();
+        args.add_word(self.username.clone().unwrap_or_else(|| defaults.username()));
         // Some IRCds still rely on 8 to set +i by default.
         args.add_literal("8");
         args.add_literal("*");
-        args.add_last(self.realname.clone().unwrap_or_else(|| defaults.realname()));
+        args.add(self.realname.clone().unwrap_or_else(|| defaults.realname()));
         sink.send(msg)?;
         // NICK message.
         msg = ClientMsg::new_cmd(NICK);
         let (nick, fallbacks) = FallbackNicks::new(&self.nicks, defaults);
-        msg.args.add(nick);
+        msg.args.edit().add_word(nick);
         sink.send(msg)?;
         Ok(fallbacks)
     }

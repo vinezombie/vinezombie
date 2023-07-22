@@ -46,7 +46,7 @@ pub fn parse_arg() {
 #[test]
 pub fn parse_args() {
     let msg = irc_msg!("NOTICE #foo :beep");
-    assert_eq!(msg.args.args(), ["#foo", "beep"]);
+    assert_eq!(msg.args.words(), ["#foo", "beep"]);
 }
 
 #[test]
