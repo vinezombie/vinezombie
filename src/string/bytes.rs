@@ -472,7 +472,7 @@ impl OwnedBytes {
     /// # Safety
     /// `slice` is assumed to be a slice of the data owned by self.
     pub unsafe fn into_vec(self, slice: &[u8], _secret: bool) -> Vec<u8> {
-        if let Some(os) = self.0.try_unwrap() {
+        if let Ok(os) = self.0.try_unwrap() {
             let (retval, _destroy) = os.into_vec(slice);
             #[cfg(feature = "zeroize")]
             if _secret {

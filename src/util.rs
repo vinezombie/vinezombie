@@ -1,7 +1,9 @@
+mod dynsized;
 mod ownedslice;
-mod thinarc;
 #[cfg(test)]
 mod tests;
+mod thinarc;
 
+pub use dynsized::*;
 pub use ownedslice::*;
 pub use thinarc::*;

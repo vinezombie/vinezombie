@@ -122,7 +122,6 @@ impl<'a> Args<'a> {
         }
         Args { words, long }
     }
-    /// Creates a new argument list from the provided argument list.
     /// Returns a guard that allows editing of `self`.
     pub fn edit(&mut self) -> ArgsEditGuard<'a, '_> {
         ArgsEditGuard(self.words.to_mut(), &mut self.long)
