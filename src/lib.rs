@@ -19,3 +19,4 @@ pub mod consts;
 pub mod error;
 pub mod ircmsg;
 pub mod string;
+pub(crate) mod util;

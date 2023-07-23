@@ -2,9 +2,7 @@ use super::{Transform, Utf8Policy};
 use std::{
     borrow::Cow,
     ops::Deref,
-    ptr::NonNull,
     sync::atomic::{AtomicI8, Ordering::Relaxed},
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
 /// Placeholder string for when some value cannot be displayed,
@@ -23,25 +21,27 @@ pub struct Bytes<'a> {
     /// The result of UTF-8 validity checks.
     /// 0 if "unknown", 1 if UTF-8, -1 if NOT UTF-8.
     utf8: AtomicI8,
+    /// Whether this string is "secret" or not.
+    secret: bool,
 }
 
 impl<'a> Bytes<'a> {
     /// Returns a new empty `Bytes`.
     pub const fn empty() -> Bytes<'a> {
-        Bytes { value: &[], ownership: None, utf8: AtomicI8::new(1) }
+        Bytes { value: &[], ownership: None, utf8: AtomicI8::new(1), secret: false }
     }
     /// Cheaply converts a byte slice into a `Bytes`.
     pub const fn from_bytes(value: &'a [u8]) -> Self {
-        Bytes { value, ownership: None, utf8: AtomicI8::new(0) }
+        Bytes { value, ownership: None, utf8: AtomicI8::new(0), secret: false }
     }
     /// Cheaply converts an `str` into a `Bytes`.
     pub const fn from_str(value: &'a str) -> Self {
-        Bytes { value: value.as_bytes(), ownership: None, utf8: AtomicI8::new(1) }
+        Bytes { value: value.as_bytes(), ownership: None, utf8: AtomicI8::new(1), secret: false }
     }
     /// Cheaply conversts a secret value into a `Bytes`.
     pub fn from_secret(value: Vec<u8>) -> Self {
-        let (ownership, value) = unsafe { OwnedBytes::from_vec(value, true) };
-        Bytes { value, ownership, utf8: AtomicI8::new(0) }
+        let (ownership, value) = unsafe { OwnedBytes::from_vec(value) };
+        Bytes { value, ownership, utf8: AtomicI8::new(0), secret: true }
     }
     /// Returns `true` if `self` is not borrowing its data.
     pub const fn is_owning(&self) -> bool {
@@ -49,7 +49,7 @@ impl<'a> Bytes<'a> {
     }
     /// Returns `true` if `self` is a sensitive byte-string.
     pub fn is_secret(&self) -> bool {
-        self.ownership.as_ref().is_some_and(|o| o.is_secret())
+        self.secret
     }
     /// Returns an owning version of this string.
     ///
@@ -59,7 +59,8 @@ impl<'a> Bytes<'a> {
             // Lifetime extension.
             unsafe { std::mem::transmute(self) }
         } else {
-            self.owning_force(false)
+            let secret = self.secret;
+            self.owning_force(secret)
         }
     }
     /// Returns a secret version of this string.
@@ -70,30 +71,21 @@ impl<'a> Bytes<'a> {
     ///
     /// If the `zeroize` feature is enabled, these strings' buffers are zeroed out
     /// when the last reference to them is lost.
-    ///
-    /// For forward compatibility reasons, the value returned by this function
-    /// has a lifetime bound of `'a`. It may be cheaply converted to `'static`
-    /// using [`owning`][Bytes::owning]; secret strings are always owning.
-    pub fn secret(self) -> Bytes<'a> {
-        // Sneaky interior mutation.
-        if self.ownership.as_ref().is_some_and(|o| o.set_secret()) {
-            self
+    pub fn secret(mut self) -> Bytes<'a> {
+        if !self.secret && self.is_owning() {
+            self.owning_force(true)
         } else {
-            let retval = self.owning_force(true);
-            retval
+            self.secret = true;
+            self
         }
     }
     /// Returns an owning version of this string, unconditionally copying data.
     fn owning_force(self, secret: bool) -> Bytes<'static> {
         unsafe {
-            let (ownership, value) = OwnedBytes::from_vec(self.value.to_vec(), secret);
-            Bytes { value, ownership, utf8: self.utf8.load(Relaxed).into() }
+            let (ownership, value) = OwnedBytes::from_vec(self.value.to_vec());
+            Bytes { value, ownership, utf8: self.utf8.load(Relaxed).into(), secret }
         }
     }
-    // TODO: Are the "borrowed" methods from IrcStr needed?
-    // They haven't really been necessary IME,
-    // and with the UTF-8 checks they result in a lot of duplication,
-    // especially if one finds a need for to_borrowed_or_cloned.
 
     /// Returns true if this byte string is empty.
     pub const fn is_empty(&self) -> bool {
@@ -142,9 +134,12 @@ impl<'a> Bytes<'a> {
     /// [U+FFFD replacement character](std::char::REPLACEMENT_CHARACTER).
     pub fn into_utf8_lossy(self) -> Self {
         match unsafe { self.utf8_cow() } {
-            Cow::Borrowed(s) => {
-                Bytes { value: s.as_bytes(), ownership: self.ownership, utf8: 1i8.into() }
-            }
+            Cow::Borrowed(s) => Bytes {
+                value: s.as_bytes(),
+                ownership: self.ownership,
+                utf8: 1i8.into(),
+                secret: self.secret,
+            },
             Cow::Owned(o) => o.into(),
         }
     }
@@ -153,8 +148,8 @@ impl<'a> Bytes<'a> {
         use base64::engine::{general_purpose::STANDARD as ENGINE, Engine};
         let encoded = ENGINE.encode(self.value);
         unsafe {
-            let (ownership, value) = OwnedBytes::from_vec(encoded.into_bytes(), self.is_secret());
-            Bytes { value, ownership, utf8: 1i8.into() }
+            let (ownership, value) = OwnedBytes::from_vec(encoded.into_bytes());
+            Bytes { value, ownership, utf8: 1i8.into(), secret: self.secret }
         }
     }
     /// Creates a base64-encoded version of this string.
@@ -221,7 +216,7 @@ impl<'a> Bytes<'a> {
     pub unsafe fn using_value(&self, value: &'a [u8], utf8: Utf8Policy) -> Self {
         let utf8 = self.utf8_for_policy(utf8);
         let ownership = if value.is_empty() { None } else { self.ownership.clone() };
-        Bytes { value, ownership, utf8: utf8.into() }
+        Bytes { value, ownership, utf8: utf8.into(), secret: self.secret }
     }
     /// Updates `self` using the provided [`Transform`].
     pub fn transform<T: Transform>(&mut self, tf: T) -> T::Value<'a> {
@@ -246,8 +241,8 @@ impl<'a> Bytes<'a> {
             Cow::Owned(o) => {
                 let utf8 = self.utf8_for_policy(tfed.utf8);
                 unsafe {
-                    let (ownership, value) = OwnedBytes::from_vec(o, self.is_secret());
-                    *self = Bytes { value, ownership, utf8: utf8.into() };
+                    let (ownership, value) = OwnedBytes::from_vec(o);
+                    *self = Bytes { value, ownership, utf8: utf8.into(), secret: self.secret };
                 }
             }
         }
@@ -258,7 +253,7 @@ impl<'a> Bytes<'a> {
     /// This operation copies data unless `self` has sole ownership of its data.
     pub fn into_vec(self) -> Vec<u8> {
         if let Some(owner) = self.ownership {
-            unsafe { owner.into_vec(self.value) }
+            unsafe { owner.into_vec(self.value, self.secret) }
         } else {
             self.value.to_vec()
         }
@@ -290,8 +285,8 @@ impl std::borrow::Borrow<[u8]> for Bytes<'_> {
 impl<'a> From<Vec<u8>> for Bytes<'a> {
     fn from(value: Vec<u8>) -> Self {
         unsafe {
-            let (ownership, value) = OwnedBytes::from_vec(value, false);
-            Bytes { value, ownership, utf8: 0i8.into() }
+            let (ownership, value) = OwnedBytes::from_vec(value);
+            Bytes { value, ownership, utf8: 0i8.into(), secret: false }
         }
     }
 }
@@ -299,8 +294,8 @@ impl<'a> From<Vec<u8>> for Bytes<'a> {
 impl<'a> From<String> for Bytes<'a> {
     fn from(value: String) -> Self {
         unsafe {
-            let (ownership, value) = OwnedBytes::from_vec(value.into_bytes(), false);
-            Bytes { value, ownership, utf8: 1i8.into() }
+            let (ownership, value) = OwnedBytes::from_vec(value.into_bytes());
+            Bytes { value, ownership, utf8: 1i8.into(), secret: false }
         }
     }
 }
@@ -344,7 +339,7 @@ impl<'a> From<Bytes<'a>> for Vec<u8> {
 impl<'a> From<Bytes<'a>> for Cow<'a, [u8]> {
     fn from(value: Bytes<'a>) -> Self {
         match value.ownership {
-            Some(v) => Cow::Owned(unsafe { v.into_vec(value.value) }),
+            Some(v) => Cow::Owned(unsafe { v.into_vec(value.value, value.secret) }),
             None => Cow::Borrowed(value.value),
         }
     }
@@ -358,6 +353,7 @@ impl Clone for Bytes<'_> {
             value: self.value,
             ownership: self.ownership.clone(),
             utf8: self.utf8.load(Relaxed).into(),
+            secret: self.secret,
         }
     }
 }
@@ -433,14 +429,9 @@ impl std::fmt::Display for Bytes<'_> {
 
 impl std::fmt::Debug for Bytes<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (owning, secret) = if let Some(ref ownership) = self.ownership {
-            (true, ownership.is_secret())
-        } else {
-            (false, false)
-        };
         let mut f = f.debug_struct("Bytes");
-        let f = f.field("owning", &owning);
-        if !secret {
+        let f = f.field("owning", &self.is_owning());
+        if !self.is_secret() {
             if let Some(v) = self.to_utf8() {
                 f.field("value", &v)
             } else {
@@ -460,11 +451,9 @@ impl std::fmt::Debug for Bytes<'_> {
 /// It returns a reference to the content on construction
 /// but otherwise provides no access to the content.
 /// There is also only a strong reference count, which is kept seperate.
-struct OwnedBytes {
-    rc: NonNull<AtomicUsize>,
-    data: NonNull<u8>,
-    size: usize,
-}
+#[repr(transparent)]
+#[derive(Clone)]
+struct OwnedBytes(crate::util::ThinArc<crate::util::OwnedSlice<u8>>);
 
 impl OwnedBytes {
     /// Converts a Vec into Self (which owns the data)
@@ -474,100 +463,26 @@ impl OwnedBytes {
     ///
     /// # Safety
     /// Unbound lifetimes are the devil, and this returns a reference with one.
-    pub unsafe fn from_vec<'a>(mut value: Vec<u8>, secret: bool) -> (Option<Self>, &'a [u8]) {
-        if value.is_empty() && !secret {
-            return (None, Default::default());
-        }
-        // We're at the mercy of what the global allocator does here,
-        // but at least this potentially does NOT copy.
-        // To be sure, don't shrink to fit if we're secret.
-        if !secret {
-            value.shrink_to_fit();
-        }
-        // as_mut_ptr returns a dangling pointer if capacity is 0.
-        // https://doc.rust-lang.org/std/vec/struct.Vec.html#method.as_mut_ptr
-        let data = NonNull::new_unchecked(value.as_mut_ptr());
-        let len = value.len();
-        let size = value.capacity();
-        // Don't run the Vec's destructor as we're stealing ownership of its data.
-        std::mem::forget(value);
-        let init_rc = if secret { 3usize } else { 2usize };
-        // into_raw returns a non-null pointer.
-        // https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw
-        let rc = NonNull::new_unchecked(Box::into_raw(Box::new(AtomicUsize::new(init_rc))));
-        let retval = OwnedBytes { rc, data, size };
-        (Some(retval), std::slice::from_raw_parts(data.as_ptr().cast_const(), len))
-    }
-    /// Marks this byte string as sensitive if and only if `self` has exclusive ownership.
-    #[must_use]
-    pub fn set_secret(&self) -> bool {
-        unsafe {
-            let rc = self.rc.as_ref();
-            rc.compare_exchange(2, 3, Ordering::Relaxed, Ordering::Relaxed).is_ok()
-        }
-    }
-    #[must_use]
-    pub fn is_secret(&self) -> bool {
-        unsafe {
-            let rc = self.rc.as_ref();
-            rc.load(Ordering::Relaxed) & 1 != 0
-        }
+    pub unsafe fn from_vec<'a>(value: Vec<u8>) -> (Option<Self>, &'a [u8]) {
+        let (os, slice) = crate::util::OwnedSlice::from_vec(value);
+        (os.map(|os| OwnedBytes(crate::util::ThinArc::new(os))), slice)
     }
     /// Attempts to re-use the buffer for constructing a `Vec` from `slice`.
     ///
     /// # Safety
     /// `slice` is assumed to be a slice of the data owned by self.
-    pub unsafe fn into_vec(mut self, slice: &[u8]) -> Vec<u8> {
-        let slice_start = slice.as_ptr();
-        let data_start = self.data.as_ptr();
-        let capacity = self.size;
-        let count = self.rc.as_ref().fetch_sub(2, Ordering::Release);
-        let destroy = count < 4;
-        if destroy {
-            std::mem::drop(Box::from_raw(self.rc.as_mut()));
-        }
-        // Don't run self's destructor.
-        std::mem::forget(self);
-        if destroy && slice_start == data_start {
-            Vec::from_raw_parts(data_start, slice.len(), capacity)
-        } else {
-            let retval = slice.to_vec();
-            if destroy {
-                #[cfg(feature = "zeroize")]
-                if count & 1 != 0 {
-                    use zeroize::Zeroize;
-                    std::slice::from_raw_parts_mut(data_start, capacity).zeroize();
+    pub unsafe fn into_vec(self, slice: &[u8], _secret: bool) -> Vec<u8> {
+        if let Some(os) = self.0.try_unwrap() {
+            let (retval, _destroy) = os.into_vec(slice);
+            #[cfg(feature = "zeroize")]
+            if _secret {
+                if let Some(destroy) = _destroy {
+                    destroy.zeroize_drop();
                 }
-                std::mem::drop(Vec::from_raw_parts(data_start, 0, capacity));
             }
             retval
-        }
-    }
-}
-
-impl Clone for OwnedBytes {
-    fn clone(&self) -> Self {
-        let rc = unsafe { self.rc.as_ref() };
-        rc.fetch_add(2, Ordering::Relaxed);
-        OwnedBytes { rc: self.rc, data: self.data, size: self.size }
-    }
-}
-
-impl Drop for OwnedBytes {
-    fn drop(&mut self) {
-        unsafe {
-            let rc = self.rc.as_ref();
-            let count = rc.fetch_sub(2, Ordering::Release);
-            if count < 4 {
-                let ptr = self.data.as_ptr();
-                #[cfg(feature = "zeroize")]
-                if count & 1 != 0 {
-                    use zeroize::Zeroize;
-                    std::slice::from_raw_parts_mut(ptr, self.size).zeroize();
-                }
-                std::mem::drop(Vec::from_raw_parts(ptr, 0, self.size));
-                std::mem::drop(Box::from_raw(self.rc.as_mut()));
-            }
+        } else {
+            slice.to_vec()
         }
     }
 }
