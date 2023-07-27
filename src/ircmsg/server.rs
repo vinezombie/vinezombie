@@ -1,4 +1,4 @@
-use super::{Args, Numeric, ServerMsgKind, Source, Tags};
+use super::{Args, Numeric, ServerMsgKind, SharedSource, Source, Tags};
 use crate::{
     error::{InvalidString, ParseError},
     string::{Cmd, Line, Nick},
@@ -11,7 +11,7 @@ pub struct ServerMsg<'a> {
     /// This message's tags, if any.
     pub tags: Tags<'a>,
     /// Where this message originated.
-    pub source: Option<Source<'a>>,
+    pub source: Option<SharedSource<'a>>,
     /// What kind of message this is.
     pub kind: ServerMsgKind<'a>,
     /// This message's arguments.
@@ -124,20 +124,20 @@ impl<'a> ServerMsg<'a> {
     }
     /// The length of the longest permissible server message, including tags.
     pub const MAX_LEN: usize = 8703;
-    /// Creates a new `ServerMsg` with the provided numeric reply code.
-    pub const fn new_num(server_name: Nick<'a>, num: Numeric) -> Self {
-        ServerMsg {
-            tags: Tags::new(),
-            source: Some(Source::new_server(server_name)),
-            kind: ServerMsgKind::Numeric(num),
-            args: Args::empty(),
-        }
-    }
-    /// Creates a new `ServerMsg` with the provided command.
-    pub const fn new_cmd(source: Source<'a>, cmd: Cmd<'a>) -> Self {
+    /// Creates a new `ServerMsg` with the provided numeric reply code, source, and target.
+    pub fn new_num(num: Numeric, source: SharedSource<'a>, target: Nick<'a>) -> Self {
         ServerMsg {
             tags: Tags::new(),
             source: Some(source),
+            kind: ServerMsgKind::Numeric(num),
+            args: Args::new(vec![target.into()], None),
+        }
+    }
+    /// Creates a new `ServerMsg` with the provided command.
+    pub const fn new_cmd(cmd: Cmd<'a>) -> Self {
+        ServerMsg {
+            tags: Tags::new(),
+            source: None,
             kind: ServerMsgKind::Cmd(cmd),
             args: Args::empty(),
         }
@@ -154,6 +154,7 @@ impl<'a> ServerMsg<'a> {
                 Cmd::from_word(kind).map_err(ParseError::InvalidKind)?.into()
             })
         })?;
+        let source = source.map(SharedSource::new);
         Ok(ServerMsg { tags, source, kind, args })
     }
     /// The number of bytes of space remaining in this message, excluding tags.
@@ -161,13 +162,13 @@ impl<'a> ServerMsg<'a> {
     /// If either of the returned values are negative, this message is too long
     /// to guarantee that it will be delivered whole.
     pub fn bytes_left(&self) -> isize {
-        super::bytes_left(&self.kind.as_arg(), self.source.as_ref(), &self.args)
+        super::bytes_left(&self.kind.as_arg(), self.source.as_deref(), &self.args)
     }
     /// Writes self to the provided [`Write`] WITHOUT a trailing CRLF.
     ///
     /// This function makes many small writes. Buffering is strongly recommended.
     pub fn write_to(&self, write: &mut (impl Write + ?Sized)) -> std::io::Result<()> {
-        super::write_to(&self.tags, self.source.as_ref(), &self.kind.as_arg(), &self.args, write)
+        super::write_to(&self.tags, self.source.as_deref(), &self.kind.as_arg(), &self.args, write)
     }
     /// Writes self to `write` WITH a trailing CRLF,
     /// using the provided buffer to minimize the necessary number of writes to `write`.
@@ -215,9 +216,10 @@ impl<'a> ServerMsg<'a> {
 
     /// Converts `self` into a version that owns its data.
     pub fn owning(self) -> ServerMsg<'static> {
+        let source = self.source.map(|src| SharedSource::new(src.owning()));
         ServerMsg {
             tags: self.tags.owning(),
-            source: self.source.map(Source::owning),
+            source,
             kind: self.kind.owning(),
             args: self.args.owning(),
         }

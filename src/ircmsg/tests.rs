@@ -30,9 +30,8 @@ pub fn parse_source_full() {
     let source = msg.source.unwrap();
     assert_eq!(source.to_string(), "nick!user@host");
     assert_eq!(source.nick, "nick");
-    let address = source.userhost.unwrap();
-    assert_eq!(address.user.unwrap(), "user");
-    assert_eq!(address.host, "host");
+    assert_eq!(source.user().unwrap(), "user");
+    assert_eq!(source.host().unwrap(), "host");
 }
 
 #[test]

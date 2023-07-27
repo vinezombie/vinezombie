@@ -2,7 +2,7 @@ use super::FallbackNicks;
 use crate::{
     client::{auth::SaslLogic, nick::NickTransformer, ClientMsgSink, HandlerOk, HandlerResult},
     consts::cmd::{CAP, NICK},
-    ircmsg::{Args, ClientMsg, ServerMsg, Source},
+    ircmsg::{Args, ClientMsg, ServerMsg, SharedSource, Source},
     string::{Arg, Host, Key, Line, Nick, Word},
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -50,7 +50,7 @@ pub enum HandlerError {
     /// Authentication was required, but failed.
     NoLogin,
     /// The server sent a reply indicating an error that cannot be handled.
-    ServerError(ServerMsg<'static>),
+    ServerError(Box<ServerMsg<'static>>),
     /// An I/O error occurred.
     Io(std::io::Error),
 }
@@ -143,7 +143,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
         mut sink: impl ClientMsgSink<'static>,
     ) -> HandlerResult<Registration, Line<'static>, HandlerError> {
         if self.reg.source.is_none() {
-            self.reg.source = msg.source.as_ref().cloned();
+            self.reg.source = msg.source.clone().map(SharedSource::owning_merged);
         }
         if let Some(pong) = crate::client::pong(msg) {
             sink.send(pong).map_err(HandlerError::Io)?;
@@ -196,8 +196,11 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                 if let Some(nick) = nick {
                     self.reg.nick = nick;
                 }
-                if msg.source.is_some() {
-                    self.reg.source = msg.source.clone();
+                if let Some(source) = &msg.source {
+                    use std::ops::Deref;
+                    if !self.reg.source.as_ref().is_some_and(|src| src == source.deref()) {
+                        self.reg.source = Some(source.clone().owning_merged());
+                    }
                 }
                 self.reg.welcome = msg.args.clone();
                 Ok(HandlerOk::Value(std::mem::take(&mut self.reg)))
@@ -301,7 +304,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
             }
             _ => {
                 if msg.kind.is_error() == Some(true) {
-                    return Err(HandlerError::ServerError(msg.clone()));
+                    return Err(HandlerError::ServerError(Box::new(msg.clone())));
                 }
                 Ok(HandlerOk::Ignored)
             }

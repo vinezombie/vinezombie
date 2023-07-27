@@ -3,7 +3,7 @@
 
 use crate::{
     error::ParseError,
-    string::{Host, Nick, Splitter, User, Word},
+    string::{Builder, Host, Nick, Splitter, User, Word},
 };
 use std::io::Write;
 
@@ -21,10 +21,10 @@ pub struct Source<'a> {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UserHost<'a> {
-    /// The hostname (or vhost) of the sender.
-    pub host: Host<'a>,
     /// The username of the sender.
     pub user: Option<User<'a>>,
+    /// The hostname (or vhost) of the sender.
+    pub host: Host<'a>,
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -37,9 +37,22 @@ impl<'a> Source<'a> {
     pub const fn new_user(nick: Nick<'a>, user: User<'a>, host: Host<'a>) -> Self {
         Source { nick, userhost: Some(UserHost { user: Some(user), host }) }
     }
-    /// Converts `self` into a version that owns its data.
-    pub fn owning(self) -> Source<'static> {
-        Source { nick: self.nick.owning(), userhost: self.userhost.map(UserHost::owning) }
+    /// Returns a reference to the username of the sender, if any.
+    pub const fn user(&self) -> Option<&User<'a>> {
+        if let Some(uh) = &self.userhost {
+            if let Some(u) = &uh.user {
+                return Some(u);
+            }
+        }
+        None
+    }
+    /// Returns a reference to the hostname of the sender, if any.
+    pub const fn host(&self) -> Option<&Host<'a>> {
+        if let Some(uh) = &self.userhost {
+            Some(&uh.host)
+        } else {
+            None
+        }
     }
     /// Returns the length of `self`'s textual representaiton in bytes.
     pub fn len(&self) -> usize {
@@ -93,6 +106,43 @@ impl<'a> Source<'a> {
                 Ok(Source { nick, userhost: Some(address) })
             }
             _ => Ok(Source { nick, userhost: None }),
+        }
+    }
+    /// Converts `self` into a version that owns its data.
+    pub fn owning(self) -> Source<'static> {
+        Source { nick: self.nick.owning(), userhost: self.userhost.map(UserHost::owning) }
+    }
+    /// Merges the values of `self` into one buffer,
+    /// then creates a new `Source` from the shared buffer.
+    ///
+    /// Parsed `Source`s are usually constructed out of single buffers containing the rest of
+    /// a message. If you want to keep `self` around after the lifetime of the message,
+    /// this can be used to retain the minimum amount of memory necessary for the source.
+    pub fn owning_merged(self) -> Source<'static> {
+        let len_nick = self.nick.len();
+        let mut len_user = None;
+        let mut len_host = None;
+        let mut concat = Builder::<Word>::new(self.nick.clone().into());
+        if let Some(uh) = self.userhost {
+            len_host = Some(uh.host.len());
+            if let Some(u) = uh.user {
+                len_user = Some(u.len());
+                concat.append(u);
+            }
+            concat.append(uh.host);
+        }
+        let mut splitter = Splitter::new(concat.build());
+        let nick = splitter.save_end().until_count(len_nick).string(true).unwrap();
+        if let Some(lh) = len_host {
+            let user = len_user.map(|lu| {
+                // This really shouldn't fail.
+                splitter.save_end().until_count(lu).string(true).unwrap()
+            });
+            let host = splitter.save_end().until_count(lh).string(true).unwrap();
+            let userhost = UserHost { user, host };
+            Source { nick, userhost: Some(userhost) }
+        } else {
+            Source { nick, userhost: None }
         }
     }
 }
@@ -153,5 +203,49 @@ impl std::fmt::Display for UserHost<'_> {
         } else {
             write!(f, "{host}")
         }
+    }
+}
+
+/// An atomic reference-counted [`Source`].
+#[repr(transparent)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
+pub struct SharedSource<'a>(std::sync::Arc<Source<'a>>);
+
+impl<'a> SharedSource<'a> {
+    /// Wraps the provided source in a [`SharedSource`].
+    pub fn new(source: Source<'a>) -> Self {
+        Self(std::sync::Arc::new(source))
+    }
+    /// As [`Source::owning`].
+    pub fn owning(self) -> Source<'static> {
+        // TODO: Check if everything in Source is owning,
+        // and if so just return self.
+        match std::sync::Arc::try_unwrap(self.0) {
+            Ok(src) => src.owning(),
+            Err(arc) => (*arc).clone().owning(),
+        }
+    }
+    /// As [`Source::owning_merged`].
+    pub fn owning_merged(self) -> Source<'static> {
+        match std::sync::Arc::try_unwrap(self.0) {
+            Ok(src) => src.owning_merged(),
+            Err(arc) => (*arc).clone().owning_merged(),
+        }
+    }
+}
+
+impl<'a> std::ops::Deref for SharedSource<'a> {
+    type Target = Source<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for SharedSource<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
