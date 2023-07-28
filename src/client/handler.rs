@@ -33,7 +33,7 @@ pub trait Handler {
     /// Handles one message.
     fn handle(
         &mut self,
-        msg: &ServerMsg<'static>,
+        msg: &ServerMsg<'_>,
         queue: &mut Queue<'static>,
     ) -> HandlerResult<Self::Value, Self::Warning, Self::Error>;
 }
@@ -56,7 +56,7 @@ pub trait HandlerAsync<T> {
     /// Handles one message.
     fn handle_msg(
         &mut self,
-        msg: &ServerMsg<'static>,
+        msg: &ServerMsg<'_>,
         tasks: &mut T,
         queue: &mut Queue<'static>,
     ) -> HandlerResult<Self::Value, Self::Warning, Self::Error>;
@@ -73,7 +73,7 @@ impl<
         T,
         W: std::fmt::Display,
         E: From<std::io::Error>,
-        F: FnMut(&ServerMsg<'static>, &mut Queue<'static>) -> HandlerResult<T, W, E>,
+        F: FnMut(&ServerMsg<'_>, &mut Queue<'static>) -> HandlerResult<T, W, E>,
     > Handler for F
 {
     type Value = T;
@@ -81,7 +81,7 @@ impl<
     type Error = E;
     fn handle(
         &mut self,
-        msg: &ServerMsg<'static>,
+        msg: &ServerMsg<'_>,
         queue: &mut Queue<'static>,
     ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
         self(msg, queue)
@@ -99,7 +99,7 @@ impl<T, H: Handler> HandlerAsync<T> for H {
 
     fn handle_msg(
         &mut self,
-        msg: &ServerMsg<'static>,
+        msg: &ServerMsg<'_>,
         _: &mut T,
         queue: &mut Queue<'static>,
     ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
@@ -125,21 +125,25 @@ pub fn run_handler<H, V, W: std::fmt::Display, E: From<std::io::Error>>(
 where
     H: Handler<Value = V, Warning = W, Error = E>,
 {
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(512);
     loop {
         let msg = queue.pop(|dur| conn.set_read_timeout(dur).unwrap());
         if let Some(msg) = msg {
             msg.send_to(conn.as_write(), &mut buf)?;
             continue;
         }
-        match ServerMsg::read_owning_from(conn.as_bufread(), &mut buf) {
-            Ok(msg) => match handler.handle(&msg, queue) {
-                Ok(HandlerOk::Value(val)) => break Ok(val),
-                #[cfg(feature = "tracing")]
-                Ok(HandlerOk::Warning(w)) => tracing::warn!(target: "vinezombie", "{}", w),
-                Ok(_) => (),
-                Err(e) => break Err(e),
-            },
+        match ServerMsg::read_borrowing_from(conn.as_bufread(), &mut buf) {
+            Ok(msg) => {
+                let result = handler.handle(&msg, queue);
+                buf.clear();
+                match result {
+                    Ok(HandlerOk::Value(val)) => break Ok(val),
+                    #[cfg(feature = "tracing")]
+                    Ok(HandlerOk::Warning(w)) => tracing::warn!(target: "vinezombie", "{}", w),
+                    Ok(_) => (),
+                    Err(e) => break Err(e),
+                }
+            }
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => (),
             Err(e) => break Err(e.into()),
         };
@@ -159,7 +163,7 @@ pub async fn run_handler_tokio<H, T: 'static, V, W: std::fmt::Display, E: From<s
 where
     H: HandlerAsync<tokio::task::JoinSet<T>, TaskValue = T, Value = V, Warning = W, Error = E>,
 {
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(512);
     let mut timeout = Option::<std::time::Duration>::None;
     let mut joinset = tokio::task::JoinSet::<T>::new();
     loop {
@@ -168,11 +172,14 @@ where
             msg.send_to_tokio(conn.as_write(), &mut buf).await?;
             continue;
         }
-        let read_fut = ServerMsg::read_owning_from_tokio(conn.as_bufread(), &mut buf);
+        let read_fut = ServerMsg::read_borrowing_from_tokio(conn.as_bufread(), &mut buf);
         let result = tokio::select! {
             biased;
-            msg = read_fut =>
-                handler.handle_msg(&msg?, &mut joinset, queue),
+            msg = read_fut => {
+                let retval = handler.handle_msg(&msg?, &mut joinset, queue);
+                buf.clear();
+                retval
+            },
             Some(Ok(task_value)) = joinset.join_next() =>
                 handler.handle_value(task_value, &mut joinset, queue),
             () = tokio::time::sleep(timeout.unwrap_or_default()), if timeout.is_some() =>

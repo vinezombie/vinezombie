@@ -134,7 +134,7 @@ impl crate::client::Handler for Handler {
 
     fn handle(
         &mut self,
-        msg: &crate::ircmsg::ServerMsg<'static>,
+        msg: &crate::ircmsg::ServerMsg<'_>,
         queue: &mut crate::client::Queue<'static>,
     ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
         self.handle(msg, queue)

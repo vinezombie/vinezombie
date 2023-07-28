@@ -139,7 +139,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
     /// it errors or returns `Ok(Done)`.
     pub fn handle(
         &mut self,
-        msg: &ServerMsg<'static>,
+        msg: &ServerMsg<'_>,
         mut sink: impl ClientMsgSink<'static>,
     ) -> HandlerResult<Registration, Line<'static>, HandlerError> {
         if self.reg.source.is_none() {
@@ -192,7 +192,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                     .words()
                     .first()
                     .filter(|n| *n != crate::consts::STAR.as_bytes())
-                    .and_then(|n| Nick::from_super(n.clone()).ok());
+                    .and_then(|n| Nick::from_super(n.clone().owning()).ok());
                 if let Some(nick) = nick {
                     self.reg.nick = nick;
                 }
@@ -202,7 +202,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                         self.reg.source = Some(source.clone().owning_merged());
                     }
                 }
-                self.reg.welcome = msg.args.clone();
+                self.reg.welcome = msg.args.clone().owning();
                 Ok(HandlerOk::Value(std::mem::take(&mut self.reg)))
             }
             "432" => {
@@ -220,15 +220,16 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                 Ok(HandlerOk::NeedMore)
             }
             "464" | "465" => {
-                let line = msg.args.split_last().1.cloned().unwrap_or_default();
+                let line = msg.args.clone().owning().split_last().1.cloned().unwrap_or_default();
                 Err(HandlerError::NoAccess(line))
             }
             "900" => {
                 let args = msg.args.split_last().0;
                 if let Some((account, args)) = args.split_last() {
-                    self.reg.account = Some(account.clone());
+                    self.reg.account = Some(account.clone().owning());
                     if let Some(whoami) = args.last() {
-                        let whoami = Source::parse(whoami.clone()).map_err(HandlerError::broken)?;
+                        let whoami =
+                            Source::parse(whoami.clone().owning()).map_err(HandlerError::broken)?;
                         self.reg.nick = whoami.nick;
                         self.reg.host = whoami.userhost.map(|uh| uh.host);
                     }
@@ -237,8 +238,9 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
             }
             "901" => {
                 self.reg.account = None;
-                if let Some(whoami) = msg.args.split_last().0.last() {
-                    let whoami = Source::parse(whoami.clone()).map_err(HandlerError::broken)?;
+                if let Some(whoami) = msg.args.clone().split_last().0.last() {
+                    let whoami =
+                        Source::parse(whoami.clone().owning()).map_err(HandlerError::broken)?;
                     self.reg.nick = whoami.nick;
                     self.reg.host = whoami.userhost.map(|uh| uh.host);
                 }
@@ -246,8 +248,8 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
             }
             "CAP" => {
                 use crate::client::cap;
-                let mut cap_msg =
-                    cap::ServerMsgArgs::parse(&msg.args.clone()).map_err(HandlerError::broken)?;
+                let mut cap_msg = cap::ServerMsgArgs::parse(&msg.args.clone().owning())
+                    .map_err(HandlerError::broken)?;
                 match cap_msg.subcmd {
                     cap::SubCmd::Ls if cap_msg.is_last => {
                         self.caps_avail.append(&mut cap_msg.caps);
@@ -304,7 +306,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
             }
             _ => {
                 if msg.kind.is_error() == Some(true) {
-                    return Err(HandlerError::ServerError(Box::new(msg.clone())));
+                    return Err(HandlerError::ServerError(Box::new(msg.clone().owning())));
                 }
                 Ok(HandlerOk::Ignored)
             }
@@ -358,7 +360,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> crate::client::Handler
 
     fn handle(
         &mut self,
-        msg: &ServerMsg<'static>,
+        msg: &ServerMsg<'_>,
         queue: &mut crate::client::Queue<'static>,
     ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
         self.handle(msg, queue)
