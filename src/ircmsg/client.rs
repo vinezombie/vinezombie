@@ -21,9 +21,9 @@ impl ClientMsg<'static> {
     /// This function may block.
     ///
     /// `buf` must either be empty or contain a partial message from
-    /// a previous call to this function.
-    /// All calls to this function will leave `buf`
-    /// in a valid state for future calls.
+    /// a previous call to this function that errored due to
+    /// non-blocking I/O or unexpected EOF.
+    /// Other errors may leave `buf` in an invalid state for future calls.
     ///
     /// If the `tracing` feature is enabled, every successful call of this function
     /// will log an event at the debug level.
@@ -43,9 +43,9 @@ impl ClientMsg<'static> {
     /// Asynchronously reads a `'static` client message from `read`.
     ///
     /// `buf` must either be empty or contain a partial message from
-    /// a previous call to this function.
-    /// All calls to this function will leave `buf`
-    /// in a valid state for future calls.
+    /// a previous call to this function that errored due to
+    /// non-blocking I/O or unexpected EOF.
+    /// Other errors may leave `buf` in an invalid state for future calls.
     ///
     /// If the `tracing` feature is enabled, every successful call of this function
     /// will log an event at the debug level.
@@ -73,10 +73,9 @@ impl<'a> ClientMsg<'a> {
     /// unless minimizing memory allocations is very important.
     ///
     /// `buf` must either be empty or contain a partial message from
-    /// a previous call to this function.
-    /// Both success and parse failure
-    /// (indicated by [`InvalidData`][std::io::ErrorKind::InvalidData])
-    /// will leave `buf` in an invalid state for future calls.
+    /// a previous call to this function that errored due to
+    /// non-blocking I/O or unexpected EOF.
+    /// Other errors may leave `buf` in an invalid state for future calls.
     ///
     /// If the `tracing` feature is enabled, every successful call of this function
     /// will log an event at the debug level.
@@ -99,10 +98,9 @@ impl<'a> ClientMsg<'a> {
     /// unless minimizing memory allocations is very important.
     ///
     /// `buf` must either be empty or contain a partial message from
-    /// a previous call to this function.
-    /// Both success and parse failure
-    /// (indicated by [`InvalidData`][std::io::ErrorKind::InvalidData])
-    /// will leave `buf` in an invalid state for future calls.
+    /// a previous call to this function that errored due to
+    /// non-blocking I/O or unexpected EOF.
+    /// Other errors may leave `buf` in an invalid state for future calls.
     ///
     /// If the `tracing` feature is enabled, every successful call of this function
     /// will log an event at the debug level.

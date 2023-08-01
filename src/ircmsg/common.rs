@@ -13,42 +13,33 @@ macro_rules! read_msg {
             if buflen < $limit {
                 let read_count = $limit - buflen;
                 $read.set_limit(read_count as u64);
-                // 256 bytes is 1/2 the largest IRCv2 message,
-                // ensuring at most 1 realloc for tagless messages
-                // assuming Vec's growing strategy doesn't change for non-tiny allocations.
-                // IME most messages should fit in 256 bytes anyway.
-                $buf.reserve_exact(std::cmp::min(read_count, 256));
-                $read_expr?;
+                if $read_expr? == 0 {
+                    return Err(Error::from(ErrorKind::UnexpectedEof))
+                }
             }
             let mut found_newline = false;
-            loop {
-                match $buf.last() {
-                    None => break,
-                    Some(b'\n') => {
+            while let Some(c) = $buf.last() {
+                match c {
+                    b'\n' => {
                         found_newline = true;
                         $buf.pop();
                     }
-                    Some(b'\r') => {
+                    b'\r' if found_newline => {
                         $buf.pop();
                     }
-                    Some(_) if found_newline => {
+                    _ if found_newline => {
                         return match $parse_expr {
                             Ok(msg) => {
                                 #[cfg(feature = "tracing")]
                                 tracing::debug!(target: "vinezombie::recv", "{}", msg);
                                 Ok(msg)
                             }
-                            Err(e) => Err(e.into()),
+                            Err(e) => Err(e.into())
                         }
                     }
-                    _ => {
-                        $buf.clear();
-                        return if $buf.len() < $limit {
-                            Err(Error::from(ErrorKind::UnexpectedEof))
-                        } else {
-                            Err(ParseError::TooLong.into())
-                        };
-                    }
+                    // We stumbled into a non-newline character at the end of a read that
+                    // was supposed to read up until the newline or the max msg len.
+                    _ => return Err(ParseError::TooLong.into()),
                 }
             }
         }
