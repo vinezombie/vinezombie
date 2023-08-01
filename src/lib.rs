@@ -1,4 +1,4 @@
-#![doc = include_str!("../doc/rustdoc.md")]
+#![doc = include_str!("../doc/lib-rs.md")]
 #![allow(clippy::borrow_interior_mutable_const)]
 #![allow(clippy::mutable_key_type)]
 #![deny(clippy::missing_safety_doc)]

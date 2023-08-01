@@ -9,8 +9,9 @@ use std::{
 /// usually due to either being a non-UTF-8 string or secret.
 pub const DISPLAY_PLACEHOLDER: &str = "<?>";
 
-/// A borrowing or shared-owning immutable byte string. Not to be confused with Bytes
-/// from the crate of the same name.
+/// A borrowing or shared-owning immutable byte string.
+///
+/// See the [module-level documentation][super] for more.
 #[derive(Default)]
 pub struct Bytes<'a> {
     value: &'a [u8],

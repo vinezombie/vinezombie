@@ -1,16 +1,8 @@
-//! Byte strings and string manipulation utilities.
-//!
-//! The core primitive of vinezombie is [an immutable byte string type][Bytes]
-//! that can either borrow or have shared ownership of its contents.
-//! This primitive also features optimizations for checking UTF-8 validity.
-//!
-//! There are several newtypes based around this primitive,
-//! each with progressively greater restrictions.
-//!
-//! Accompanying `Bytes` and its newtypes are a family of [`Transformation`]s
-//! which allow for rich string manipulation while upholding the newtypes' invariants.
-
-// TODO: SVG link.
+#![doc = include_str!("../doc/string1-rs.md")]
+#![doc = "```text"]
+#![doc = include_str!("../doc/strings-rs.d2")]
+#![doc = "```"]
+#![doc = include_str!("../doc/string2-rs.md")]
 
 #[cfg(feature = "base64")]
 pub mod base64;
@@ -40,7 +32,7 @@ use std::borrow::Cow;
 /// it references. `self` must NOT store anything with a lifetime bounded by `'a`.
 ///
 /// `Transformation::transformed`, if it borrows, must either
-/// point to data owned by `self` or an immutable static variable.
+/// borrow data borrowed/owned by `bytes` or an immutable static variable.
 ///
 /// The type used for `Value` must either not use `'a`,
 /// or every use of `'a` in its definition must ultimately be `Bytes<'a>`.
@@ -82,6 +74,8 @@ pub enum Utf8Policy {
     /// The returned slice is NOT valid UTF-8.
     Invalid = -1,
     /// The returned slice has unknown UTF-8 validity.
+    ///
+    /// It is always safe to use this UTF-8 policy. When in doubt, use this.
     #[default]
     Recheck = 0,
     /// The returned slice is valid UTF-8.
