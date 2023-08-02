@@ -60,6 +60,8 @@ macro_rules! impl_subtype {
         $ocheck:expr;
     ) => {
         #[doc = $doc]
+        #[doc = ""]
+        #[doc = "See the [module-level documentation][super] for more."]
         #[repr(transparent)]
         #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize))]

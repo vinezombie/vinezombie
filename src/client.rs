@@ -1,4 +1,4 @@
-//! Utilities for building IRC clients or bots.
+#![doc = include_str!("../doc/rustdoc/client.md")]
 
 pub mod auth;
 pub mod cap;

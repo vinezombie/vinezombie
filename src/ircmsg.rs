@@ -1,4 +1,4 @@
-//! Representations of IRC messages and their components.
+#![doc = include_str!("../doc/rustdoc/ircmsg.md")]
 
 // Placing this here for macros.
 #[macro_use]

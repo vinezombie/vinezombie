@@ -2,13 +2,16 @@
 name = "vinezombie"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.71.0"
 
 license = "GPL-3.0-only"
 description = "A modular IRCv3 library"
+homepage = "https://github.com/vinezombie/vinezombie"
 repository = "https://github.com/vinezombie/vinezombie"
 readme = "README.md"
 keywords = ["irc", "ircv3"]
 categories = ["network-programming", "parser-implementations"]
+include = ["/src", "/doc/rustdoc/*", "/README.md"]
 
 # https://doc.rust-lang.org/cargo/reference/manifest.html
 

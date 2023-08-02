@@ -1,8 +1,8 @@
-#![doc = include_str!("../doc/string1-rs.md")]
+#![doc = include_str!("../doc/rustdoc/string1.md")]
 #![doc = "```text"]
-#![doc = include_str!("../doc/strings-rs.d2")]
+#![doc = include_str!("../doc/rustdoc/strings.d2")]
 #![doc = "```"]
-#![doc = include_str!("../doc/string2-rs.md")]
+#![doc = include_str!("../doc/rustdoc/string2.md")]
 
 #[cfg(feature = "base64")]
 pub mod base64;

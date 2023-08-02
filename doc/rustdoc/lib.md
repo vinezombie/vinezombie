@@ -40,23 +40,12 @@ Enables functions for creating strings from local user info.
 * `zeroize`:
 Zeroes-out certain byte buffers containing potentially-sensitive data.
 
-## Protocol Features
+## Features
 
 Vinezombie includes parsers for IRCv3 messages and their components
 which can be found in [`ircmsg`][crate::ircmsg].
-Vinezombie distinguishes between
-[client-originated messages][crate::ircmsg::ClientMsg]
-and [server-originated messages][crate::ircmsg::ServerMsg].
-
-## Client Features
 
 If you are writing client-side software,
 the [`client`][crate::client] module includes an assortment of utilities
-that may be useful while remaining close to the raw IRC protocol.
-
-[`client::register`][crate::client::register] provides an implementation
-of the full IRCv3 connection registration handshake, including SASL.
-
-[`client::tls`][crate::client::tls] provides means of creating
-rustls client configurations that are adequate for most usecases
-and may be significantly more convenient than working with rustls directly.
+that may be useful while remaining close to the raw IRC protocol,
+including a rudimentary event-handling system.
