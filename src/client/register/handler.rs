@@ -2,8 +2,8 @@ use super::FallbackNicks;
 use crate::{
     client::{auth::SaslLogic, nick::NickTransformer, ClientMsgSink, HandlerOk, HandlerResult},
     consts::cmd::{CAP, NICK},
-    ircmsg::{Args, ClientMsg, ServerMsg, SharedSource, Source},
-    string::{Arg, Host, Key, Line, Nick, Word},
+    ircmsg::{Args, ClientMsg, ServerMsg, SharedSource, Source, UserHost},
+    string::{Arg, Key, Line, Nick, Word},
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -12,11 +12,15 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 pub struct Registration {
     /// The nickname used for this connection.
     pub nick: Nick<'static>,
-    /// The hostname used for this connection.
+    /// The user and hostname used for this connection.
     ///
     /// This field will usually not be set unless SASL is completed.
     /// It may contain a spoofed hostname if the server supports those.
-    pub host: Option<Host<'static>>,
+    ///
+    /// Some server software incorrectly reports the username for this field,
+    /// omitting a leading "~" where one is otherwise required.
+    /// Relying on the value of the username in this field is not recommended.
+    pub userhost: Option<UserHost<'static>>,
     /// The name of logged-into account, if any.
     pub account: Option<Arg<'static>>,
     /// The enabled capabilities and their values.
@@ -31,7 +35,7 @@ impl Default for Registration {
     fn default() -> Self {
         Self {
             nick: crate::consts::STAR,
-            host: None,
+            userhost: None,
             account: None,
             caps: BTreeMap::new(),
             source: None,
@@ -231,7 +235,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                         let whoami =
                             Source::parse(whoami.clone().owning()).map_err(HandlerError::broken)?;
                         self.reg.nick = whoami.nick;
-                        self.reg.host = whoami.userhost.map(|uh| uh.host);
+                        self.reg.userhost = whoami.userhost;
                     }
                 }
                 Ok(HandlerOk::NeedMore)
@@ -242,7 +246,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                     let whoami =
                         Source::parse(whoami.clone().owning()).map_err(HandlerError::broken)?;
                     self.reg.nick = whoami.nick;
-                    self.reg.host = whoami.userhost.map(|uh| uh.host);
+                    self.reg.userhost = whoami.userhost;
                 }
                 Ok(HandlerOk::NeedMore)
             }

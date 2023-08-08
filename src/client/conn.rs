@@ -8,7 +8,7 @@ mod tokio;
 pub use self::tokio::*;
 pub use sync::*;
 
-use crate::string::Host;
+use crate::string::{Builder, Word};
 
 /// Smallest power of two larger than the largest IRCv3 message.
 pub(self) const BUFSIZE: usize = 16384;
@@ -21,7 +21,7 @@ pub(self) const BUFSIZE: usize = 16384;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ServerAddr<'a> {
     /// The address to connect to.
-    pub address: Host<'a>,
+    pub address: Word<'a>,
     /// Whether to use TLS.
     pub tls: bool,
     /// An optional port number if a non-default one should be used.
@@ -47,24 +47,34 @@ impl<'a> std::hash::Hash for ServerAddr<'a> {
 }
 
 impl<'a> ServerAddr<'a> {
+    fn utf8_address(&self) -> std::io::Result<&str> {
+        self.address.to_utf8().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 address")
+        })
+    }
     /// Creates a new `ServerAddr` with `tls = true` and a default port number.
-    pub fn from_host<A: TryInto<Host<'a>>>(address: A) -> Result<Self, A::Error> {
+    pub fn from_host<A: TryInto<Word<'a>>>(address: A) -> Result<Self, A::Error> {
         let address = address.try_into()?;
         Ok(Self { address, tls: true, port: None })
     }
     /// As [`ServerAddr::from_host`] but is `const` and panics on invalid input.
     pub const fn from_host_str(address: &'a str) -> Self {
-        let address = Host::from_str(address);
+        let address = Word::from_str(address);
         Self { address, tls: true, port: None }
     }
     /// Returns a string representation of self.
-    pub fn to_word(&self) -> Host<'static> {
-        use std::io::Write;
-        let mut vec = Vec::with_capacity(self.address.len() + 9);
-        vec.extend_from_slice(self.address.as_bytes());
-        let _ = write!(vec, ":{}{}", if self.tls { "+" } else { "" }, self.port_num());
-        // TODO: We're pretty UTF-8 safe here.
-        unsafe { Host::from_unchecked(vec.into()) }
+    pub fn to_word(&self) -> Word<'static> {
+        let mut builder = Builder::<Word<'static>>::default();
+        builder.reserve_exact(self.address.len() + 9);
+        builder.append(self.address.clone());
+        if self.tls {
+            builder.append(crate::consts::PLUS);
+        }
+        unsafe {
+            // TODO: Method for appending integers to a builder.
+            builder.append_unchecked(self.port_num().to_string(), true);
+        }
+        builder.build()
     }
     /// Returns the port number that should be used for connecting to the network.
     pub const fn port_num(&self) -> u16 {

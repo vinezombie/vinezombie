@@ -32,14 +32,6 @@ impl<'a> Default for Word<'a> {
     }
 }
 
-impl<'a> Host<'a> {
-    /// Returns a reference to `self`'s value as a `str`.
-    pub const fn as_str(&self) -> &str {
-        // Safety: This should only contain ASCII characters.
-        unsafe { std::str::from_utf8_unchecked(self.0.as_bytes()) }
-    }
-}
-
 impl Key<'_> {
     /// Returns `true` if this string could be a client tag.
     pub fn is_client_tag(&self) -> bool {

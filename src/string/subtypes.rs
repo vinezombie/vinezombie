@@ -133,35 +133,6 @@ conversions!(Word: NoNul);
 conversions!(Word: Line);
 
 #[inline(always)]
-const fn check_empty(bytes: &[u8]) -> Option<InvalidString> {
-    if bytes.is_empty() {
-        Some(InvalidString::Empty)
-    } else {
-        None
-    }
-}
-
-#[inline(always)]
-const fn is_not_ascii(byte: &u8) -> bool {
-    !byte.is_ascii()
-}
-
-impl_subtype! {
-    "A non-empty [`Word`] that contains only ASCII."
-    Host: Word
-    HostSafe: WordSafe
-    is_not_ascii;
-    check_empty;
-    |bytes| {
-        check_empty(bytes)?;
-        check_bytes!(bytes, is_not_ascii)
-    }
-}
-conversions!(Host: NoNul);
-conversions!(Host: Line);
-conversions!(Host: Word);
-
-#[inline(always)]
 const fn arg_first_check(bytes: &[u8]) -> Option<InvalidString> {
     match bytes.first() {
         None => Some(InvalidString::Empty),

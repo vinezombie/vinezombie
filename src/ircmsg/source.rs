@@ -1,9 +1,6 @@
-//! Message sources, also used by some parts of IRC state
-// such as ban setters.
-
 use crate::{
     error::ParseError,
-    string::{Builder, Host, Nick, Splitter, User, Word},
+    string::{Builder, Nick, Splitter, User, Word},
 };
 use std::io::Write;
 
@@ -24,7 +21,10 @@ pub struct UserHost<'a> {
     /// The username of the sender.
     pub user: Option<User<'a>>,
     /// The hostname (or vhost) of the sender.
-    pub host: Host<'a>,
+    ///
+    /// Because vhosts can theoretically include any word-legal character,
+    /// this has to be a `Word` despite often being a `Host` in practice.
+    pub host: Word<'a>,
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -34,7 +34,7 @@ impl<'a> Source<'a> {
         Source { nick: server_name, userhost: None }
     }
     /// Creates a new source representing a user.
-    pub const fn new_user(nick: Nick<'a>, user: User<'a>, host: Host<'a>) -> Self {
+    pub const fn new_user(nick: Nick<'a>, user: User<'a>, host: Word<'a>) -> Self {
         Source { nick, userhost: Some(UserHost { user: Some(user), host }) }
     }
     /// Returns a reference to the username of the sender, if any.
@@ -47,7 +47,7 @@ impl<'a> Source<'a> {
         None
     }
     /// Returns a reference to the hostname of the sender, if any.
-    pub const fn host(&self) -> Option<&Host<'a>> {
+    pub const fn host(&self) -> Option<&Word<'a>> {
         if let Some(uh) = &self.userhost {
             Some(&uh.host)
         } else {
@@ -97,13 +97,21 @@ impl<'a> Source<'a> {
                     .string::<User>(true)
                     .map_err(ParseError::InvalidUser)?;
                 word.next_byte();
-                let host = word.string::<Host>(true).map_err(ParseError::InvalidHost)?;
-                Ok(Source { nick, userhost: Some(UserHost { user: Some(user), host }) })
+                let host: Word = word.rest_or_default();
+                if host.is_empty() {
+                    Err(ParseError::InvalidHost(crate::error::InvalidString::Empty))
+                } else {
+                    Ok(Source { nick, userhost: Some(UserHost { user: Some(user), host }) })
+                }
             }
             Some(b'@') => {
-                let host = word.string::<Host>(true).map_err(ParseError::InvalidHost)?;
-                let address = UserHost { user: None, host };
-                Ok(Source { nick, userhost: Some(address) })
+                let host: Word = word.rest_or_default();
+                if host.is_empty() {
+                    Err(ParseError::InvalidHost(crate::error::InvalidString::Empty))
+                } else {
+                    let address = UserHost { user: None, host };
+                    Ok(Source { nick, userhost: Some(address) })
+                }
             }
             _ => Ok(Source { nick, userhost: None }),
         }
