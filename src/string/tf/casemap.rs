@@ -13,9 +13,9 @@ use crate::string::{
 pub struct AsciiCasemap<const UPPERCASE: bool>;
 
 unsafe impl<const UPPERCASE: bool> Transform for AsciiCasemap<UPPERCASE> {
-    type Value<'a> = ();
+    type Value = ();
 
-    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
+    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value> {
         unsafe {
             let bytes = bytes.as_bytes_unsafe();
             if UPPERCASE {
@@ -77,9 +77,9 @@ fn rfc1459(byte: &u8) -> u8 {
 }
 
 unsafe impl Transform for IrcCasemap {
-    type Value<'a> = ();
+    type Value = ();
 
-    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>> {
+    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value> {
         use super::map_bytes;
         use Utf8Policy::PreserveStrict as U8Pol;
         unsafe {

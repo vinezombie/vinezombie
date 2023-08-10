@@ -26,24 +26,19 @@ use std::borrow::Cow;
 /// Types that represent byte string tranformations.
 ///
 /// # Safety
-/// This trait is hiliariously unsafe. Do not implement it yourself.
-///
 /// `'a` may be a forged lifetime that does not correctly represent the lifetime of the data
 /// it references. `self` must NOT store anything with a lifetime bounded by `'a`.
 ///
 /// `Transformation::transformed`, if it borrows, must either
 /// borrow data borrowed/owned by `bytes` or an immutable static variable.
 ///
-/// The type used for `Value` must either not use `'a`,
-/// or every use of `'a` in its definition must ultimately be `Bytes<'a>`.
-///
 /// The `utf8` field of the returned [`Transformation`] is trusted to be correct,
 /// and byte slices may be incorrectly cast unchecked to `str`s otherwise.
 pub unsafe trait Transform {
     /// The type of values yielded in addition to a transformed byte string.
-    type Value<'a>;
+    type Value;
     /// Transforms a byte string.
-    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value<'a>>;
+    fn transform<'a>(self, bytes: &Bytes<'a>) -> Transformation<'a, Self::Value>;
 }
 
 /// The result of a byte string transformation, as returned by [`Transform::transform()`].

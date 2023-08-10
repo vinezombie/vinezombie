@@ -220,7 +220,7 @@ impl<'a> Bytes<'a> {
         Bytes { value, ownership, utf8: utf8.into(), secret: self.secret }
     }
     /// Updates `self` using the provided [`Transform`].
-    pub fn transform<T: Transform>(&mut self, tf: T) -> T::Value<'a> {
+    pub fn transform<T: Transform>(&mut self, tf: T) -> T::Value {
         let tfed = tf.transform(self);
         if tfed.transformed.as_ref().is_empty() {
             *self = Bytes::empty();

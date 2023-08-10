@@ -131,7 +131,7 @@ macro_rules! impl_subtype {
             }
             /// Transforms `self` using the provided [`Transform`]
             /// that upholds `self`'s invariant.
-            pub fn transform<T: $tname>(&mut self, tf: T) -> T::Value<'a> {
+            pub fn transform<T: $tname>(&mut self, tf: T) -> T::Value {
                 self.0.transform(tf)
             }
             /// Cheaply converts `self` into the underlying byte string.
