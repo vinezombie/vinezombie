@@ -11,7 +11,7 @@ Expect many more features in the future.*
 [![API docs](https://docs.rs/vinezombie/badge.svg)](https://docs.rs/vinezombie)
 [![Chat on libera.chat](https://img.shields.io/badge/libera.chat-%23vinezombie-rgb?logo=liberadotchat&color=%23ff55dd)](https://web.libera.chat/gamja#vinezombie)
 
-`vinezombie` is a Rust library for writing IRCv3 software
+**vinezombie** is a Rust library for writing IRCv3 software
 (mostly clients/bots at this time).
 
 ## Features
@@ -38,16 +38,16 @@ The strings diagram in `doc` can be re-rendered using:
 d2 -t 200 -l dagre --pad 0 doc/strings.d2 doc/strings.d2.svg
 ```
 
-`vinezombie`'s examples may use any combination of its features,
+vinezombie's examples may use any combination of its features,
 and should be built with `--all-features`.
 
 ## License
 
-`vinezombie` is licensed under the GNU GPL v3 (only).
+vinezombie is licensed under the GNU GPL v3 (only).
 Unless otherwise specified, all contributions submitted by you for inclusion
-will be licensed the rest of the library.
+will be licensed as the rest of the library.
 
-Disclosing the source code of bots written using `vinezombie` to
+Disclosing the source code of bots written using vinezombie to
 end users over IRC is also strongly encouraged, but not required.
 
 ## Discussion

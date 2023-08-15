@@ -1,4 +1,4 @@
-# [Vinezombie](https://github.com/vinezombie/vinezombie)
+# [vinezombie](https://github.com/vinezombie/vinezombie)
 
 Vinezombie is a library for writing IRC software.
 For a basic overview, see its README
