@@ -172,24 +172,76 @@ where
             msg.send_to_tokio(conn.as_write(), &mut buf).await?;
             continue;
         }
-        let read_fut = ServerMsg::read_borrowing_from_tokio(conn.as_bufread(), &mut buf);
-        let result = tokio::select! {
-            biased;
-            msg = read_fut => {
-                let retval = handler.handle_msg(&msg?, &mut joinset, queue);
-                buf.clear();
-                retval
-            },
-            Some(Ok(task_value)) = joinset.join_next() =>
-                handler.handle_value(task_value, &mut joinset, queue),
-            () = tokio::time::sleep(timeout.unwrap_or_default()), if timeout.is_some() =>
-                continue
+        let fut = RunHandlerTokioFuture {
+            conn,
+            buf: &mut buf,
+            joinset: &mut joinset,
+            timeout,
+            handler,
+            queue,
         };
+        let Some(result) = fut.await else {
+            continue
+        };
+        buf.clear();
         match result? {
             HandlerOk::Value(val) => break Ok(val),
             #[cfg(feature = "tracing")]
             HandlerOk::Warning(w) => tracing::warn!(target: "vinezombie", "{}", w),
             _ => (),
         }
+    }
+}
+
+#[cfg(feature = "tokio")]
+struct RunHandlerTokioFuture<'a, C, T, H> {
+    conn: &'a mut C,
+    buf: &'a mut Vec<u8>,
+    joinset: &'a mut tokio::task::JoinSet<T>,
+    timeout: Option<std::time::Duration>,
+    handler: &'a mut H,
+    queue: &'a mut Queue<'static>,
+}
+
+#[cfg(feature = "tokio")]
+impl<'a, C, T, H> std::future::Future for RunHandlerTokioFuture<'a, C, T, H>
+where
+    C: super::conn::ConnectionTokio,
+    T: 'static,
+    H: HandlerAsync<tokio::task::JoinSet<T>, TaskValue = T>,
+    H::Error: From<std::io::Error>,
+{
+    type Output = Option<HandlerResult<H::Value, H::Warning, H::Error>>;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        use std::task::Poll;
+        let this = self.get_mut();
+        if let Some(sleep) = &mut this.timeout {
+            let sleep = tokio::time::sleep(*sleep);
+            tokio::pin!(sleep);
+            if let Poll::Ready(()) = sleep.poll(cx) {
+                return Poll::Ready(None);
+            }
+        }
+        let read_fut = ServerMsg::read_borrowing_from_tokio(this.conn.as_bufread(), this.buf);
+        tokio::pin!(read_fut);
+        if let Poll::Ready(result) = read_fut.poll(cx) {
+            let retval = match result {
+                Ok(msg) => {
+                    this.handler.handle_msg(&msg, this.joinset, this.queue)
+                    // this.buf gets cleared later after the await.
+                }
+                Err(e) => Err(e.into()),
+            };
+            return Poll::Ready(Some(retval));
+        }
+        if let Poll::Ready(Some(Ok(task_value))) = this.joinset.poll_join_next(cx) {
+            let retval = this.handler.handle_value(task_value, this.joinset, this.queue);
+            return Poll::Ready(Some(retval));
+        }
+        Poll::Pending
     }
 }
