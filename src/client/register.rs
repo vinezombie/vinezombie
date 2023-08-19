@@ -26,7 +26,7 @@ use std::{
 /// These are used to create the messages sent during the initial connection registration phase,
 /// such as USER and NICK.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct Register<P, S, N> {
     /// The set of capabilities to request.

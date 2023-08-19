@@ -18,7 +18,7 @@ pub(self) const BUFSIZE: usize = 16384;
 /// This subset of options is typically all that is trivially configurable
 /// when using WebSocket gateways and bouncers.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct ServerAddr<'a> {
     /// The address to connect to.
     pub address: Word<'a>,

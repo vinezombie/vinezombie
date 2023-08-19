@@ -64,7 +64,7 @@ macro_rules! impl_subtype {
         #[doc = "See the [module-level documentation][super] for more."]
         #[repr(transparent)]
         #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-        #[cfg_attr(feature = "serde", derive(serde::Serialize))]
+        #[cfg_attr(feature = "serde", derive(serde_derive::Serialize))]
         #[cfg_attr(feature = "serde", serde(into = "Bytes<'a>"))]
         pub struct $sname<'a>(Bytes<'a>);
 

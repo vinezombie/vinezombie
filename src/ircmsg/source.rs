@@ -6,7 +6,7 @@ use std::io::Write;
 
 /// The sender of a message, also known as a message's "prefix".
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct Source<'a> {
     /// The name of the source, usually a nickname but also sometimes a server name.
     pub nick: Nick<'a>,
@@ -16,7 +16,7 @@ pub struct Source<'a> {
 
 /// The `username@hostname` fragment of a [`Source`].
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct UserHost<'a> {
     /// The username of the sender.
     pub user: Option<User<'a>>,
@@ -217,7 +217,7 @@ impl std::fmt::Display for UserHost<'_> {
 /// An atomic reference-counted [`Source`].
 #[repr(transparent)]
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct SharedSource<'a>(std::sync::Arc<Source<'a>>);
 

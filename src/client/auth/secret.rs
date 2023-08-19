@@ -102,7 +102,7 @@ impl Drop for Clear {
 ///
 /// This [`Arc`] newtype has a `Debug` impl that always prints `<?>`.
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct SharedSecret<S: Secret>(Arc<S>);
 
 impl Default for SharedSecret<()> {

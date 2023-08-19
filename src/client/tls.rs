@@ -8,7 +8,7 @@ use std::{
 
 /// A representation of what trust anchors to use for server certificate verification.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 #[non_exhaustive]
 pub enum Trust {
     /// Only use the provided root certificates.
@@ -48,7 +48,7 @@ pub type TlsConfig = Arc<ClientConfig>;
 
 /// Basic options for creating a [`TlsConfig`].
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct TlsConfigOptions {
     /// Options for validating the server's identity.
     pub trust: Trust,

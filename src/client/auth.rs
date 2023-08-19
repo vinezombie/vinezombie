@@ -40,7 +40,7 @@ pub trait Sasl {
 
 /// Enum of included SASL mechanisms and options for them.
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 #[allow(missing_docs)]
 #[non_exhaustive]
 pub enum AnySasl<S: Secret> {

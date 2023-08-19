@@ -7,7 +7,7 @@ type NickBuilder = Builder<Nick<'static>>;
 
 /// Standard nickname options.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct Nicks<N> {
     /// The list of nicknames to use.
     pub nicks: Vec<Nick<'static>>,
@@ -77,7 +77,7 @@ impl<I: Iterator<Item = Nick<'static>>, F: Fn(&Nick<'static>) -> I> NickTransfor
 
 /// Possible randomized suffixes that can be added to a nickname.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 #[non_exhaustive]
 pub enum SuffixType {
     /// One ASCII letter, uppercase if `true`.
@@ -147,7 +147,7 @@ impl SuffixType {
 
 /// Suffixes a nick with several pseudorandomly-chosen suffixes.
 #[derive(Clone, PartialEq, Eq, Hash, Default, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct Suffix {
     /// See [`SuffixStrategy`].
     pub strategy: SuffixStrategy,
@@ -157,7 +157,7 @@ pub struct Suffix {
 
 /// The method by which suffixes should be selected for addition to a nickname.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 #[non_exhaustive]
 pub enum SuffixStrategy {
     /// Pseudorandomly choose nick suffixes, optionally using the provided seed.

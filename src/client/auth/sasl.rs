@@ -10,7 +10,7 @@ use crate::string::{Arg, NoNul};
 ///
 /// The provided string, if non-empty, is an authzid.
 #[derive(Clone, Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct External(#[cfg_attr(feature = "serde", serde(default))] pub NoNul<'static>);
 
 struct ExternalLogic(NoNul<'static>);
@@ -40,7 +40,7 @@ impl Sasl for External {
 /// It transmits the password in the clear;
 /// do not use this without some form of secure transport, like TLS.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct Plain<S> {
     #[cfg_attr(feature = "serde", serde(default))]
     authzid: NoNul<'static>,
