@@ -261,9 +261,7 @@ impl<'a, 'de> serde::Deserialize<'de> for Args<'a> {
         use crate::string::Bytes;
         use serde::de::Error;
         let mut args = Vec::<Bytes<'a>>::deserialize(de)?;
-        let Some(last) = args.pop() else {
-            return Ok(Args::empty())
-        };
+        let Some(last) = args.pop() else { return Ok(Args::empty()) };
         for (idx, arg) in args.iter().enumerate() {
             if let Some(e) = Arg::find_invalid(arg) {
                 return Err(D::Error::custom(format!("invalid arg @ index {idx}: {e}")));

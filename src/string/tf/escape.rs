@@ -29,9 +29,7 @@ pub fn escape_byte(byte: &u8) -> Option<NonZeroU8> {
 pub fn escape<'a>(tag_value: impl Into<NoNul<'a>>) -> Word<'a> {
     let tag_value = tag_value.into();
     let Some(first_idx) = tag_value.iter().position(|c| escape_byte(c).is_some()) else {
-        return unsafe {
-            Word::from_unchecked(tag_value.into_bytes())
-        }
+        return unsafe { Word::from_unchecked(tag_value.into_bytes()) };
     };
     let (mut new_bytes, rest) = unsafe {
         let (no_escape, rest) = tag_value.as_bytes_unsafe().split_at(first_idx);

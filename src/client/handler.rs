@@ -180,9 +180,7 @@ where
             handler,
             queue,
         };
-        let Some(result) = fut.await else {
-            continue
-        };
+        let Some(result) = fut.await else { continue };
         buf.clear();
         match result? {
             HandlerOk::Value(val) => break Ok(val),
