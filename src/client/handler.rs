@@ -1,3 +1,9 @@
+mod delay;
+mod run;
+
+pub use delay::*;
+pub use run::*;
+
 use super::Queue;
 use crate::ircmsg::ServerMsg;
 
@@ -90,11 +96,8 @@ impl<
 
 impl<T, H: Handler> HandlerAsync<T> for H {
     type TaskValue = std::convert::Infallible;
-
     type Value = H::Value;
-
     type Warning = H::Warning;
-
     type Error = H::Error;
 
     fn handle_msg(
@@ -113,133 +116,5 @@ impl<T, H: Handler> HandlerAsync<T> for H {
         _: &mut Queue<'static>,
     ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
         unimplemented!()
-    }
-}
-
-/// Runs a [`Handler`] to completion off of synchronous I/O.
-pub fn run_handler<H, V, W: std::fmt::Display, E: From<std::io::Error>>(
-    conn: &mut impl super::conn::Connection,
-    queue: &mut Queue<'static>,
-    handler: &mut H,
-) -> Result<V, E>
-where
-    H: Handler<Value = V, Warning = W, Error = E>,
-{
-    let mut buf = Vec::with_capacity(512);
-    loop {
-        let msg = queue.pop(|dur| conn.set_read_timeout(dur).unwrap());
-        if let Some(msg) = msg {
-            msg.send_to(conn.as_write(), &mut buf)?;
-            continue;
-        }
-        match ServerMsg::read_borrowing_from(conn.as_bufread(), &mut buf) {
-            Ok(msg) => {
-                let result = handler.handle(&msg, queue);
-                buf.clear();
-                match result {
-                    Ok(HandlerOk::Value(val)) => break Ok(val),
-                    #[cfg(feature = "tracing")]
-                    Ok(HandlerOk::Warning(w)) => tracing::warn!(target: "vinezombie", "{}", w),
-                    Ok(_) => (),
-                    Err(e) => break Err(e),
-                }
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => (),
-            Err(e) => break Err(e.into()),
-        };
-    }
-}
-
-/// Runs an [`HandlerAsync<JoinSet<T>>`][HandlerAsync] to completion off of async I/O.
-///
-/// This function can also be used to drive [`Handler`]s due to a blanket implementation
-/// of `HandlerAsync` for them.
-#[cfg(feature = "tokio")]
-pub async fn run_handler_tokio<H, T: 'static, V, W: std::fmt::Display, E: From<std::io::Error>>(
-    conn: &mut impl super::conn::ConnectionTokio,
-    queue: &mut Queue<'static>,
-    handler: &mut H,
-) -> Result<V, E>
-where
-    H: HandlerAsync<tokio::task::JoinSet<T>, TaskValue = T, Value = V, Warning = W, Error = E>,
-{
-    let mut buf = Vec::with_capacity(512);
-    let mut timeout = Option::<std::time::Duration>::None;
-    let mut joinset = tokio::task::JoinSet::<T>::new();
-    loop {
-        let msg = queue.pop(|dur| timeout = dur);
-        if let Some(msg) = msg {
-            msg.send_to_tokio(conn.as_write(), &mut buf).await?;
-            continue;
-        }
-        let fut = RunHandlerTokioFuture {
-            conn,
-            buf: &mut buf,
-            joinset: &mut joinset,
-            timeout,
-            handler,
-            queue,
-        };
-        let Some(result) = fut.await else { continue };
-        buf.clear();
-        match result? {
-            HandlerOk::Value(val) => break Ok(val),
-            #[cfg(feature = "tracing")]
-            HandlerOk::Warning(w) => tracing::warn!(target: "vinezombie", "{}", w),
-            _ => (),
-        }
-    }
-}
-
-#[cfg(feature = "tokio")]
-struct RunHandlerTokioFuture<'a, C, T, H> {
-    conn: &'a mut C,
-    buf: &'a mut Vec<u8>,
-    joinset: &'a mut tokio::task::JoinSet<T>,
-    timeout: Option<std::time::Duration>,
-    handler: &'a mut H,
-    queue: &'a mut Queue<'static>,
-}
-
-#[cfg(feature = "tokio")]
-impl<'a, C, T, H> std::future::Future for RunHandlerTokioFuture<'a, C, T, H>
-where
-    C: super::conn::ConnectionTokio,
-    T: 'static,
-    H: HandlerAsync<tokio::task::JoinSet<T>, TaskValue = T>,
-    H::Error: From<std::io::Error>,
-{
-    type Output = Option<HandlerResult<H::Value, H::Warning, H::Error>>;
-
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        use std::task::Poll;
-        let this = self.get_mut();
-        if let Some(sleep) = &mut this.timeout {
-            let sleep = tokio::time::sleep(*sleep);
-            tokio::pin!(sleep);
-            if let Poll::Ready(()) = sleep.poll(cx) {
-                return Poll::Ready(None);
-            }
-        }
-        let read_fut = ServerMsg::read_borrowing_from_tokio(this.conn.as_bufread(), this.buf);
-        tokio::pin!(read_fut);
-        if let Poll::Ready(result) = read_fut.poll(cx) {
-            let retval = match result {
-                Ok(msg) => {
-                    this.handler.handle_msg(&msg, this.joinset, this.queue)
-                    // this.buf gets cleared later after the await.
-                }
-                Err(e) => Err(e.into()),
-            };
-            return Poll::Ready(Some(retval));
-        }
-        if let Poll::Ready(Some(Ok(task_value))) = this.joinset.poll_join_next(cx) {
-            let retval = this.handler.handle_value(task_value, this.joinset, this.queue);
-            return Poll::Ready(Some(retval));
-        }
-        Poll::Pending
     }
 }

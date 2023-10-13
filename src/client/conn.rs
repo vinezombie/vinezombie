@@ -11,7 +11,7 @@ pub use sync::*;
 use crate::string::{Builder, Word};
 
 /// Smallest power of two larger than the largest IRCv3 message.
-pub(self) const BUFSIZE: usize = 16384;
+const BUFSIZE: usize = 16384;
 
 /// The minimal config necessary to connect to an IRC server.
 ///

@@ -15,4 +15,4 @@ mod tags;
 mod tests;
 
 pub use self::{args::*, client::*, numeric::*, server::*, servermsgkind::*, source::*, tags::*};
-pub(self) use common::*;
+use common::*;
