@@ -1,4 +1,6 @@
-use crate::ircmsg::ClientMsg;
+pub mod adjuster;
+
+use crate::ircmsg::{ClientMsg, ServerMsg};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -90,5 +92,14 @@ impl<'a> Queue<'a> {
             None
         }
     }
-    // TODO: Queue cleaning.
+    /// Updates messages in the queue based on an incoming message.
+    pub fn adjust<F: adjuster::Adjuster + ?Sized>(
+        &mut self,
+        msg: &ServerMsg<'_>,
+        adjuster: &mut F,
+    ) {
+        if adjuster.should_adjust(msg) {
+            self.queue.retain_mut(|cmsg| adjuster.update(cmsg));
+        }
+    }
 }
