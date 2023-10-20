@@ -1,4 +1,4 @@
-use crate::client::tls::TlsConfig;
+use crate::{client::tls::TlsConfig, ircmsg::ServerMsg};
 use std::{io::BufReader, net::TcpStream, time::Duration};
 
 impl<'a> super::ServerAddr<'a> {
@@ -203,5 +203,27 @@ impl<T: SetReadTimeout + std::io::Write> Connection for BufReader<T> {
 
     fn as_write(&mut self) -> &mut Self::Write {
         self.get_mut()
+    }
+}
+
+impl<C: Connection, A: crate::client::adjuster::Adjuster> crate::client::Client<C, A> {
+    /// Reads a message from the server, adjusting the queue if necessary.
+    pub fn read_owning(&mut self) -> std::io::Result<ServerMsg<'static>> {
+        let msg = ServerMsg::read_owning_from(self.conn.as_bufread(), &mut self.buf)?;
+        self.queue.adjust(&msg, &mut self.adjuster);
+        Ok(msg)
+    }
+    /// Flushes the queue until it's empty or blocks.
+    pub fn flush(&mut self) -> std::io::Result<Option<Duration>> {
+        use std::io::Write;
+        let mut timeout = None;
+        while let Some(popped) = self.queue.pop(|new_timeout| timeout = new_timeout) {
+            let _ = popped.write_to(&mut self.buf);
+        }
+        let result = self.conn.as_write().write_all(&self.buf);
+        self.buf.clear();
+        result?;
+        self.conn.as_write().flush()?;
+        Ok(timeout)
     }
 }

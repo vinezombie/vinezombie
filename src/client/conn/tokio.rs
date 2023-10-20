@@ -1,5 +1,5 @@
-use crate::client::tls::TlsConfig;
-use std::pin::Pin;
+use crate::{client::tls::TlsConfig, ircmsg::ServerMsg};
+use std::{pin::Pin, time::Duration};
 use tokio::{io::BufReader, net::TcpStream};
 
 impl<'a> super::ServerAddr<'a> {
@@ -130,5 +130,27 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> ConnectionTokio fo
 
     fn as_write(&mut self) -> &mut Self::AsyncWrite {
         self.get_mut()
+    }
+}
+
+impl<C: ConnectionTokio, A: crate::client::adjuster::Adjuster> crate::client::Client<C, A> {
+    /// Reads a message from the server, adjusting the queue if necessary.
+    pub async fn read_owning_tokio(&mut self) -> std::io::Result<ServerMsg<'static>> {
+        let msg = ServerMsg::read_owning_from_tokio(self.conn.as_bufread(), &mut self.buf).await?;
+        self.queue.adjust(&msg, &mut self.adjuster);
+        Ok(msg)
+    }
+    /// Flushes the queue until it's empty or blocks.
+    pub async fn flush_tokio(&mut self) -> std::io::Result<Option<Duration>> {
+        use tokio::io::AsyncWriteExt;
+        let mut timeout = None;
+        while let Some(popped) = self.queue.pop(|new_timeout| timeout = new_timeout) {
+            let _ = popped.write_to(&mut self.buf);
+        }
+        let result = self.conn.as_write().write_all(&self.buf).await;
+        self.buf.clear();
+        result?;
+        self.conn.as_write().flush().await?;
+        Ok(timeout)
     }
 }
