@@ -75,6 +75,10 @@ pub fn parse_tag_keys() {
     assert!(tags.get("foo").is_some());
     assert!(tags.get("bar").is_some());
     assert_eq!(tags.len(), 2);
+    let tags = irc_msg!("@foo;;bar TAGMSG").tags;
+    assert!(tags.get("foo").is_some());
+    assert!(tags.get("bar").is_some());
+    assert_eq!(tags.len(), 2);
 }
 
 #[test]

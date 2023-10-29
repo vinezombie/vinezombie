@@ -102,6 +102,7 @@ impl<'a> Tags<'a> {
         let mut tags_edit = tags.edit();
         while !splitter.is_empty() {
             let Ok(key) = splitter.string::<Key>(false) else {
+                splitter.consume_invalid::<Key>();
                 continue;
             };
             let value = if matches!(splitter.next_byte(), Some(b'=')) {
