@@ -36,7 +36,6 @@ pub struct Client<C, A = ()> {
     queue: queue::Queue<'static>,
     /// A buffer that is used internally for message I/O.
     buf: Vec<u8>,
-    // TODO: Read timeouts should go here.
 }
 
 impl<C, A> Client<C, A> {
@@ -44,14 +43,14 @@ impl<C, A> Client<C, A> {
     pub fn take_conn(self) -> C {
         self.conn
     }
-    /// Uses the provided [`Adjuster`][adjuster::Adjuster] for `self`.
-    pub fn with_adjuster<A2: adjuster::Adjuster>(self, adjuster: A2) -> Client<C, A2> {
-        let Self { conn, queue, buf, .. } = self;
-        Client { conn, queue, adjuster, buf }
-    }
     /// Uses the provided connection for `self`.
     pub fn with_conn<C2>(self, conn: C2) -> Client<C2, A> {
         let Self { queue, adjuster, buf, .. } = self;
+        Client { conn, queue, adjuster, buf }
+    }
+    /// Uses the provided [`Adjuster`][adjuster::Adjuster] for `self`.
+    pub fn with_adjuster<A2: adjuster::Adjuster>(self, adjuster: A2) -> Client<C, A2> {
+        let Self { conn, queue, buf, .. } = self;
         Client { conn, queue, adjuster, buf }
     }
     /// Returns a shared reference to the internal [`Adjuster`][adjuster::Adjuster].
@@ -63,12 +62,39 @@ impl<C, A> Client<C, A> {
         &self.queue
     }
     /// Enqueues a [`ClientMsg`] to be sent.
-    pub fn enqueue_one(&mut self, msg: ClientMsg<'static>) {
+    pub fn enqueue_one(&mut self, msg: ClientMsg<'static>) -> &mut Self {
         self.queue.push(msg);
+        self
     }
     /// Changes the queue rate limit as [`Queue::set_rate_limit`].
-    pub fn set_rate_limit(&mut self, delay: std::time::Duration, burst: u32) {
+    pub fn set_rate_limit(&mut self, delay: std::time::Duration, burst: u32) -> &mut Self {
         self.queue.set_rate_limit(delay, burst);
+        self
+    }
+}
+
+impl<C: conn::IoTimeout, A> Client<C, A> {
+    /// Changes the read timeout. A duration of `None` is treated as "no timeout".
+    ///
+    /// Timeouts shorter than 2 minutes are likely too short,
+    /// and this method will error if the underlying connection does
+    /// (typically on a duration of zero).
+    pub fn set_read_timeout(
+        &mut self,
+        timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<()> {
+        self.conn.set_read_timeout(timeout)
+    }
+    /// Changes the write timeout. A duration of `None` is treated as "no timeout".
+    ///
+    /// Timeouts shorter than 2 seconds are likely too short,
+    /// and this method will error if the underlying connection does
+    /// (typically on a duration of zero).
+    pub fn set_write_timeout(
+        &mut self,
+        timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<()> {
+        self.conn.set_write_timeout(timeout)
     }
 }
 

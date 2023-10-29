@@ -1,3 +1,4 @@
+use super::IoTimeout;
 use crate::{client::tls::TlsConfig, ircmsg::ServerMsg};
 use std::{io::BufReader, net::TcpStream, time::Duration};
 
@@ -87,6 +88,26 @@ impl Stream {
             StreamInner::Tls(s) => s.sock.set_write_timeout(timeout),
         }
     }
+    /// Returns the read timeout for this stream,
+    /// as [`TcpStream::read_timeout`].
+    pub fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
+        match &self.0 {
+            StreamInner::Closed => Ok(None),
+            StreamInner::Tcp(s) => s.read_timeout(),
+            #[cfg(feature = "tls")]
+            StreamInner::Tls(s) => s.sock.read_timeout(),
+        }
+    }
+    /// Returns the write timeout for this stream,
+    /// as [`TcpStream::write_timeout`].
+    pub fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
+        match &self.0 {
+            StreamInner::Closed => Ok(None),
+            StreamInner::Tcp(s) => s.write_timeout(),
+            #[cfg(feature = "tls")]
+            StreamInner::Tls(s) => s.sock.write_timeout(),
+        }
+    }
 }
 
 impl std::io::Read for Stream {
@@ -129,23 +150,33 @@ impl std::io::Write for Stream {
     }
 }
 
-/// [`Read`][std::io::Read]s with configurable timeouts.
-pub trait SetReadTimeout: std::io::Read {
-    /// Sets the read timeout for this connection.
-    ///
-    /// May error if a duration of zero is provided to `timeout`.
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
-}
-
-impl SetReadTimeout for TcpStream {
+impl IoTimeout for TcpStream {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         Self::set_read_timeout(self, timeout)
     }
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        Self::set_write_timeout(self, timeout)
+    }
+    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
+        Self::read_timeout(self)
+    }
+    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
+        Self::write_timeout(self)
+    }
 }
 
-impl SetReadTimeout for Stream {
+impl IoTimeout for Stream {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         Self::set_read_timeout(self, timeout)
+    }
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        Self::set_write_timeout(self, timeout)
+    }
+    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
+        Self::read_timeout(self)
+    }
+    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
+        Self::write_timeout(self)
     }
 }
 
@@ -154,11 +185,20 @@ impl<
         'a,
         S: rustls::SideData,
         C: 'a + std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
-        T: SetReadTimeout + std::io::Write,
-    > SetReadTimeout for rustls::Stream<'a, C, T>
+        T: IoTimeout + std::io::Read + std::io::Write,
+    > IoTimeout for rustls::Stream<'a, C, T>
 {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.sock.set_read_timeout(timeout)
+    }
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.sock.set_write_timeout(timeout)
+    }
+    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
+        self.sock.read_timeout()
+    }
+    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
+        self.sock.write_timeout()
     }
 }
 
@@ -166,16 +206,25 @@ impl<
 impl<
         S: rustls::SideData,
         C: std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
-        T: SetReadTimeout + std::io::Write,
-    > SetReadTimeout for rustls::StreamOwned<C, T>
+        T: IoTimeout + std::io::Read + std::io::Write,
+    > IoTimeout for rustls::StreamOwned<C, T>
 {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.sock.set_read_timeout(timeout)
     }
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.sock.set_write_timeout(timeout)
+    }
+    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
+        self.sock.read_timeout()
+    }
+    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
+        self.sock.write_timeout()
+    }
 }
 
 /// Types that are usable as synchronous connections.
-pub trait Connection: SetReadTimeout {
+pub trait Connection: IoTimeout {
     /// This type as a [`BufRead`][std::io::BufRead].
     type BufRead: std::io::BufRead;
     /// This type as a [`Write`][std::io::Write].
@@ -186,13 +235,22 @@ pub trait Connection: SetReadTimeout {
     fn as_write(&mut self) -> &mut Self::Write;
 }
 
-impl<T: SetReadTimeout> SetReadTimeout for BufReader<T> {
+impl<T: IoTimeout> IoTimeout for BufReader<T> {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.get_mut().set_read_timeout(timeout)
     }
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.get_mut().set_write_timeout(timeout)
+    }
+    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
+        self.get_ref().read_timeout()
+    }
+    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
+        self.get_ref().write_timeout()
+    }
 }
 
-impl<T: SetReadTimeout + std::io::Write> Connection for BufReader<T> {
+impl<T: IoTimeout + std::io::Read + std::io::Write> Connection for BufReader<T> {
     type BufRead = Self;
 
     type Write = T;
@@ -214,6 +272,9 @@ impl<C: Connection, A: crate::client::adjuster::Adjuster> crate::client::Client<
         Ok(msg)
     }
     /// Flushes the queue until it's empty or blocks.
+    ///
+    /// I/O failure should be considered non-recoverable,
+    /// as any messages that were removed from the queue will be lost.
     pub fn flush(&mut self) -> std::io::Result<Option<Duration>> {
         use std::io::Write;
         let mut timeout = None;

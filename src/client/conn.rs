@@ -4,6 +4,8 @@ mod sync;
 #[cfg(feature = "tokio")]
 mod tokio;
 
+use std::time::Duration;
+
 #[cfg(feature = "tokio")]
 pub use self::tokio::*;
 pub use sync::*;
@@ -86,4 +88,20 @@ impl<'a> ServerAddr<'a> {
             6667
         }
     }
+}
+
+/// Bidirectional I/O types with configurable timeouts.
+pub trait IoTimeout {
+    /// Sets the read timeout for this connection.
+    ///
+    /// May error if a duration of zero is provided to `timeout`.
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
+    /// Sets the write timeout for this connection.
+    ///
+    /// May error if a duration of zero is provided to `timeout`.
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
+    /// Returns the read timeout.
+    fn read_timeout(&self) -> std::io::Result<Option<Duration>>;
+    /// Returns the write timeout.
+    fn write_timeout(&self) -> std::io::Result<Option<Duration>>;
 }
