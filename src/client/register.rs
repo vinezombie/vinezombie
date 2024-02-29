@@ -133,7 +133,7 @@ impl<P: Secret, S, N: NickTransformer> Register<P, S, N> {
             let pass = Line::from_secret(secret)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
             msg.args.edit().add(pass);
-            sink.send(msg)?;
+            sink.send(msg);
         }
         // CAP message.
         let mut msg = ClientMsg::new_cmd(CAP);
@@ -141,7 +141,7 @@ impl<P: Secret, S, N: NickTransformer> Register<P, S, N> {
         args.add_literal("LS");
         // TODO: Don't hardcode this, or at least name this constant.
         args.add_literal("302");
-        sink.send(msg)?;
+        sink.send(msg);
         // USER message.
         msg = ClientMsg::new_cmd(USER);
         let mut args = msg.args.edit();
@@ -150,12 +150,12 @@ impl<P: Secret, S, N: NickTransformer> Register<P, S, N> {
         args.add_literal("8");
         args.add_literal("*");
         args.add(self.realname.clone().unwrap_or_else(|| defaults.realname()));
-        sink.send(msg)?;
+        sink.send(msg);
         // NICK message.
         msg = ClientMsg::new_cmd(NICK);
         let (nick, fallbacks) = FallbackNicks::new(&self.nicks, defaults);
         msg.args.edit().add_word(nick);
-        sink.send(msg)?;
+        sink.send(msg);
         Ok(fallbacks)
     }
 }
@@ -164,7 +164,8 @@ impl<P: Secret, S: Sasl, N: NickTransformer> Register<P, S, N> {
     /// Also returns a [`Handler`] to perform the rest of the connection registration.
     ///
     /// # Errors
-    /// Errors only if `send_fn` errors.
+    /// Errors if registration messages cannot be created,
+    /// or if SASL handlers cannot be created.
     pub fn handler<N2: NickTransformer>(
         &self,
         defaults: &'static impl Defaults<NickGen = N2>,
@@ -194,5 +195,29 @@ impl<P: Secret, S: Sasl, N: NickTransformer> Register<P, S, N> {
             auths,
             reg: Registration::default(),
         })
+    }
+}
+
+impl<P: Secret, S: Sasl, N: NickTransformer + 'static, D: Defaults> super::MakeHandler<&'static D>
+    for Register<P, S, N>
+{
+    type Value = Result<Registration, HandlerError>;
+
+    type Error = std::io::Error;
+
+    type Receiver<Spec: super::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
+
+    fn make_handler(
+        &self,
+        mut queue: super::QueueEditGuard<'_>,
+        value: &'static D,
+    ) -> Result<impl super::Handler<Value = Self::Value>, Self::Error> {
+        self.handler(value, &mut queue)
+    }
+
+    fn make_channel<Spec: super::channel::ChannelSpec>(
+        spec: &Spec,
+    ) -> (Arc<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+        spec.new_oneshot()
     }
 }

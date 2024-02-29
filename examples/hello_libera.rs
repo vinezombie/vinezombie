@@ -1,5 +1,7 @@
+use std::sync::{Arc, OnceLock};
+
 use vinezombie::{
-    client::{self, auth::Clear},
+    client::{self, auth::Clear, channel::SyncChannels, new_client, register::BotDefaults},
     ircmsg::ClientMsg,
     string::Line,
 };
@@ -14,34 +16,43 @@ fn main() -> std::io::Result<()> {
     // reasonably be assumed to not be compromised.
     let mut options = client::register::new::<Clear>();
     options.realname = Some(Line::from_str("Vinezombie Example: hello_libera"));
-    // Rate-limited queue. Used to avoid excess-flooding oneself off the server,
-    // even though that shouldn't be a risk for this minimal example.
-    let mut queue = client::Queue::new();
     // We're connecting to Libera.Chat for this example, so let's do it.
     // To disable TLS, we can set `address.tls`.
     // To change the port number to something non-default, we can set `address.port`.
     let address = client::conn::ServerAddr::from_host_str("irc.libera.chat");
-    let mut sock = address.connect(|| {
+    let sock = address.connect(|| {
         // TLS can be pretty complicated, but there are sensible defaults.
         // Use those defaults to build a TLS client configuration.
         client::tls::TlsConfigOptions::default().build()
         // If we may need to reconnect, the client configuration should be stored
         // outside this function, possibly using a `OnceCell` or `OnceLock`.
     })?;
-    // The initial connection registration handshake needs to happen,
-    // so let's build a handler for that.
+    // `Client` bundles the connection and serves as a host for Handlers
+    // that process IRC messages. It also rate-limits outgoing messages to avoid
+    // disconnections for flooding, and can adjust the message queue based in incoming messages.
+    let mut client = new_client(sock);
+    // We're not ready to go just yet.
+    // The initial connection registration handshake needs to happen.
+    // Handlers return values through channels, one channel per handler.
+    // For convenience, we use SyncChannels as a way to build an appropriate channel type for
+    // the registration handler.
     // `BotDefaults` provides default values for anything we didn't specify
     // in `options` above.
-    // Passing the `queue` populates it with the initial message burst.
-    let mut handler = options.handler(&client::register::BotDefaults, &mut queue)?;
-    // Let's do connection registration!
-    let reg = vinezombie::client::run_handler(&mut sock, &mut queue, &mut handler)?;
+    let (_id, reg_result) = client.add(&SyncChannels, &options, &BotDefaults)?;
+    // Let's actually run the handler now!
+    // Normally `run` returns the ids of handlers that have yielded values and finished,
+    // but we're only running one handler that always yields one value on completion,
+    // so we can ignore it.
+    client.run()?;
+    let reg = Arc::into_inner(reg_result).and_then(OnceLock::into_inner).unwrap()?;
     // Connection registration is done!
     tracing::info!("{} connected to Libera!", reg.nick);
     // From here, we can keep reading messages (including 004 and 005)
     // but we don't care about any of that, so let's just quit.
-    // send_to takes a Vec for buffering writes.
+    // We create the message, push it onto the internal message queue,
+    // and then fully flush the queue.
     let msg = ClientMsg::new_cmd(vinezombie::consts::cmd::QUIT);
-    msg.send_to(sock.get_mut(), &mut Vec::new())?;
+    client.queue_mut().edit().push(msg);
+    client.run()?;
     Ok(())
 }

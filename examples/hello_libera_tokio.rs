@@ -1,5 +1,5 @@
 use vinezombie::{
-    client::{self, auth::Clear},
+    client::{self, auth::Clear, channel::TokioChannels, new_client, register::BotDefaults},
     ircmsg::ClientMsg,
     string::Line,
 };
@@ -10,22 +10,22 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).compact().init();
     let mut options = client::register::new::<Clear>();
     options.realname = Some(Line::from_str("Vinezombie Example: hello_libera_tokio"));
-    let mut queue = client::Queue::new();
     let address = client::conn::ServerAddr::from_host_str("irc.libera.chat");
     // First difference! We use a different function here to connect asynchronously.
     // Many of the synchronous functions have `_tokio` variants for Tokio-flavored async.
-    let mut sock =
-        address.connect_tokio(|| client::tls::TlsConfigOptions::default().build()).await?;
+    let sock = address.connect_tokio(|| client::tls::TlsConfigOptions::default().build()).await?;
+    let mut client = new_client(sock);
     // We still use the same handler for connection registration,
-    // but instead we run it using a run_handler_tokio function.
-    // This function is actually more general than run_handler,
-    // but we're not going to make use of its functionality in this example.
-    let mut handler = options.handler(&client::register::BotDefaults, &mut queue)?;
-    let reg = vinezombie::client::run_handler_tokio(&mut sock, &mut queue, &mut handler).await?;
+    // but instead we run it using a run_tokio function.
+    // We also use TokioChannels instead of SyncChannels, which changes the flavor
+    // of channel used by our handler.
+    let (_id, reg_result) = client.add(&TokioChannels, &options, &BotDefaults)?;
+    client.run_tokio().await?;
+    let reg = reg_result.await.unwrap()?;
     tracing::info!("{} connected to Libera!", reg.nick);
     // As with the earlier example, let's just quit here.
-    // Keeping with the earlier pattern, there is a `tokio` variant of `send_to` as well.
     let msg = ClientMsg::new_cmd(vinezombie::consts::cmd::QUIT);
-    msg.send_to_tokio(sock.get_mut(), &mut Vec::new()).await?;
+    client.queue_mut().edit().push(msg);
+    client.run_tokio().await?;
     Ok(())
 }

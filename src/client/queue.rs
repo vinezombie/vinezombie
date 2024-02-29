@@ -1,6 +1,7 @@
 pub mod adjuster;
 
 use crate::ircmsg::{ClientMsg, ServerMsg};
+use crate::string::{Key, NoNul};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -10,64 +11,85 @@ use std::time::{Duration, Instant};
 /// followed by one message every 2 seconds.
 /// This type enforces that recommendation by resticting how frequently
 /// messages can be removed from it.
-#[derive(Clone, Debug)]
-pub struct Queue<'a> {
-    queue: VecDeque<ClientMsg<'a>>,
+pub struct Queue {
+    queue: VecDeque<ClientMsg<'static>>,
     delay: Duration,
     sub: Duration,
     timepoint: Instant,
+    // TODO: Bespoke trait for this. We want Clone back.
+    labeler: Option<Box<dyn FnMut() -> NoNul<'static>>>,
 }
 
-impl<'a> Default for Queue<'a> {
+impl std::fmt::Debug for Queue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_struct("Queue");
+        f.field("queue", &self.queue)
+            .field("delay", &self.delay)
+            .field("sub", &self.sub)
+            .field("timepoint", &self.timepoint)
+            .field("labeler", &self.labeler.is_some())
+            .finish()
+    }
+}
+
+impl Default for Queue {
     fn default() -> Self {
         Self::new()
     }
 }
-impl<'a> FromIterator<ClientMsg<'a>> for Queue<'a> {
-    fn from_iter<T: IntoIterator<Item = ClientMsg<'a>>>(iter: T) -> Self {
+impl FromIterator<ClientMsg<'static>> for Queue {
+    fn from_iter<T: IntoIterator<Item = ClientMsg<'static>>>(iter: T) -> Self {
         Self::from_queue(iter.into_iter().collect())
     }
 }
-impl<'a> From<Vec<ClientMsg<'a>>> for Queue<'a> {
-    fn from(value: Vec<ClientMsg<'a>>) -> Self {
+impl From<Vec<ClientMsg<'static>>> for Queue {
+    fn from(value: Vec<ClientMsg<'static>>) -> Self {
         Self::from_queue(value.into())
     }
 }
-impl<'a> From<VecDeque<ClientMsg<'a>>> for Queue<'a> {
-    fn from(value: VecDeque<ClientMsg<'a>>) -> Self {
+impl From<VecDeque<ClientMsg<'static>>> for Queue {
+    fn from(value: VecDeque<ClientMsg<'static>>) -> Self {
         Self::from_queue(value)
     }
 }
 
-impl<'a> Queue<'a> {
+impl Queue {
     /// Creates a new queue with the default rate limit.
     pub fn new() -> Self {
         Self::from_queue(VecDeque::with_capacity(4))
     }
-    fn from_queue(queue: VecDeque<ClientMsg<'a>>) -> Self {
+    fn from_queue(queue: VecDeque<ClientMsg<'static>>) -> Self {
         Queue {
             queue,
             delay: Duration::from_secs(2),
             sub: Duration::from_secs(8),
             timepoint: Instant::now(),
+            labeler: None,
         }
     }
+
+    /// Returns `true` if no messages in the queue.
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+    /// Returns how many messages are in the queue.
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
     /// Changes the rate limit.
     ///
     /// `delay` specifies how much time should pass between messages.
     /// `burst` specifies how many additional messages may be sent during an initial burst,
     /// e.g. a value of `4` results in a burst of five messages.
-    pub fn set_rate_limit(&mut self, delay: Duration, burst: u32) {
+    pub fn set_rate_limit(&mut self, delay: Duration, burst: u32) -> &mut Self {
         self.delay = delay;
         self.sub = delay.saturating_mul(burst);
         // Pessimistically sets the next-message delay
         // to the longest possible under the new settings.
         let now = Instant::now();
         self.timepoint = now.checked_add(self.sub.saturating_add(delay)).unwrap_or(now);
-    }
-    /// Add a message onto the end of a queue.
-    pub fn push(&mut self, msg: ClientMsg<'a>) {
-        self.queue.push_back(msg);
+        self
     }
     /// Retrieves a message from the queue, subject to rate limits.
     ///
@@ -75,7 +97,7 @@ impl<'a> Queue<'a> {
     /// `timeout_fn` is called with the duration until the next message will be available,
     /// or `None` if the queue is empty.
     /// The duration is guaranteed to be non-zero. This can be used to adjust read timeouts.
-    pub fn pop(&mut self, timeout_fn: impl FnOnce(Option<Duration>)) -> Option<ClientMsg<'a>> {
+    pub fn pop(&mut self, timeout_fn: impl FnOnce(Option<Duration>)) -> Option<ClientMsg<'static>> {
         if let Some(value) = self.queue.pop_front() {
             let mut delay = self.timepoint.saturating_duration_since(Instant::now());
             delay = delay.saturating_sub(self.sub);
@@ -101,5 +123,85 @@ impl<'a> Queue<'a> {
         if adjuster.should_adjust(msg) {
             self.queue.retain_mut(|cmsg| adjuster.update(cmsg));
         }
+    }
+
+    /// Adds `label` tags to outgoing messages for `labeled-response`.
+    ///
+    /// Returns `None` is no labeler is configured for the underlying queue.
+    pub fn use_labeler(&mut self, f: impl FnMut() -> NoNul<'static> + 'static) -> &mut Self {
+        self.labeler = Some(Box::new(f));
+        self
+    }
+
+    /// Returns `true` if a `label` tag will be attached to outgoing messages.
+    pub fn is_using_labeler(&self) -> bool {
+        self.labeler.is_some()
+    }
+
+    /// Stops `label` tags from being added to outgoing messages.
+    pub fn use_no_labeler(&mut self) -> &mut Self {
+        self.labeler = None;
+        self
+    }
+
+    /// Create an interface for adding messages to the queue.
+    pub fn edit(&mut self) -> QueueEditGuard<'_> {
+        let label = self.is_using_labeler();
+        let orig_len = self.queue.len();
+        QueueEditGuard { queue: self, orig_len, label }
+    }
+}
+
+/// Interface to a [`Queue`] that allows adding messages.
+pub struct QueueEditGuard<'a> {
+    queue: &'a mut Queue,
+    orig_len: usize,
+    label: bool,
+}
+
+impl QueueEditGuard<'_> {
+    /// Adds a message onto the end of a queue.
+    pub fn push(&mut self, mut msg: ClientMsg<'static>) {
+        if self.label {
+            let label = (self.queue.labeler.as_deref_mut().unwrap())();
+            msg.tags.edit().insert_pair(Key::from_str("label"), label);
+        }
+        self.queue.queue.push_back(msg);
+    }
+
+    /// Returns `true` if no messages have been added using `self`.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns how many messages have been added to the queue over `self`'s lifetime.
+    pub fn len(&self) -> usize {
+        self.queue.queue.len() - self.orig_len
+    }
+
+    /// Adds `label` tags to outgoing messages for `labeled-response`.
+    ///
+    /// Returns `None` is no labeler is configured for the underlying queue.
+    pub fn use_labeler(&mut self) -> Option<&mut Self> {
+        let has_labeler = self.queue.labeler.is_some();
+        self.label = has_labeler;
+        has_labeler.then_some(self)
+    }
+
+    /// Returns `true` if a `label` tag will be attached to outgoing messages.
+    pub fn is_using_labeler(&self) -> bool {
+        self.label
+    }
+
+    /// Stops `label` tags from being added to outgoing messages.
+    pub fn use_no_labeler(&mut self) -> &mut Self {
+        self.label = false;
+        self
+    }
+
+    /// Discard all messages that have been added using `self`.
+    pub fn cancel(&mut self) -> &mut Self {
+        self.queue.queue.truncate(self.orig_len);
+        self
     }
 }

@@ -23,7 +23,7 @@ pub fn req<'a>(
     client: Option<Arg<'a>>,
     server: Option<&Source>,
     mut sink: impl ClientMsgSink<'static>,
-) -> Result<(), std::io::Error> {
+) {
     let mut msg = ClientMsg::new_cmd(CAP);
     msg.args.edit().add_literal("REQ");
     // " clientname :" plus one space to simplify length calcs.
@@ -41,13 +41,13 @@ pub fn req<'a>(
             if !cap_string.is_empty() {
                 let mut msg_clone = msg.clone();
                 msg_clone.args.edit().add(cap_string.build());
-                sink.send(msg_clone)?;
+                sink.send(msg_clone);
             }
             cap_string = LineBuilder::new(cap.into());
         }
     }
     msg.args.edit().add(cap_string.build());
-    sink.send(msg)
+    sink.send(msg);
 }
 
 /// The CAP subcommand type.

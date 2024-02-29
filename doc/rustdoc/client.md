@@ -6,15 +6,28 @@ client-side IRC program. They are somewhat opinionated,
 though some opinions are due to Rust type system limitations.
 While the 
 
-## Handlers
+## `Client` and `Handler`s
 
-This module includes rudimentary synchronous message handling in the form of
-the [`Handler`] trait. Handlers that need to spawn asynchronous tasks should
-implement [`HandlerAsync`] instead.
+[`Client`] combines several utilities for writing correct IRC clients
+with an event loop. Most users of this library will likely use this,
+though it is possible to use most of its components to build one's own
+event loop.
 
-Handlers can be run off of an existing connection using
-[`run_handler`] or [`run_handler_tokio`], depending on
-what style of I/O your application uses.
+One interacts with a `Client` by [`add`][Client::add]ing [`Handler`]s.
+`Handler`s are synchronous message handlers that are used to minimally
+process messages and send them elsewhere for the application logic to handle.
+Each handler is associated with one channel (message-passing channels,
+not IRC channels).
+
+`Handler`s are created using implementations of the [`MakeHandler`] trait.
+These implementations can also queue initial messages so the handler
+doesn't have to, and are also responsible for creating channels for
+the handler if required.
+
+Once one has added their desired handlers, the [`Client::run`]
+or [`Client::run_tokio`] (depending on I/O flavor) functions
+can be used to exchange messages between the client and server
+until one or more handlers reports that it has yielded a value or finished.
 
 ## Connections
 

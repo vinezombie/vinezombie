@@ -26,9 +26,6 @@ impl ServerMsg<'static> {
     /// a previous call to this function that errored due to
     /// non-blocking I/O or unexpected EOF.
     /// Other errors may leave `buf` in an invalid state for future calls.
-    ///
-    /// If the `tracing` feature is enabled, every successful call of this function
-    /// will log an event at the debug level.
     pub fn read_owning_from(
         read: &mut (impl std::io::BufRead + ?Sized),
         buf: &mut Vec<u8>,
@@ -48,9 +45,6 @@ impl ServerMsg<'static> {
     /// a previous call to this function that errored due to
     /// non-blocking I/O or unexpected EOF.
     /// Other errors may leave `buf` in an invalid state for future calls.
-    ///
-    /// If the `tracing` feature is enabled, every successful call of this function
-    /// will log an event at the debug level.
     #[cfg(feature = "tokio")]
     pub async fn read_owning_from_tokio(
         read: &mut (impl tokio::io::AsyncBufReadExt + ?Sized + Unpin),
@@ -78,9 +72,6 @@ impl<'a> ServerMsg<'a> {
     /// a previous call to this function that errored due to
     /// non-blocking I/O or unexpected EOF.
     /// Other errors may leave `buf` in an invalid state for future calls.
-    ///
-    /// If the `tracing` feature is enabled, every successful call of this function
-    /// will log an event at the debug level.
     pub fn read_borrowing_from(
         read: &mut (impl std::io::BufRead + ?Sized),
         buf: &'a mut Vec<u8>,
@@ -103,9 +94,6 @@ impl<'a> ServerMsg<'a> {
     /// a previous call to this function that errored due to
     /// non-blocking I/O or unexpected EOF.
     /// Other errors may leave `buf` in an invalid state for future calls.
-    ///
-    /// If the `tracing` feature is enabled, every successful call of this function
-    /// will log an event at the debug level.
     #[cfg(feature = "tokio")]
     pub async fn read_borrowing_from_tokio(
         read: &mut (impl tokio::io::AsyncBufReadExt + ?Sized + Unpin),
@@ -173,9 +161,6 @@ impl<'a> ServerMsg<'a> {
     ///
     /// The buffer will be cleared after successfully sending this message.
     /// If the buffer is non-empty, message data will be appended to the buffer's contents.
-    ///
-    /// If the `tracing` feature is enabled, every successful call of this function
-    /// will log an event at the debug level.
     pub fn send_to(
         &self,
         write: &mut (impl Write + ?Sized),
@@ -185,8 +170,6 @@ impl<'a> ServerMsg<'a> {
         buf.extend_from_slice(b"\r\n");
         write.write_all(buf)?;
         buf.clear();
-        #[cfg(feature = "tracing")]
-        tracing::debug!(target: "vinezombie::send", "{}", self);
         Ok(())
     }
     /// Asynchronously writes self to `write` WITH a trailing CRLF,
@@ -194,9 +177,6 @@ impl<'a> ServerMsg<'a> {
     ///
     /// The buffer will be cleared after successfully sending this message.
     /// If the buffer is non-empty, message data will be appended to the buffer's contents.
-    ///
-    /// If the `tracing` feature is enabled, every successful call of this function
-    /// will log an event at the debug level.
     #[cfg(feature = "tokio")]
     pub async fn send_to_tokio(
         &self,
@@ -207,8 +187,6 @@ impl<'a> ServerMsg<'a> {
         buf.extend_from_slice(b"\r\n");
         write.write_all(buf).await?;
         buf.clear();
-        #[cfg(feature = "tracing")]
-        tracing::debug!(target: "vinezombie::send", "{}", self);
         Ok(())
     }
 

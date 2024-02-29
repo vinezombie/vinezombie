@@ -1,6 +1,7 @@
 //! Options for connecting to IRC servers.
 
 mod sync;
+pub(super) mod time;
 #[cfg(feature = "tokio")]
 mod tokio;
 

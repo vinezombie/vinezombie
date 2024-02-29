@@ -8,6 +8,7 @@ pub use dynsized::*;
 pub use ownedslice::*;
 pub use thinarc::*;
 
+#[allow(unused)]
 pub fn option_union_with<T, F: FnOnce(T, T) -> T>(a: Option<T>, b: Option<T>, f: F) -> Option<T> {
     match (a, b) {
         (None, None) => None,

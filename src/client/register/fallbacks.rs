@@ -92,9 +92,9 @@ enum FallbackNicksState<S1, S2> {
 }
 
 /// Client-wide defaults for new connections.
-pub trait Defaults {
+pub trait Defaults: 'static {
     /// Nick transformer for the client-wide default nick.
-    type NickGen: NickTransformer;
+    type NickGen: NickTransformer + 'static;
     /// Returns the default nick and optional transformer state for it.
     fn nick(&self) -> (Nick<'static>, Option<<Self::NickGen as NickTransformer>::State>);
     /// Returns the default username.

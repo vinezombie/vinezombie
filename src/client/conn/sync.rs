@@ -1,5 +1,8 @@
-use super::IoTimeout;
-use crate::{client::tls::TlsConfig, ircmsg::ServerMsg};
+use super::{
+    time::{filter_time_error, TimeLimitedSync},
+    IoTimeout,
+};
+use crate::ircmsg::ServerMsg;
 use std::{io::BufReader, net::TcpStream, time::Duration};
 
 impl<'a> super::ServerAddr<'a> {
@@ -16,7 +19,7 @@ impl<'a> super::ServerAddr<'a> {
     #[cfg(feature = "tls")]
     pub fn connect(
         &self,
-        tls_fn: impl FnOnce() -> std::io::Result<TlsConfig>,
+        tls_fn: impl FnOnce() -> std::io::Result<crate::client::tls::TlsConfig>,
     ) -> std::io::Result<BufReader<Stream>> {
         use std::io::{Error, ErrorKind};
         let string = self.utf8_address()?;
@@ -265,24 +268,84 @@ impl<T: IoTimeout + std::io::Read + std::io::Write> Connection for BufReader<T> 
 }
 
 impl<C: Connection, A: crate::client::adjuster::Adjuster> crate::client::Client<C, A> {
-    /// Reads a message from the server, adjusting the queue if necessary.
-    pub fn read_owning(&mut self) -> std::io::Result<ServerMsg<'static>> {
-        let msg = ServerMsg::read_owning_from(self.conn.as_bufread(), &mut self.buf)?;
-        self.queue.adjust(&msg, &mut self.adjuster);
-        Ok(msg)
+    /// Runs handlers off of the connection until any of them yield or finish.
+    ///
+    /// Returns the IDs of the handlers that yielded or finished, respectively.
+    /// Read timeouts are indicated by a return value of `Ok(None)`.
+    /// I/O failure should be considered non-recoverable.
+    ///
+    /// Handlers are not guaranteed to run in the order they were added.
+    /// If there are no handlers to run, fully flushes the queue.
+    /// If the `tracing` feature is enabled, logs messages at the debug level.
+    pub fn run(&mut self) -> std::io::Result<Option<(&[usize], &[usize])>> {
+        let finished_at = loop {
+            let wait_for = self.flush_partial()?;
+            if self.handlers.is_empty() {
+                if let Some(wait_for) = wait_for {
+                    std::thread::sleep(wait_for);
+                    continue;
+                }
+                return Ok(Some((Default::default(), Default::default())));
+            }
+            let (mut conn, should_continue) =
+                TimeLimitedSync::new(&mut self.conn, &mut self.timeout, wait_for)?;
+            // Unfortunately not quite DRY,
+            // but this is the easiest way to sidestep lifetime issues.
+            let finished_at = if self.handlers.wants_owning() {
+                let msg = ServerMsg::read_owning_from(&mut conn, &mut self.buf_i);
+                let Some(msg) = filter_time_error(msg)? else {
+                    if should_continue {
+                        continue;
+                    }
+                    return Ok(None);
+                };
+                #[cfg(feature = "tracing")]
+                tracing::debug!(target: "vinezombie::recv", "{}", msg);
+                self.queue.adjust(&msg, &mut self.adjuster);
+                self.handlers.handle(&msg, &mut self.queue)
+            } else {
+                let msg = ServerMsg::read_borrowing_from(&mut conn, &mut self.buf_i);
+                let Some(msg) = filter_time_error(msg)? else {
+                    if should_continue {
+                        continue;
+                    }
+                    return Ok(None);
+                };
+                #[cfg(feature = "tracing")]
+                tracing::debug!(target: "vinezombie::recv", "{}", msg);
+                self.queue.adjust(&msg, &mut self.adjuster);
+                let fa = self.handlers.handle(&msg, &mut self.queue);
+                self.buf_i.clear();
+                fa
+            };
+            if self.handlers.has_results(finished_at) {
+                self.flush_partial()?;
+                // You give me conniptions, borrowck.
+                break finished_at;
+            }
+        };
+        Ok(Some(self.handlers.last_run_results(finished_at)))
     }
-    /// Flushes the queue until it's empty or blocks.
+    /// Flushes the queue until it's empty or hits rate limits.
     ///
     /// I/O failure should be considered non-recoverable,
     /// as any messages that were removed from the queue will be lost.
-    pub fn flush(&mut self) -> std::io::Result<Option<Duration>> {
+    ///
+    /// If the `tracing` feature is enabled, logs messages at the debug level.
+    pub fn flush_partial(&mut self) -> std::io::Result<Option<Duration>> {
         use std::io::Write;
+        if self.queue.is_empty() {
+            return Ok(None);
+        }
         let mut timeout = None;
         while let Some(popped) = self.queue.pop(|new_timeout| timeout = new_timeout) {
-            let _ = popped.write_to(&mut self.buf);
+            #[cfg(feature = "tracing")]
+            tracing::debug!(target: "vinezombie::send", "{}", popped);
+            let _ = popped.write_to(&mut self.buf_o);
+            self.buf_o.extend_from_slice(b"\r\n");
         }
-        let result = self.conn.as_write().write_all(&self.buf);
-        self.buf.clear();
+        let result = self.conn.as_write().write_all(&self.buf_o);
+        self.buf_o.clear();
         result?;
         self.conn.as_write().flush()?;
         Ok(timeout)

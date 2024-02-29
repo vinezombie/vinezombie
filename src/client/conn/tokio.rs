@@ -1,4 +1,4 @@
-use super::IoTimeout;
+use super::time::{timed_io, TimeLimitedTokio};
 use crate::{client::tls::TlsConfig, ircmsg::ServerMsg};
 use std::{pin::Pin, time::Duration};
 use tokio::{io::BufReader, net::TcpStream};
@@ -8,10 +8,7 @@ impl<'a> super::ServerAddr<'a> {
     pub async fn connect_tokio_no_tls(&self) -> std::io::Result<BufReader<StreamTokio>> {
         let string = self.utf8_address()?;
         let sock = tokio::net::TcpStream::connect((string, self.port_num())).await?;
-        Ok(BufReader::with_capacity(
-            super::BUFSIZE,
-            StreamTokio { stream: StreamInner::Tcp(sock), ..Default::default() },
-        ))
+        Ok(BufReader::with_capacity(super::BUFSIZE, StreamTokio { stream: StreamInner::Tcp(sock) }))
     }
     /// Creates an asynchronous connection.
     ///
@@ -37,7 +34,7 @@ impl<'a> super::ServerAddr<'a> {
             let sock = tokio::net::TcpStream::connect((string, self.port_num())).await?;
             StreamInner::Tcp(sock)
         };
-        Ok(BufReader::with_capacity(super::BUFSIZE, StreamTokio { stream, ..Default::default() }))
+        Ok(BufReader::with_capacity(super::BUFSIZE, StreamTokio { stream }))
     }
 }
 
@@ -45,8 +42,6 @@ impl<'a> super::ServerAddr<'a> {
 #[derive(Debug, Default)]
 pub struct StreamTokio {
     stream: StreamInner,
-    timeout_read: Option<Duration>,
-    timeout_write: Option<Duration>,
 }
 
 #[derive(Debug, Default)]
@@ -112,66 +107,28 @@ impl tokio::io::AsyncWrite for StreamTokio {
     }
 }
 
-impl IoTimeout for StreamTokio {
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.timeout_read = timeout;
-        Ok(())
-    }
-    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.timeout_write = timeout;
-        Ok(())
-    }
-    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
-        Ok(self.timeout_read)
-    }
-    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
-        Ok(self.timeout_write)
-    }
-}
-
 // Using named &muts instead of Pins here because it means less an Unpin dance is needed
 // to use this in run_handler_tokio.
 
 /// Types that are usable as asynchronous connections
-///
-/// These types are required to implement `IoTimeout` but not implement the timeout themselves.
-/// Instead, [`IoTimeout::read_timeout`] and [`IoTimeout::write_timeout`] should return
-/// timeouts infallibly and leave that responsibility to the caller.
-pub trait ConnectionTokio: IoTimeout {
+pub trait ConnectionTokio: Unpin {
     /// This type as an [`AsyncBufRead`][tokio::io::AsyncBufRead].
-    type AsyncBufRead: tokio::io::AsyncBufRead + Unpin;
+    type AsyncBufRead: tokio::io::AsyncBufRead;
     /// This type as an [`AsyncWrite`][tokio::io::AsyncWrite].
     type AsyncWrite: tokio::io::AsyncWrite + Unpin;
     /// Returns self as an `AsyncBufRead`.
-    fn as_bufread(&mut self) -> &mut Self::AsyncBufRead;
+    fn as_bufread(&mut self) -> Pin<&mut Self::AsyncBufRead>;
     /// Returns self as an `AsyncWrite`.
     fn as_write(&mut self) -> &mut Self::AsyncWrite;
 }
 
-impl<T: IoTimeout + tokio::io::AsyncRead> IoTimeout for BufReader<T> {
-    fn set_read_timeout(&mut self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
-        self.get_mut().set_read_timeout(timeout)
-    }
-    fn set_write_timeout(&mut self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
-        self.get_mut().set_write_timeout(timeout)
-    }
-    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
-        self.get_ref().read_timeout()
-    }
-    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
-        self.get_ref().write_timeout()
-    }
-}
-
-impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + IoTimeout + Unpin> ConnectionTokio
-    for BufReader<T>
-{
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> ConnectionTokio for BufReader<T> {
     type AsyncBufRead = Self;
 
     type AsyncWrite = T;
 
-    fn as_bufread(&mut self) -> &mut Self::AsyncBufRead {
-        self
+    fn as_bufread(&mut self) -> Pin<&mut Self::AsyncBufRead> {
+        Pin::new(self)
     }
 
     fn as_write(&mut self) -> &mut Self::AsyncWrite {
@@ -180,41 +137,84 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + IoTimeout + Unpin> Connec
 }
 
 impl<C: ConnectionTokio, A: crate::client::adjuster::Adjuster> crate::client::Client<C, A> {
-    /// Reads a message from the server, adjusting the queue if necessary.
-    pub async fn read_owning_tokio(&mut self) -> std::io::Result<ServerMsg<'static>> {
-        let io_timeout = self.conn.read_timeout()?;
-        let read_fut = ServerMsg::read_owning_from_tokio(self.conn.as_bufread(), &mut self.buf);
-        let msg = if let Some(dur) = io_timeout {
-            tokio::time::timeout(dur, read_fut).await?
-        } else {
-            read_fut.await
-        }?;
-        self.queue.adjust(&msg, &mut self.adjuster);
-        Ok(msg)
+    /// Runs handlers off of the connection until any of them yield or finish.
+    ///
+    /// Returns the IDs of the handlers that yielded or finished, respectively.
+    /// Read timeouts are indicated by a return value of `Ok(None)`.
+    /// I/O failure should be considered non-recoverable.
+    ///
+    /// Handlers are not guaranteed to run in the order they were added.
+    /// If there are no handlers to run, fully flushes the queue.
+    /// If the `tracing` feature is enabled, logs messages at the debug level.
+    pub async fn run_tokio(&mut self) -> std::io::Result<Option<(&[usize], &[usize])>> {
+        let finished_at = loop {
+            let wait_for = self.flush_partial_tokio().await?;
+            if self.handlers.is_empty() {
+                if let Some(wait_for) = wait_for {
+                    tokio::time::sleep(wait_for).await;
+                    continue;
+                }
+                return Ok(Some((Default::default(), Default::default())));
+            }
+            let mut conn = TimeLimitedTokio::new(&mut self.conn, &self.timeout);
+            // Unfortunately not quite DRY,
+            // but this is the easiest way to sidestep lifetime issues.
+            let finished_at = if self.handlers.wants_owning() {
+                let fut = ServerMsg::read_owning_from_tokio(&mut conn, &mut self.buf_i);
+                let msg = match timed_io(fut, wait_for, self.timeout.read_timeout()).await? {
+                    Ok(m) => m,
+                    Err(true) => continue,
+                    Err(false) => return Ok(None),
+                };
+                #[cfg(feature = "tracing")]
+                tracing::debug!(target: "vinezombie::recv", "{}", msg);
+                self.queue.adjust(&msg, &mut self.adjuster);
+                self.handlers.handle(&msg, &mut self.queue)
+            } else {
+                let fut = ServerMsg::read_borrowing_from_tokio(&mut conn, &mut self.buf_i);
+                let msg = match timed_io(fut, wait_for, self.timeout.read_timeout()).await? {
+                    Ok(m) => m,
+                    Err(true) => continue,
+                    Err(false) => return Ok(None),
+                };
+                #[cfg(feature = "tracing")]
+                tracing::debug!(target: "vinezombie::recv", "{}", msg);
+                self.queue.adjust(&msg, &mut self.adjuster);
+                let fa = self.handlers.handle(&msg, &mut self.queue);
+                self.buf_i.clear();
+                fa
+            };
+            if self.handlers.has_results(finished_at) {
+                self.flush_partial_tokio().await?;
+                // You give me conniptions, borrowck.
+                break finished_at;
+            }
+        };
+        Ok(Some(self.handlers.last_run_results(finished_at)))
     }
-    /// Flushes the queue until it's empty or blocks.
+    /// Flushes the queue until it's empty or hits rate limits.
     ///
     /// I/O failure should be considered non-recoverable,
     /// as any messages that were removed from the queue will be lost.
-    pub async fn flush_tokio(&mut self) -> std::io::Result<Option<Duration>> {
+    ///
+    /// If the `tracing` feature is enabled, logs messages at the debug level.
+    pub async fn flush_partial_tokio(&mut self) -> std::io::Result<Option<Duration>> {
         use tokio::io::AsyncWriteExt;
-        let io_timeout = self.conn.write_timeout()?;
+        if self.queue.is_empty() {
+            return Ok(None);
+        }
         let mut timeout = None;
         while let Some(popped) = self.queue.pop(|new_timeout| timeout = new_timeout) {
-            let _ = popped.write_to(&mut self.buf);
+            #[cfg(feature = "tracing")]
+            tracing::debug!(target: "vinezombie::send", "{}", popped);
+            let _ = popped.write_to(&mut self.buf_o);
+            self.buf_o.extend_from_slice(b"\r\n");
         }
-        let write_fut = self.conn.as_write().write_all(&self.buf);
-        let result = if let Some(dur) = io_timeout {
-            match tokio::time::timeout(dur, write_fut).await {
-                Ok(result) => result,
-                Err(timeout) => Err(timeout.into()),
-            }
-        } else {
-            write_fut.await
-        };
-        self.buf.clear();
+        let mut conn = TimeLimitedTokio::new(&mut self.conn, &self.timeout);
+        let result = conn.write_all(&self.buf_o).await;
+        self.buf_o.clear();
         result?;
-        self.conn.as_write().flush().await?;
+        conn.flush().await?;
         Ok(timeout)
     }
 }

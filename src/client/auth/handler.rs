@@ -1,6 +1,6 @@
 use super::{Sasl, SaslLogic};
 use crate::{
-    client::{ClientMsgSink, HandlerOk, HandlerResult},
+    client::ClientMsgSink,
     consts::cmd::AUTHENTICATE,
     ircmsg::ClientMsg,
     string::{Arg, Line},
@@ -23,8 +23,6 @@ pub enum HandlerError {
     Fail(Line<'static>),
     /// The server's implementation of a SASL mechanism is broken.
     Broken(Box<dyn std::error::Error + Send + Sync>),
-    /// An I/O error occurred.
-    Io(std::io::Error),
 }
 
 impl From<HandlerError> for std::io::Error {
@@ -36,13 +34,7 @@ impl From<HandlerError> for std::io::Error {
             }
             HandlerError::Fail(e) => Error::new(ErrorKind::PermissionDenied, e.to_utf8_lossy()),
             HandlerError::Broken(e) => Error::new(ErrorKind::InvalidData, e),
-            HandlerError::Io(e) => e,
         }
-    }
-}
-impl From<std::io::Error> for HandlerError {
-    fn from(value: std::io::Error) -> Self {
-        HandlerError::Io(value)
     }
 }
 
@@ -52,7 +44,6 @@ impl std::fmt::Display for HandlerError {
             HandlerError::WrongMechanism(_) => write!(f, "unsupported mechanism"),
             HandlerError::Fail(reason) => reason.fmt(f),
             HandlerError::Broken(_) => write!(f, "broken mechanism"),
-            HandlerError::Io(_) => write!(f, "io failure"),
         }
     }
 }
@@ -61,9 +52,39 @@ impl std::error::Error for HandlerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             HandlerError::Broken(brk) => Some(&**brk),
-            HandlerError::Io(io) => Some(io),
             _ => None,
         }
+    }
+}
+
+/// [`MakeHandler`][crate::client::MakeHandler] for any [`Sasl`] implementation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Authenticate;
+
+impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for Authenticate {
+    type Value = Result<(), HandlerError>;
+
+    type Error = std::io::Error;
+
+    type Receiver<Spec: crate::client::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
+
+    fn make_handler(
+        &self,
+        mut queue: crate::client::QueueEditGuard<'_>,
+        sasl: &'a T,
+    ) -> Result<impl crate::client::Handler<Value = Self::Value>, Self::Error> {
+        let (msg, handler) = Handler::from_sasl(sasl)?;
+        queue.push(msg);
+        Ok(handler)
+    }
+
+    fn make_channel<Spec: crate::client::channel::ChannelSpec>(
+        spec: &Spec,
+    ) -> (
+        std::sync::Arc<dyn crate::client::channel::Sender<Value = Self::Value>>,
+        Self::Receiver<Spec>,
+    ) {
+        spec.new_oneshot()
     }
 }
 
@@ -86,12 +107,13 @@ impl Handler {
     }
     /// Handles a server message sent during SASL authentication.
     ///
-    /// Upon returning an `Ok(HandlerOk::Value(_))`, authentication has completed successfully.
+    /// Upon returning an `Ok(true)`, authentication has completed successfully.
+    /// A return value of `Ok(false)` means more messages are required.
     pub fn handle(
         &mut self,
         msg: &crate::ircmsg::ServerMsg<'_>,
         mut sink: impl ClientMsgSink<'static>,
-    ) -> HandlerResult<(), std::convert::Infallible, HandlerError> {
+    ) -> Result<bool, HandlerError> {
         use crate::string::base64::ChunkEncoder;
         match msg.kind.as_str() {
             "AUTHENTICATE" => {
@@ -106,13 +128,13 @@ impl Handler {
                     for chunk in ChunkEncoder::new(reply, 400, true) {
                         let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
                         msg.args.edit().add_word(chunk);
-                        sink.send(msg).map_err(HandlerError::Io)?;
+                        sink.send(msg);
                     }
                 }
-                Ok(HandlerOk::NeedMore)
+                Ok(false)
             }
             // Ignore 901.
-            "900" | "903" | "907" => Ok(HandlerOk::Value(())),
+            "900" | "903" | "907" => Ok(true),
             "902" | "904" | "905" | "906" => {
                 let reason = msg.args.split_last().1.cloned().unwrap_or_default();
                 Err(HandlerError::Fail(reason.owning()))
@@ -122,21 +144,26 @@ impl Handler {
                 let set = msg.args.split_last().0.iter().map(|a| a.clone().owning()).collect();
                 Err(HandlerError::WrongMechanism(set))
             }
-            _ => Ok(HandlerOk::Ignored),
+            _ => Ok(false),
         }
     }
 }
 
 impl crate::client::Handler for Handler {
-    type Value = ();
-    type Warning = std::convert::Infallible;
-    type Error = HandlerError;
+    type Value = Result<(), HandlerError>;
 
     fn handle(
         &mut self,
         msg: &crate::ircmsg::ServerMsg<'_>,
-        queue: &mut crate::client::Queue<'static>,
-    ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
-        self.handle(msg, queue)
+        mut queue: crate::client::QueueEditGuard<'_>,
+        mut channel: crate::client::channel::SenderRef<'_, Self::Value>,
+    ) -> bool {
+        match self.handle(msg, &mut queue) {
+            Ok(false) => false,
+            v => {
+                channel.send(v.and(Ok(())));
+                true
+            }
+        }
     }
 }

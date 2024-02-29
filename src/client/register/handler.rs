@@ -1,6 +1,6 @@
 use super::FallbackNicks;
 use crate::{
-    client::{auth::SaslLogic, nick::NickTransformer, ClientMsgSink, HandlerOk, HandlerResult},
+    client::{auth::SaslLogic, nick::NickTransformer, ClientMsgSink},
     consts::cmd::{CAP, NICK},
     ircmsg::{Args, ClientMsg, ServerMsg, SharedSource, Source, UserHost},
     string::{Arg, Key, Line, Nick, Word},
@@ -55,13 +55,13 @@ pub enum HandlerError {
     NoLogin,
     /// The server sent a reply indicating an error that cannot be handled.
     ServerError(Box<ServerMsg<'static>>),
-    /// An I/O error occurred.
-    Io(std::io::Error),
+    /// The server sent an invalid message.
+    Broken(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl HandlerError {
-    pub(crate) fn broken(e: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-        HandlerError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    pub(self) fn broken(e: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> HandlerError {
+        HandlerError::Broken(e.into())
     }
 }
 
@@ -72,15 +72,15 @@ impl std::fmt::Display for HandlerError {
             HandlerError::NoNicks => write!(f, "no fallback nicks remaining"),
             HandlerError::NoLogin => write!(f, "failed to log in"),
             HandlerError::ServerError(e) => write!(f, "server error: {e}"),
-            HandlerError::Io(e) => write!(f, "{e}"),
+            HandlerError::Broken(e) => write!(f, "invalid message: {e}"),
         }
     }
 }
 
 impl std::error::Error for HandlerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        if let HandlerError::Io(io) = self {
-            Some(io)
+        if let HandlerError::Broken(e) = self {
+            Some(e.as_ref())
         } else {
             None
         }
@@ -94,14 +94,9 @@ impl From<HandlerError> for std::io::Error {
             HandlerError::NoAccess(e) => {
                 Error::new(ErrorKind::ConnectionRefused, HandlerError::NoAccess(e))
             }
-            HandlerError::Io(io) => io,
+            HandlerError::Broken(e) => Error::new(ErrorKind::InvalidData, e),
             v => Error::new(ErrorKind::Other, v),
         }
-    }
-}
-impl From<std::io::Error> for HandlerError {
-    fn from(value: std::io::Error) -> Self {
-        HandlerError::Io(value)
     }
 }
 
@@ -145,47 +140,45 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
         &mut self,
         msg: &ServerMsg<'_>,
         mut sink: impl ClientMsgSink<'static>,
-    ) -> HandlerResult<Registration, Line<'static>, HandlerError> {
+    ) -> Result<Option<Registration>, HandlerError> {
         if self.reg.source.is_none() {
             self.reg.source = msg.source.clone().map(SharedSource::owning_merged);
         }
         if let Some(pong) = crate::client::pong(msg) {
-            sink.send(pong).map_err(HandlerError::Io)?;
-            return Ok(HandlerOk::NeedMore);
+            sink.send(pong);
+            return Ok(None);
         }
         #[cfg(feature = "base64")]
         if let Some(auth) = &mut self.auth {
             use crate::client::auth;
             match auth.handle(msg, sink.borrow_mut()) {
-                Ok(HandlerOk::Value(_)) => {
+                Ok(true) => {
                     self.auth = None;
                     self.state = HandlerState::CapEnd;
                 }
-                Ok(HandlerOk::Ignored) => (),
-                Ok(_) => return Ok(HandlerOk::NeedMore),
+                Ok(false) => return Ok(None),
                 Err(auth::HandlerError::Fail(_)) => {
                     // TODO: Probably should log the failure.
                     self.state = HandlerState::CapEnd;
                     self.next_sasl(sink.borrow_mut())?;
                     self.cap_end(sink.borrow_mut())?;
-                    return Ok(HandlerOk::NeedMore);
+                    return Ok(None);
                 }
                 Err(auth::HandlerError::WrongMechanism(set)) => {
                     self.auths.retain(|(k, _)| set.contains(k));
                     self.state = HandlerState::CapEnd;
                     self.next_sasl(sink.borrow_mut())?;
                     self.cap_end(sink.borrow_mut())?;
-                    return Ok(HandlerOk::NeedMore);
+                    return Ok(None);
                 }
                 Err(auth::HandlerError::Broken(_)) => {
                     // TODO: Probably should log the breakage.
-                    sink.send(crate::client::auth::msg_abort()).map_err(HandlerError::Io)?;
+                    sink.send(crate::client::auth::msg_abort());
                     self.state = HandlerState::CapEnd;
                     self.next_sasl(sink.borrow_mut())?;
                     self.cap_end(sink.borrow_mut())?;
-                    return Ok(HandlerOk::NeedMore);
+                    return Ok(None);
                 }
-                Err(auth::HandlerError::Io(e)) => return Err(HandlerError::Io(e)),
             }
         }
         let retval = match msg.kind.as_str() {
@@ -207,21 +200,21 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                     }
                 }
                 self.reg.welcome = msg.args.clone().owning();
-                Ok(HandlerOk::Value(std::mem::take(&mut self.reg)))
+                Ok(Some(std::mem::take(&mut self.reg)))
             }
             "432" => {
                 // Invalid nick. Keep trying user nicks,
                 // but don't allow auto-generated fallbacks.
                 if self.nicks.has_user_nicks() {
                     self.next_nick(sink.borrow_mut())?;
-                    Ok(HandlerOk::NeedMore)
+                    Ok(None)
                 } else {
                     Err(HandlerError::NoNicks)
                 }
             }
             "433" | "436" => {
                 self.next_nick(sink.borrow_mut())?;
-                Ok(HandlerOk::NeedMore)
+                Ok(None)
             }
             "464" | "465" => {
                 let line = msg.args.clone().owning().split_last().1.cloned().unwrap_or_default();
@@ -238,7 +231,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                         self.reg.userhost = whoami.userhost;
                     }
                 }
-                Ok(HandlerOk::NeedMore)
+                Ok(None)
             }
             "901" => {
                 self.reg.account = None;
@@ -248,7 +241,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                     self.reg.nick = whoami.nick;
                     self.reg.userhost = whoami.userhost;
                 }
-                Ok(HandlerOk::NeedMore)
+                Ok(None)
             }
             "CAP" => {
                 use crate::client::cap;
@@ -268,8 +261,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                                     Some(self.reg.nick.clone().into_super()),
                                     self.reg.source.as_ref(),
                                     sink.borrow_mut(),
-                                )
-                                .map_err(HandlerError::Io)?;
+                                );
                                 HandlerState::Ack(reqs)
                             };
                         }
@@ -294,7 +286,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                         }
                         self.state.ack(&cap_msg.caps);
                     }
-                    cap::SubCmd::List => return Err(HandlerError::broken("unexpected LIST")),
+                    cap::SubCmd::List => return Err(HandlerError::broken("unexpected CAP LIST")),
                 }
                 if matches!(self.state, HandlerState::Sasl) {
                     if let Some(names) = self.caps_avail.get("sasl".as_bytes()) {
@@ -306,13 +298,13 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                     #[cfg(feature = "base64")]
                     self.next_sasl(sink.borrow_mut())?;
                 }
-                Ok(HandlerOk::NeedMore)
+                Ok(None)
             }
             _ => {
                 if msg.kind.is_error() == Some(true) {
                     return Err(HandlerError::ServerError(Box::new(msg.clone().owning())));
                 }
-                Ok(HandlerOk::Ignored)
+                Ok(None)
             }
         }?;
         self.cap_end(sink)?;
@@ -322,7 +314,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
         let nick = self.nicks.next().ok_or(HandlerError::NoNicks)?;
         let mut msg = ClientMsg::new_cmd(NICK);
         msg.args.edit().add_word(nick.clone());
-        sink.send(msg).map_err(HandlerError::Io)?;
+        sink.send(msg);
         self.reg.nick = nick;
         Ok(())
     }
@@ -334,7 +326,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
         };
         let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
         msg.args.edit().add_word(name);
-        sink.send(msg).map_err(HandlerError::Io)?;
+        sink.send(msg);
         self.auth = Some(crate::client::auth::Handler::from_logic(logic));
         self.state = HandlerState::Sasl;
         Ok(())
@@ -346,7 +338,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
             }
             let mut msg = crate::ircmsg::ClientMsg::new_cmd(CAP);
             msg.args.edit().add_literal("END");
-            sink.send(msg).map_err(HandlerError::Io)?;
+            sink.send(msg);
             self.state = HandlerState::Done;
             Ok(true)
         } else {
@@ -355,18 +347,31 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
     }
 }
 
-impl<N1: NickTransformer, N2: NickTransformer + 'static> crate::client::Handler
+impl<N1: NickTransformer + 'static, N2: NickTransformer + 'static> crate::client::Handler
     for Handler<N1, N2>
 {
-    type Value = Registration;
-    type Warning = Line<'static>;
-    type Error = HandlerError;
+    type Value = Result<Registration, HandlerError>;
 
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
-        queue: &mut crate::client::Queue<'static>,
-    ) -> HandlerResult<Self::Value, Self::Warning, Self::Error> {
-        self.handle(msg, queue)
+        mut queue: crate::client::QueueEditGuard<'_>,
+        mut channel: crate::client::channel::SenderRef<'_, Self::Value>,
+    ) -> bool {
+        match self.handle(msg, &mut queue) {
+            Ok(Some(v)) => {
+                channel.send(Ok(v));
+                true
+            }
+            Ok(None) => false,
+            Err(e) => {
+                channel.send(Err(e));
+                true
+            }
+        }
+    }
+
+    fn wants_owning(&self) -> bool {
+        matches!(self.state, HandlerState::Done)
     }
 }

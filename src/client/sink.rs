@@ -1,9 +1,9 @@
-use super::Queue;
+use super::QueueEditGuard;
 use crate::ircmsg::ClientMsg;
 
 /// Final destinations for [`ClientMsg`]s.
 ///
-/// A `ClientMsgSink` has two properpies: it can fallibly accept `ClientMsg`s,
+/// A `ClientMsgSink` has two properpies: it can infallibly accept `ClientMsg`s,
 /// and is has a notion of being mutably borrowed in a form that is also a `ClientMsgSink`
 /// (which will usually but not neccessarily be `&mut Self`).
 ///
@@ -11,7 +11,7 @@ use crate::ircmsg::ClientMsg;
 /// full of client messages to send.
 pub trait ClientMsgSink<'a> {
     /// Sends a [`ClientMsg`].
-    fn send(&mut self, msg: ClientMsg<'a>) -> std::io::Result<()>;
+    fn send(&mut self, msg: ClientMsg<'a>);
     /// The borrowed form of `self`, usually `&mut Self`
     type Borrowed<'b>: ClientMsgSink<'a>
     where
@@ -20,9 +20,9 @@ pub trait ClientMsgSink<'a> {
     fn borrow_mut(&mut self) -> Self::Borrowed<'_>;
 }
 
-impl<'a, F: FnMut(ClientMsg<'a>) -> std::io::Result<()>> ClientMsgSink<'a> for F {
-    fn send(&mut self, msg: ClientMsg<'a>) -> std::io::Result<()> {
-        self(msg)
+impl<'a, F: FnMut(ClientMsg<'a>)> ClientMsgSink<'a> for F {
+    fn send(&mut self, msg: ClientMsg<'a>) {
+        self(msg);
     }
 
     type Borrowed<'b> = &'b mut F where F: 'b;
@@ -32,13 +32,12 @@ impl<'a, F: FnMut(ClientMsg<'a>) -> std::io::Result<()>> ClientMsgSink<'a> for F
     }
 }
 
-impl<'a> ClientMsgSink<'a> for &mut Queue<'a> {
-    fn send(&mut self, msg: ClientMsg<'a>) -> std::io::Result<()> {
+impl<'a> ClientMsgSink<'static> for &mut QueueEditGuard<'a> {
+    fn send(&mut self, msg: ClientMsg<'static>) {
         self.push(msg);
-        Ok(())
     }
 
-    type Borrowed<'b> = &'b mut Queue<'a> where Self: 'b;
+    type Borrowed<'b> = &'b mut QueueEditGuard<'a> where Self: 'b;
 
     fn borrow_mut(&mut self) -> Self::Borrowed<'_> {
         self

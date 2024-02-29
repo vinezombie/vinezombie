@@ -14,7 +14,7 @@ macro_rules! read_msg {
                 let read_count = $limit - buflen;
                 $read.set_limit(read_count as u64);
                 if $read_expr? == 0 {
-                    return Err(Error::from(ErrorKind::UnexpectedEof))
+                    return Err(Error::from(ErrorKind::UnexpectedEof));
                 }
             }
             let mut found_newline = false;
@@ -29,12 +29,8 @@ macro_rules! read_msg {
                     }
                     _ if found_newline => {
                         return match $parse_expr {
-                            Ok(msg) => {
-                                #[cfg(feature = "tracing")]
-                                tracing::debug!(target: "vinezombie::recv", "{}", msg);
-                                Ok(msg)
-                            }
-                            Err(e) => Err(e.into())
+                            Ok(msg) => Ok(msg),
+                            Err(e) => Err(e.into()),
                         }
                     }
                     // We stumbled into a non-newline character at the end of a read that
