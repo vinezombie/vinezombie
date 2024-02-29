@@ -71,6 +71,45 @@ pub trait MakeHandler<T> {
     ) -> (Arc<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>);
 }
 
+/// Handlers that can be used directly without any further options.
+pub trait SelfMadeHandler: Handler {
+    /// The type of the receiver half of the preferred channel type.
+    type Receiver<Spec: ChannelSpec>;
+
+    /// Queues initial messages.
+    fn queue_msgs(&self, queue: QueueEditGuard<'_>);
+
+    /// Creates an instance of the preferred channel type for a given channel spec.
+    ///
+    /// This typically just calls one method of the provided [`ChannelSpec`].
+    fn make_channel<Spec: ChannelSpec>(
+        spec: &Spec,
+    ) -> (Arc<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>);
+}
+
+impl<T: SelfMadeHandler> MakeHandler<T> for () {
+    type Value = T::Value;
+
+    type Error = std::convert::Infallible;
+
+    type Receiver<Spec: ChannelSpec> = T::Receiver<Spec>;
+
+    fn make_handler(
+        &self,
+        queue: QueueEditGuard<'_>,
+        handler: T,
+    ) -> Result<impl Handler<Value = Self::Value>, Self::Error> {
+        handler.queue_msgs(queue);
+        Ok(handler)
+    }
+
+    fn make_channel<Spec: ChannelSpec>(
+        spec: &Spec,
+    ) -> (Arc<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+        T::make_channel(spec)
+    }
+}
+
 type BoxHandler = Box<dyn FnMut(&ServerMsg<'_>, QueueEditGuard<'_>) -> HandlerStatus>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

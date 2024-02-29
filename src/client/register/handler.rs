@@ -144,8 +144,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
         if self.reg.source.is_none() {
             self.reg.source = msg.source.clone().map(SharedSource::owning_merged);
         }
-        if let Some(pong) = crate::client::pong(msg) {
-            sink.send(pong);
+        if crate::client::handlers::pong(msg, sink.borrow_mut()) {
             return Ok(None);
         }
         #[cfg(feature = "base64")]
