@@ -18,18 +18,6 @@ impl AsRef<[u8]> for Numeric {
     }
 }
 
-impl std::borrow::Borrow<str> for Numeric {
-    fn borrow(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl std::borrow::Borrow<[u8]> for Numeric {
-    fn borrow(&self) -> &[u8] {
-        &self.0
-    }
-}
-
 impl std::fmt::Debug for Numeric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.as_str().fmt(f)
