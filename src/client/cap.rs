@@ -111,21 +111,29 @@ impl<'a> ServerMsgArgs<'a> {
     /// Parses the argument list of a server-originated CAP message.
     pub fn parse(args: &Args<'a>) -> Result<Self, ParseError> {
         let (args, Some(last)) = args.split_last() else {
-            return Err(ParseError::MissingField("caps"));
+            return Err(ParseError::MissingField("caps".into()));
         };
-        let (nick, args) = args.split_first().ok_or(ParseError::MissingField("nick"))?;
+        let (nick, args) = args.split_first().ok_or(ParseError::MissingField("nick".into()))?;
         let nick = Nick::from_super(nick.clone()).map_err(ParseError::InvalidNick)?;
-        let (subcmd, args) = args.split_first().ok_or(ParseError::MissingField("subcmd"))?;
+        let (subcmd, args) = args.split_first().ok_or(ParseError::MissingField("subcmd".into()))?;
         let mut subcmd = subcmd.clone();
         // Does the spec actually mandate that this match be case-insensitive?
         subcmd.transform(crate::string::tf::AsciiCasemap::<true>);
-        let subcmd = SubCmd::from_bytes(subcmd.as_bytes())
-            .ok_or_else(|| ParseError::InvalidField("subcmd", subcmd.owning().into()))?;
+        let subcmd = SubCmd::from_bytes(subcmd.as_bytes()).ok_or_else(|| {
+            ParseError::InvalidField(
+                "subcmd".into(),
+                format!("unknown CAP subcommand: {}", subcmd.to_utf8_lossy()).into(),
+            )
+        })?;
         let is_last = if let Some((last_arg, _)) = args.split_first() {
             if last_arg == "*" {
                 false
             } else {
-                return Err(ParseError::InvalidField("is_last", last_arg.clone().owning().into()));
+                return Err(ParseError::InvalidField(
+                    "is_last".into(),
+                    format!("expected * as first CAP argument, got {}", last_arg.to_utf8_lossy())
+                        .into(),
+                ));
             }
         } else {
             true

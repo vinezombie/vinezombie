@@ -3,15 +3,15 @@
 // All lovingly made without thiserror!
 
 /// Errors from parsing an IRC message..
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum ParseError {
     /// The message exceeds permissible length limits.
     TooLong,
     /// An expected field is missing.
-    MissingField(&'static str),
+    MissingField(std::borrow::Cow<'static, str>),
     /// A field has an invalid value.
-    InvalidField(&'static str, crate::string::Line<'static>),
+    InvalidField(std::borrow::Cow<'static, str>, Box<dyn std::error::Error + Send + Sync>),
     /// The string provided to a parse function is not a Line.
     InvalidLine(InvalidString),
     /// The source fragment of the message contains an invalid nickname.
@@ -25,21 +25,33 @@ pub enum ParseError {
 }
 
 impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::TooLong => write!(f, "message is too long"),
-            ParseError::MissingField(e) => write!(f, "missing field {e}"),
-            ParseError::InvalidField(e, a) => write!(f, "invalid field {e}: got \"{a}\""),
-            ParseError::InvalidLine(e) => write!(f, "invalid line: {e}"),
-            ParseError::InvalidNick(e) => write!(f, "invalid source nickname: {e}"),
-            ParseError::InvalidUser(e) => write!(f, "invalid source username: {e}"),
-            ParseError::InvalidHost(e) => write!(f, "invalid source hostname: {e}"),
-            ParseError::InvalidKind(e) => write!(f, "invalid message kind: {e}"),
+            ParseError::TooLong => write!(fmt, "message is too long"),
+            ParseError::MissingField(f) => write!(fmt, "missing field {f}"),
+            ParseError::InvalidField(f, e) => write!(fmt, "invalid field {f}: {e}"),
+            ParseError::InvalidLine(e) => write!(fmt, "invalid line: {e}"),
+            ParseError::InvalidNick(e) => write!(fmt, "invalid source nickname: {e}"),
+            ParseError::InvalidUser(e) => write!(fmt, "invalid source username: {e}"),
+            ParseError::InvalidHost(e) => write!(fmt, "invalid source hostname: {e}"),
+            ParseError::InvalidKind(e) => write!(fmt, "invalid message kind: {e}"),
         }
     }
 }
 
-impl std::error::Error for ParseError {}
+impl std::error::Error for ParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ParseError::InvalidField(_, e) => Some(e.as_ref()),
+            ParseError::InvalidLine(ref e) => Some(e),
+            ParseError::InvalidNick(ref e) => Some(e),
+            ParseError::InvalidUser(ref e) => Some(e),
+            ParseError::InvalidHost(ref e) => Some(e),
+            ParseError::InvalidKind(ref e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl From<ParseError> for std::io::Error {
     fn from(value: ParseError) -> Self {
