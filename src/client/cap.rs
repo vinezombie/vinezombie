@@ -67,7 +67,7 @@ impl SubCmd {
     pub const fn from_bytes(bytes: &[u8]) -> Option<SubCmd> {
         match bytes {
             b"LS" => Some(Self::Ls),
-            b"LiST" => Some(Self::List),
+            b"LIST" => Some(Self::List),
             b"ACK" => Some(Self::Ack),
             b"NAK" => Some(Self::Nak),
             b"NEW" => Some(Self::New),
