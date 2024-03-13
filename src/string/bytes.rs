@@ -26,6 +26,21 @@ pub struct Bytes<'a> {
     secret: bool,
 }
 
+impl Bytes<'static> {
+    /// Returns a [`Cow`] `str` with `'static` lifetime containing `self`'s value as a UTF-8 string
+    /// with any non-UTF-8 byte sequences replaced with the
+    /// [U+FFFD replacement character](std::char::REPLACEMENT_CHARACTER).
+    ///
+    /// This is efficient for `Bytes` instances constructed out of string literals.
+    pub fn to_utf8_lossy_static(&self) -> Cow<'static, str> {
+        if self.is_owning() {
+            Cow::Owned(self.to_utf8_lossy().into_owned())
+        } else {
+            unsafe { self.utf8_cow() }
+        }
+    }
+}
+
 impl<'a> Bytes<'a> {
     /// Returns a new empty `Bytes`.
     pub const fn empty() -> Bytes<'a> {
