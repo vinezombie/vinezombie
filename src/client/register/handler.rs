@@ -1,14 +1,17 @@
-use super::FallbackNicks;
 use crate::{
-    client::{auth::SaslLogic, nick::NickTransformer, ClientMsgSink},
+    client::{auth::SaslLogic, nick::NickGen, ClientMsgSink},
     consts::cmd::{CAP, NICK},
-    ircmsg::{Args, ClientMsg, ServerMsg, SharedSource, Source, UserHost},
-    string::{Arg, Key, Line, Nick, Word},
+    ircmsg::{ClientMsg, ServerMsg, SharedSource, Source, UserHost},
+    state::serverinfo::{ISupportParser, ServerInfo},
+    string::{Arg, Key, Line, Nick, Splitter, Word},
 };
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::Arc,
+};
 
 /// The result of successful registration.
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Debug)]
 pub struct Registration {
     /// The nickname used for this connection.
     pub nick: Nick<'static>,
@@ -27,20 +30,27 @@ pub struct Registration {
     pub caps: BTreeMap<Key<'static>, Word<'static>>,
     /// The source associated with the server you're connected to.
     pub source: Option<Source<'static>>,
-    /// The arguments of the welcome (001) message.
-    pub welcome: Args<'static>,
+    /// Information about the server.
+    pub serverinfo: Box<ServerInfo>,
 }
 
-impl Default for Registration {
-    fn default() -> Self {
-        Self {
-            nick: crate::consts::STAR,
+impl Registration {
+    /// Creates a new [`Registration`] with the provided nick.
+    pub fn new(nick: Nick<'static>) -> Self {
+        Registration {
+            nick,
             userhost: None,
             account: None,
             caps: BTreeMap::new(),
             source: None,
-            welcome: Args::default(),
+            serverinfo: Box::new(ServerInfo::new()),
         }
+    }
+}
+
+impl Default for Registration {
+    fn default() -> Self {
+        Self::new(crate::consts::STAR)
     }
 }
 
@@ -53,6 +63,8 @@ pub enum HandlerError {
     NoNicks,
     /// Authentication was required, but failed.
     NoLogin,
+    /// We've been redirected to another server.
+    Redirect(Word<'static>, u16, Line<'static>),
     /// The server sent a reply indicating an error that cannot be handled.
     ServerError(Box<ServerMsg<'static>>),
     /// The server sent an invalid message.
@@ -73,6 +85,7 @@ impl std::fmt::Display for HandlerError {
             HandlerError::NoLogin => write!(f, "failed to log in"),
             HandlerError::ServerError(e) => write!(f, "server error: {e}"),
             HandlerError::Broken(e) => write!(f, "invalid message: {e}"),
+            HandlerError::Redirect(s, p, i) => write!(f, "redirected to {s}:{p}: {i}"),
         }
     }
 }
@@ -105,7 +118,8 @@ pub(super) enum HandlerState {
     Ack(BTreeSet<Key<'static>>),
     Sasl,
     CapEnd,
-    Done,
+    AwaitWelcome,
+    AwaitEnd,
 }
 
 impl HandlerState {
@@ -120,8 +134,8 @@ impl HandlerState {
 }
 
 /// Connection registration logic.
-pub struct Handler<N1: NickTransformer, N2: NickTransformer + 'static> {
-    pub(super) nicks: FallbackNicks<N1, N2>,
+pub struct Handler {
+    pub(super) nicks: Option<Box<dyn NickGen>>,
     pub(super) state: HandlerState,
     pub(super) needs_auth: bool,
     pub(super) caps_avail: BTreeMap<Key<'static>, Word<'static>>,
@@ -129,9 +143,30 @@ pub struct Handler<N1: NickTransformer, N2: NickTransformer + 'static> {
     pub(super) auth: Option<crate::client::auth::Handler>,
     pub(super) auths: VecDeque<(Arg<'static>, Box<dyn SaslLogic>)>,
     pub(super) reg: Registration,
+    pub(super) isupport: Arc<ISupportParser>,
 }
 
-impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
+impl Handler {
+    pub(super) fn new(
+        nicks: (Nick<'static>, Option<Box<dyn NickGen>>),
+        caps: BTreeSet<Key<'static>>,
+        needs_auth: bool,
+        auths: VecDeque<(Arg<'static>, Box<dyn SaslLogic>)>,
+        isupport: Arc<ISupportParser>,
+    ) -> Self {
+        let (nick, nicks) = nicks;
+        Handler {
+            nicks,
+            state: HandlerState::Req(caps),
+            needs_auth,
+            caps_avail: BTreeMap::new(),
+            #[cfg(feature = "base64")]
+            auth: None,
+            auths,
+            reg: Registration::new(nick),
+            isupport,
+        }
+    }
     /// Handles a server message sent during connection registration.
     ///
     /// It is a logic error to call `handle` after
@@ -155,7 +190,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                     self.auth = None;
                     self.state = HandlerState::CapEnd;
                 }
-                Ok(false) => return Ok(None),
+                Ok(false) => (),
                 Err(auth::HandlerError::Fail(_)) => {
                     // TODO: Probably should log the failure.
                     self.state = HandlerState::CapEnd;
@@ -181,7 +216,10 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
             }
         }
         let retval = match msg.kind.as_str() {
-            "001" if self.needs_auth && self.reg.account.is_none() => Err(HandlerError::NoLogin),
+            "001" | "002" | "003" | "004" if self.needs_auth && self.reg.account.is_none() => {
+                // We hit the end of registration without logging in. Run!
+                Err(HandlerError::NoLogin)
+            }
             "001" => {
                 let nick = msg
                     .args
@@ -198,20 +236,102 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
                         self.reg.source = Some(source.clone().owning_merged());
                     }
                 }
-                self.reg.welcome = msg.args.clone().owning();
-                Ok(Some(std::mem::take(&mut self.reg)))
+                self.state = HandlerState::AwaitEnd;
+                Ok(None)
             }
-            "432" => {
-                // Invalid nick. Keep trying user nicks,
-                // but don't allow auto-generated fallbacks.
-                if self.nicks.has_user_nicks() {
-                    self.next_nick(sink.borrow_mut())?;
-                    Ok(None)
+            "004" if matches!(self.state, HandlerState::AwaitEnd) => {
+                self.reg.serverinfo.parse_myinfo(msg.args.words());
+                Ok(None)
+            }
+            "005" if matches!(self.state, HandlerState::AwaitEnd) => {
+                let Some((_, isupports)) = msg.args.words().split_first() else {
+                    // Bad ISUPPORT message, but let's be forgiving.
+                    return Ok(None);
+                };
+                for isupport in isupports {
+                    let mut splitter = Splitter::new(isupport.clone());
+                    let Ok(key) = splitter.string::<Key>(false) else {
+                        continue;
+                    };
+                    let value = if matches!(splitter.next_byte(), Some(b'=')) {
+                        splitter.rest().ok()
+                    } else {
+                        None
+                    };
+                    if let Err(_e) =
+                        self.isupport.parse_and_update(&mut self.reg.serverinfo, &key, value)
+                    {
+                        // TODO: Really should log the error.
+                    }
+                }
+                Ok(None)
+            }
+            "004" => {
+                // We actually care about 001 because it's where we get some basic info.
+                // and we'd rather non-compliant severs skip 004 in favor of 005.
+                Err(HandlerError::Broken("004 sent before 001".into()))
+            }
+            "005" => {
+                // We probably have an RFC2819 RPL_BOUNCE. Try parsing it.
+                // Error either way.
+                let Some(last) = msg.args.split_last().1 else {
+                    return Err(HandlerError::Broken("empty 005 message".into()));
+                };
+                let split = || {
+                    let mut splitter = last.splitn(2, |c| *c == b',');
+                    let server = splitter.next()?.rsplit(|c| !c.is_ascii_graphic()).next()?;
+                    let port = splitter.next()?.rsplit(|c| !c.is_ascii_digit()).next()?;
+                    // We don't care about this being performant.
+                    // This path is so cold it's arctic.
+                    let server = Word::from_bytes(server).ok()?;
+                    let port = std::str::from_utf8(port).ok()?.parse().ok()?;
+                    Some((server, port))
+                };
+                if let Some((server, port)) = split() {
+                    Err(HandlerError::Redirect(
+                        server.clone().owning(),
+                        port,
+                        last.clone().owning(),
+                    ))
                 } else {
-                    Err(HandlerError::NoNicks)
+                    Err(HandlerError::ServerError(Box::new(msg.clone().owning())))
                 }
             }
+            "010" => {
+                // We've been redirected.
+                // This is also a very cold path.
+                if let ([_, client, port], Some(info)) = msg.args.split_last() {
+                    match port.to_utf8_lossy().parse() {
+                        Ok(port) => Err(HandlerError::Redirect(
+                            client.clone().owning().into(),
+                            port,
+                            info.clone().owning(),
+                        )),
+                        Err(e) => Err(HandlerError::Broken(
+                            format!("not a valid port `{port}`: {e}").into(),
+                        )),
+                    }
+                } else {
+                    Err(HandlerError::ServerError(Box::new(msg.clone().owning())))
+                }
+            }
+            "376" | "422" if matches!(self.state, HandlerState::AwaitEnd) => {
+                // End of/no MOTD. We're done.
+                Ok(Some(std::mem::take(&mut self.reg)))
+            }
+            "376" | "422" => {
+                // If we're here, we did NOT see 004.
+                Err(HandlerError::Broken("unexpected MOTD message".into()))
+            }
+            "432" => {
+                // Invalid nick.
+                let nicks = self.nicks.take().and_then(|ng| ng.handle_invalid(&self.reg.nick));
+                self.nicks = nicks;
+                self.next_nick(sink.borrow_mut())?;
+                Ok(None)
+            }
             "433" | "436" => {
+                // Nick in use.
                 self.next_nick(sink.borrow_mut())?;
                 Ok(None)
             }
@@ -310,11 +430,13 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
         Ok(retval)
     }
     fn next_nick(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
-        let nick = self.nicks.next().ok_or(HandlerError::NoNicks)?;
+        let Some(nicks) = self.nicks.take() else { return Err(HandlerError::NoNicks) };
+        let (nick, nicks) = nicks.next_nick();
         let mut msg = ClientMsg::new_cmd(NICK);
         msg.args.edit().add_word(nick.clone());
         sink.send(msg);
         self.reg.nick = nick;
+        self.nicks = nicks;
         Ok(())
     }
     #[cfg(feature = "base64")]
@@ -338,7 +460,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
             let mut msg = crate::ircmsg::ClientMsg::new_cmd(CAP);
             msg.args.edit().add_literal("END");
             sink.send(msg);
-            self.state = HandlerState::Done;
+            self.state = HandlerState::AwaitWelcome;
             Ok(true)
         } else {
             Ok(false)
@@ -346,9 +468,7 @@ impl<N1: NickTransformer, N2: NickTransformer + 'static> Handler<N1, N2> {
     }
 }
 
-impl<N1: NickTransformer + 'static, N2: NickTransformer + 'static> crate::client::Handler
-    for Handler<N1, N2>
-{
+impl crate::client::Handler for Handler {
     type Value = Result<Registration, HandlerError>;
 
     fn handle(
@@ -371,6 +491,6 @@ impl<N1: NickTransformer + 'static, N2: NickTransformer + 'static> crate::client
     }
 
     fn wants_owning(&self) -> bool {
-        matches!(self.state, HandlerState::Done)
+        matches!(self.state, HandlerState::AwaitWelcome)
     }
 }

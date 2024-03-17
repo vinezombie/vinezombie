@@ -54,7 +54,7 @@ pub struct ISupportParser {
     map: BTreeMap<Key<'static>, ValueParser>,
 }
 
-static GLOBAL_ISP: std::sync::OnceLock<ISupportParser> = std::sync::OnceLock::new();
+static GLOBAL_ISP: std::sync::OnceLock<std::sync::Arc<ISupportParser>> = std::sync::OnceLock::new();
 
 impl ISupportParser {
     /// Creates an empty [`ISupportParser`].
@@ -64,10 +64,9 @@ impl ISupportParser {
     pub fn empty() -> ISupportParser {
         ISupportParser { map: BTreeMap::default() }
     }
-    /// Returns a reference to a global [`ISupportParser`] initialized with
-    /// [`ISupportParser::full()`].
-    pub fn global() -> &'static ISupportParser {
-        GLOBAL_ISP.get_or_init(ISupportParser::full)
+    /// Returns a lazily-intialized parser initialized with [`ISupportParser::full()`].
+    pub fn global() -> std::sync::Arc<ISupportParser> {
+        GLOBAL_ISP.get_or_init(|| std::sync::Arc::new(ISupportParser::full())).clone()
     }
     /// Registers an [`ISupport`], allowing it to be parsed.
     ///
@@ -187,8 +186,12 @@ macro_rules! make_serverinfo {
     };
 }
 impl ServerInfo {
+    /// Returns the sever version string, or `"*"` if unknown.
+    pub fn version(&self) -> Arg<'static> {
+        self.version.clone().unwrap_or(crate::consts::STAR.into())
+    }
     /// Gets a shared reference to the server version string.
-    pub fn version(&self) -> &Option<Arg<'static>> {
+    pub fn version_ref(&self) -> &Option<Arg<'static>> {
         &self.version
     }
     /// Gets a mutable reference to the server version string.
@@ -206,6 +209,18 @@ impl ServerInfo {
     /// Retrieves the value associated with an ISUPPORT token.
     pub fn get<'a, K: ISupport>(&'a self, key: &K) -> Option<&'a K::Value> {
         key._serverinfo_get(self)
+    }
+    /// Updates from a `RPL_MYINFO` (004) message.
+    ///
+    /// Currently ignores mode info.
+    pub fn parse_myinfo(&mut self, args: &[Arg<'_>]) {
+        let mut args = args.iter().skip(2);
+        // ^ client, servername
+        let Some(version) = args.next() else {
+            return;
+        };
+        self.version = Some(version.clone().owning());
+        // TODO: Modes.
     }
     /// Implementation detail. Do not call yourself.
     #[doc(hidden)]

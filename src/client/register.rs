@@ -1,137 +1,77 @@
 //! Types for defining and performing the initial connection registration handshake.
 
-mod fallbacks;
+mod defaults;
 mod handler;
 
-pub use {fallbacks::*, handler::*};
+pub use {defaults::*, handler::*};
 
-use super::{
-    auth::Sasl,
-    nick::{NickTransformer, Nicks},
-    ClientMsgSink,
-};
 use crate::{
-    client::auth::Secret,
-    error::InvalidString,
+    client::{auth::Sasl, nick::NickGen, ClientMsgSink, MakeHandler},
     ircmsg::ClientMsg,
-    string::{Key, Line, User},
+    state::serverinfo::ISupportParser,
+    string::{Arg, Key, Line, Nick, User},
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeSet, VecDeque},
     sync::Arc,
 };
 
-/// Connection registration options.
+/// An iterator of references to [`Sasl`]s and indicator of whether SASL is required.
+pub type SaslOptions<'a, A> = (Box<dyn Iterator<Item = &'a A> + 'a>, bool);
+
+/// Client logic for the connection registration process.
 ///
-/// These are used to create the messages sent during the initial connection registration phase,
-/// such as USER and NICK.
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
-#[cfg_attr(feature = "serde", serde(default))]
-pub struct Register<P, S, N> {
-    /// The set of capabilities to request.
-    pub caps: BTreeSet<Key<'static>>,
-    /// The server password.
-    pub pass: Option<P>,
-    /// Options for nickname use and generation.
-    pub nicks: Nicks<N>,
-    /// The username, historically one's local account name.
-    pub username: Option<User<'static>>,
-    /// The realname, also sometimes known as the gecos.
-    pub realname: Option<Line<'static>>,
-    /// The list of SASL authenticators.
-    pub sasl: Vec<S>,
-    /// Whether to continue registration if SASL authentication fails.
+/// Consider using the [`register_as_bot()`], [`register_as_client()`],
+/// or [`register_as_custom()`] functions to instantiate one of these.
+#[derive(Clone)]
+pub struct Register<O, A> {
+    /// Returns the server password, if any.
+    pub password: fn(&O) -> std::io::Result<Option<Line<'static>>>,
+    /// Returns the username to use for connection.
+    pub username: fn(&O) -> User<'static>,
+    /// Returns the value used for the first unused USER parameter.
     ///
-    /// Does nothing if `sasl` is empty.
-    pub allow_sasl_fail: bool,
+    /// For older IRC software, this parameter is not actually unusused.
+    /// RFC1459 specifies that this should be the connecting system's hostname, while
+    /// RFC2812 specifies that this should be a decimal integer whose bits are
+    /// used to set user modes on connection.
+    pub user_p1: fn(&O) -> Arg<'static>,
+    /// Returns the value used for the second unused USER parameter.
+    ///
+    /// For older IRC software, this parameter is not actually unusused.
+    /// RFC1459 specifies that this should be the name of the server being connected to.
+    pub user_p2: fn(&O) -> Arg<'static>,
+    /// Returns the realname to use for connection.
+    pub realname: fn(&O) -> Line<'static>,
+    /// Creates a nick generator.
+    pub nicks: fn(&O) -> Box<dyn crate::client::nick::NickGen>,
+    /// Returns a set of capabilities to request.
+    ///
+    /// This does not need to include `sasl` if the authenticator list is non-empty.
+    pub caps: fn(&O) -> &BTreeSet<Key<'static>>,
+    /// Returns a boxed iterator of references to [`Sasl`] authenticators to attempt
+    /// and whether to close the connection on non-authentication.
+    pub auth: fn(&O) -> SaslOptions<'_, A>,
+    /// The [`ISupportParser`] used to parse ISUPPORT messages after registration completes.
+    ///
+    /// `ISupportParser`s are not `Clone`, making this `Arc` necessary.
+    pub isupport_parser: Arc<ISupportParser>,
 }
 
-impl<P, S, N: Default> Default for Register<P, S, N> {
-    fn default() -> Self {
-        Register {
-            caps: BTreeSet::new(),
-            pass: None,
-            nicks: Nicks::default(),
-            username: None,
-            realname: None,
-            sasl: Vec::new(),
-            allow_sasl_fail: false,
-        }
-    }
-}
-
-/// Creates a new blank [`Register`] the provided choice of [`Secret`] implementation.
-pub fn new<S: Secret>() -> Register<S, crate::client::auth::AnySasl<S>, ()> {
-    Register {
-        caps: BTreeSet::new(),
-        pass: None,
-        nicks: Nicks::default(),
-        username: None,
-        realname: None,
-        sasl: Vec::new(),
-        allow_sasl_fail: false,
-    }
-}
-
-impl<P, S, N> Register<P, S, N> {
-    /// Uses the provided password.
-    pub fn with_pass<'a, P2: Secret>(
-        self,
-        pass: impl TryInto<Line<'a>, Error = impl Into<InvalidString>>,
-    ) -> std::io::Result<Register<P2, S, N>> {
-        let pass = pass.try_into().map_err(|e| e.into())?.secret();
-        let secret = P2::new(pass.into())?;
-        Ok(Register {
-            caps: self.caps,
-            pass: Some(secret),
-            nicks: self.nicks,
-            username: self.username,
-            realname: self.realname,
-            sasl: self.sasl,
-            allow_sasl_fail: self.allow_sasl_fail,
-        })
-    }
-    /// Uses the provided [`NickTransformer`] for fallback nicks.
-    pub fn with_nickgen<N2: NickTransformer>(self, ng: N2) -> Register<P, S, N2> {
-        Register {
-            caps: self.caps,
-            pass: self.pass,
-            nicks: Nicks {
-                nicks: self.nicks.nicks,
-                skip_first: self.nicks.skip_first,
-                gen: Arc::new(ng),
-            },
-            username: self.username,
-            realname: self.realname,
-            sasl: self.sasl,
-            allow_sasl_fail: self.allow_sasl_fail,
-        }
-    }
-    /// Adds a SASL authenticator.
-    pub fn add_sasl(&mut self, sasl: impl Into<S>) {
-        self.sasl.push(sasl.into());
-    }
-}
-impl<P: Secret, S, N: NickTransformer> Register<P, S, N> {
+impl<O, A> Register<O, A> {
     /// Sends the initial burst of messages for connection registration.
-    /// Also returns an [`Iterator`] that returns fallback nicknames.
+    /// Also returns the nickname used and a generator for fallback nicknames.
     ///
     /// # Errors
-    /// Errors only if `send_fn` errors.
-    pub fn register_msgs<N2: NickTransformer>(
+    /// Errors only if retrieving the server password errors.
+    pub fn register_msgs(
         &self,
-        defaults: &'static impl Defaults<NickGen = N2>,
+        opts: &O,
         mut sink: impl ClientMsgSink<'static>,
-    ) -> std::io::Result<FallbackNicks<N, N2>> {
+    ) -> std::io::Result<(Nick<'static>, Option<Box<dyn NickGen>>)> {
         use crate::consts::cmd::{CAP, NICK, PASS, USER};
-        if let Some(pass) = &self.pass {
+        if let Some(pass) = (self.password)(opts)? {
             let mut msg = ClientMsg::new_cmd(PASS);
-            let mut secret = Vec::new();
-            pass.load(&mut secret)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e))?;
-            let pass = Line::from_secret(secret)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
             msg.args.edit().add(pass);
             sink.send(msg);
         }
@@ -145,62 +85,52 @@ impl<P: Secret, S, N: NickTransformer> Register<P, S, N> {
         // USER message.
         msg = ClientMsg::new_cmd(USER);
         let mut args = msg.args.edit();
-        args.add_word(self.username.clone().unwrap_or_else(|| defaults.username()));
-        // Some IRCds still rely on 8 to set +i by default.
-        args.add_literal("8");
-        args.add_literal("*");
-        args.add(self.realname.clone().unwrap_or_else(|| defaults.realname()));
+        args.add_word((self.username)(opts));
+        args.add_word((self.user_p1)(opts));
+        args.add_word((self.user_p2)(opts));
+        args.add((self.realname)(opts));
         sink.send(msg);
         // NICK message.
         msg = ClientMsg::new_cmd(NICK);
-        let (nick, fallbacks) = FallbackNicks::new(&self.nicks, defaults);
-        msg.args.edit().add_word(nick);
+        let nicks = (self.nicks)(opts);
+        let (nick, nickgen) = nicks.next_nick();
+        msg.args.edit().add_word(nick.clone());
         sink.send(msg);
-        Ok(fallbacks)
+        Ok((nick, nickgen))
     }
 }
-impl<P: Secret, S: Sasl, N: NickTransformer> Register<P, S, N> {
+
+impl<O, A: Sasl> Register<O, A> {
     /// Sends the initial burst of messages for connection registration.
     /// Also returns a [`Handler`] to perform the rest of the connection registration.
     ///
     /// # Errors
     /// Errors if registration messages cannot be created,
     /// or if SASL handlers cannot be created.
-    pub fn handler<N2: NickTransformer>(
-        &self,
-        defaults: &'static impl Defaults<NickGen = N2>,
-        sink: impl ClientMsgSink<'static>,
-    ) -> std::io::Result<Handler<N, N2>> {
-        let nicks = self.register_msgs(defaults, sink)?;
-        let mut caps = self.caps.clone();
-        let (auths, needs_auth) = if !self.sasl.is_empty() {
+    pub fn handler(&self, opts: &O, sink: impl ClientMsgSink<'static>) -> std::io::Result<Handler> {
+        let nicks = self.register_msgs(opts, sink)?;
+        let mut caps = (self.caps)(opts).clone();
+        let (auths, needs_auth) = (self.auth)(opts);
+        let mut auths_vec = Vec::with_capacity(auths.size_hint().0);
+        for sasl in auths {
+            let name = sasl.name();
+            let Ok(logic) = sasl.logic() else {
+                // TODO: Replace with match and log the error.
+                continue;
+            };
+            auths_vec.push((name, logic));
+        }
+        let (auths, needs_auth) = if !auths_vec.is_empty() {
             caps.insert(Key::from_str("sasl"));
-            let mut auths = Vec::with_capacity(self.sasl.len());
-            for sasl in self.sasl.iter() {
-                let name = sasl.name();
-                let logic = sasl.logic()?;
-                auths.push((name, logic));
-            }
-            (auths.into(), !self.allow_sasl_fail)
+            (auths_vec.into(), needs_auth)
         } else {
             (VecDeque::new(), false)
         };
-        Ok(Handler {
-            nicks,
-            state: HandlerState::Req(caps),
-            needs_auth,
-            caps_avail: BTreeMap::new(),
-            #[cfg(feature = "base64")]
-            auth: None,
-            auths,
-            reg: Registration::default(),
-        })
+        Ok(Handler::new(nicks, caps, needs_auth, auths, self.isupport_parser.clone()))
     }
 }
 
-impl<P: Secret, S: Sasl, N: NickTransformer + 'static, D: Defaults> super::MakeHandler<&'static D>
-    for Register<P, S, N>
-{
+impl<'a, O, A: Sasl> MakeHandler<&'a O> for Register<O, A> {
     type Value = Result<Registration, HandlerError>;
 
     type Error = std::io::Error;
@@ -210,9 +140,9 @@ impl<P: Secret, S: Sasl, N: NickTransformer + 'static, D: Defaults> super::MakeH
     fn make_handler(
         &self,
         mut queue: super::QueueEditGuard<'_>,
-        value: &'static D,
+        opts: &'a O,
     ) -> Result<impl super::Handler<Value = Self::Value>, Self::Error> {
-        self.handler(value, &mut queue)
+        self.handler(opts, &mut queue)
     }
 
     fn make_channel<Spec: super::channel::ChannelSpec>(
