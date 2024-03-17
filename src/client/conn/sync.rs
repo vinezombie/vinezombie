@@ -1,9 +1,10 @@
-use super::{
-    time::{filter_time_error, TimeLimitedSync},
-    IoTimeout,
-};
+use super::{filter_time_error, ReadTimeout, TimeLimitedSync, WriteTimeout};
 use crate::ircmsg::ServerMsg;
-use std::{io::BufReader, net::TcpStream, time::Duration};
+use std::{
+    io::{BufRead, BufReader, Read, Write},
+    net::TcpStream,
+    time::Duration,
+};
 
 impl<'a> super::ServerAddr<'a> {
     /// Creates a synchronous connection, ignoring the `tls` flag.
@@ -24,7 +25,6 @@ impl<'a> super::ServerAddr<'a> {
         use std::io::{Error, ErrorKind};
         let string = self.utf8_address()?;
         let stream = if self.tls {
-            use std::io::Write;
             let name = rustls::ServerName::try_from(string)
                 .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
             let config = tls_fn()?;
@@ -113,7 +113,7 @@ impl Stream {
     }
 }
 
-impl std::io::Read for Stream {
+impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match &mut self.0 {
             StreamInner::Closed => Ok(0),
@@ -133,7 +133,7 @@ impl std::io::Read for Stream {
     }
 }
 
-impl std::io::Write for Stream {
+impl Write for Stream {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match &mut self.0 {
             StreamInner::Closed => Ok(0),
@@ -153,33 +153,25 @@ impl std::io::Write for Stream {
     }
 }
 
-impl IoTimeout for TcpStream {
+impl ReadTimeout for TcpStream {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         Self::set_read_timeout(self, timeout)
     }
+}
+impl WriteTimeout for TcpStream {
     fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         Self::set_write_timeout(self, timeout)
-    }
-    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
-        Self::read_timeout(self)
-    }
-    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
-        Self::write_timeout(self)
     }
 }
 
-impl IoTimeout for Stream {
+impl ReadTimeout for Stream {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         Self::set_read_timeout(self, timeout)
     }
+}
+impl WriteTimeout for Stream {
     fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         Self::set_write_timeout(self, timeout)
-    }
-    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
-        Self::read_timeout(self)
-    }
-    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
-        Self::write_timeout(self)
     }
 }
 
@@ -188,20 +180,24 @@ impl<
         'a,
         S: rustls::SideData,
         C: 'a + std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
-        T: IoTimeout + std::io::Read + std::io::Write,
-    > IoTimeout for rustls::Stream<'a, C, T>
+        T: ReadTimeout + Read + Write,
+    > ReadTimeout for rustls::Stream<'a, C, T>
 {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.sock.set_read_timeout(timeout)
     }
+}
+
+#[cfg(feature = "tls")]
+impl<
+        'a,
+        S: rustls::SideData,
+        C: 'a + std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
+        T: WriteTimeout + Read + Write,
+    > WriteTimeout for rustls::Stream<'a, C, T>
+{
     fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.sock.set_write_timeout(timeout)
-    }
-    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
-        self.sock.read_timeout()
-    }
-    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
-        self.sock.write_timeout()
     }
 }
 
@@ -209,51 +205,68 @@ impl<
 impl<
         S: rustls::SideData,
         C: std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
-        T: IoTimeout + std::io::Read + std::io::Write,
-    > IoTimeout for rustls::StreamOwned<C, T>
+        T: ReadTimeout + Read + Write,
+    > ReadTimeout for rustls::StreamOwned<C, T>
 {
     fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.sock.set_read_timeout(timeout)
     }
+}
+
+#[cfg(feature = "tls")]
+impl<
+        S: rustls::SideData,
+        C: std::ops::DerefMut + std::ops::Deref<Target = rustls::ConnectionCommon<S>>,
+        T: WriteTimeout + Read + Write,
+    > WriteTimeout for rustls::StreamOwned<C, T>
+{
     fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.sock.set_write_timeout(timeout)
-    }
-    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
-        self.sock.read_timeout()
-    }
-    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
-        self.sock.write_timeout()
     }
 }
 
 /// Types that are usable as synchronous connections.
-pub trait Connection: IoTimeout {
+pub trait Connection: ReadTimeout + WriteTimeout {
     /// This type as a [`BufRead`][std::io::BufRead].
     type BufRead: std::io::BufRead;
     /// This type as a [`Write`][std::io::Write].
-    type Write: std::io::Write;
+    type Write: Write;
     /// Returns self as a `BufRead`.
     fn as_bufread(&mut self) -> &mut Self::BufRead;
     /// Returns self as a `Write`.
     fn as_write(&mut self) -> &mut Self::Write;
 }
 
-impl<T: IoTimeout> IoTimeout for BufReader<T> {
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.get_mut().set_read_timeout(timeout)
+impl<R: BufRead, W: Write> Connection for super::Bidir<R, W>
+where
+    super::Bidir<R, W>: ReadTimeout + WriteTimeout,
+{
+    type BufRead = R;
+
+    type Write = W;
+
+    fn as_bufread(&mut self) -> &mut Self::BufRead {
+        &mut self.0
     }
-    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.get_mut().set_write_timeout(timeout)
-    }
-    fn read_timeout(&self) -> std::io::Result<Option<Duration>> {
-        self.get_ref().read_timeout()
-    }
-    fn write_timeout(&self) -> std::io::Result<Option<Duration>> {
-        self.get_ref().write_timeout()
+
+    fn as_write(&mut self) -> &mut Self::Write {
+        &mut self.1
     }
 }
 
-impl<T: IoTimeout + std::io::Read + std::io::Write> Connection for BufReader<T> {
+impl<T: ReadTimeout> ReadTimeout for BufReader<T> {
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.get_mut().set_read_timeout(timeout)
+    }
+}
+
+impl<T: WriteTimeout> WriteTimeout for BufReader<T> {
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.get_mut().set_write_timeout(timeout)
+    }
+}
+
+impl<T: ReadTimeout + WriteTimeout + Read + Write> Connection for BufReader<T> {
     type BufRead = Self;
 
     type Write = T;
@@ -333,7 +346,6 @@ impl<C: Connection, A: crate::client::adjuster::Adjuster> crate::client::Client<
     ///
     /// If the `tracing` feature is enabled, logs messages at the debug level.
     pub fn flush_partial(&mut self) -> std::io::Result<Option<Duration>> {
-        use std::io::Write;
         if self.queue.is_empty() {
             return Ok(None);
         }

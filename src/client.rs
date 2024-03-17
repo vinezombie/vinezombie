@@ -32,7 +32,7 @@ pub struct Client<C, A = ()> {
     /// Collection of handlers.
     handlers: Handlers,
     /// Limit on how long reading one message can take.
-    timeout: Box<conn::time::TimeLimits>,
+    timeout: Box<conn::TimeLimits>,
 }
 
 /// Creates a new [`Client`] out of a connection with sensible default types.

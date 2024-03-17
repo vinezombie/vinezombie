@@ -1,7 +1,10 @@
-use super::time::{timed_io, TimeLimitedTokio};
+use super::{timed_io, Bidir, TimeLimitedTokio};
 use crate::{client::tls::TlsConfig, ircmsg::ServerMsg};
 use std::{pin::Pin, time::Duration};
-use tokio::{io::BufReader, net::TcpStream};
+use tokio::{
+    io::{AsyncBufRead, AsyncWrite, BufReader},
+    net::TcpStream,
+};
 
 impl<'a> super::ServerAddr<'a> {
     /// Creates an asynchronous connection, ignoring the `tls` flag.
@@ -120,6 +123,20 @@ pub trait ConnectionTokio: Unpin {
     fn as_bufread(&mut self) -> Pin<&mut Self::AsyncBufRead>;
     /// Returns self as an `AsyncWrite`.
     fn as_write(&mut self) -> &mut Self::AsyncWrite;
+}
+
+impl<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin> ConnectionTokio for Bidir<R, W> {
+    type AsyncBufRead = R;
+
+    type AsyncWrite = W;
+
+    fn as_bufread(&mut self) -> Pin<&mut Self::AsyncBufRead> {
+        Pin::new(&mut self.0)
+    }
+
+    fn as_write(&mut self) -> &mut Self::AsyncWrite {
+        &mut self.1
+    }
 }
 
 impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> ConnectionTokio for BufReader<T> {

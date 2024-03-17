@@ -1,5 +1,89 @@
 use std::time::{Duration, Instant};
 
+/// I/O types with a read timeout. Mainly used for sync I/O.
+pub trait ReadTimeout {
+    /// Sets the read timeout for this connection.
+    ///
+    /// May error if a duration of zero is provided to `timeout`.
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
+}
+
+/// I/O types with a write timeout. Mainly used for sync I/O.
+pub trait WriteTimeout {
+    /// Sets the write timeout for this connection.
+    ///
+    /// May error if a duration of zero is provided to `timeout`.
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
+}
+
+impl ReadTimeout for std::io::Empty {
+    fn set_read_timeout(&mut self, _: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl<T: AsRef<[u8]>> ReadTimeout for std::io::Cursor<T> {
+    fn set_read_timeout(&mut self, _: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl ReadTimeout for std::collections::VecDeque<u8> {
+    fn set_read_timeout(&mut self, _: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl<R: ReadTimeout, W> ReadTimeout for super::Bidir<R, W> {
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.0.set_read_timeout(timeout)
+    }
+}
+
+impl WriteTimeout for std::io::Empty {
+    fn set_write_timeout(&mut self, _: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl WriteTimeout for std::io::Sink {
+    fn set_write_timeout(&mut self, _: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl WriteTimeout for Vec<u8> {
+    fn set_write_timeout(&mut self, _: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl WriteTimeout for std::collections::VecDeque<u8> {
+    fn set_write_timeout(&mut self, _: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl<R, W: WriteTimeout> WriteTimeout for super::Bidir<R, W> {
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.1.set_write_timeout(timeout)
+    }
+}
+
+/// Wrapper that allows any type to implement [`ReadTimeout`] and [`WriteTimeout`] by ignoring
+/// requests to change the timeout.
+///
+/// This is correct to use for any tipe that never blocks/yields on read or write,
+/// but can also be used on types that do if you don't mind violently incorrect behavior.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoTimeout<T>(pub T);
+
+impl<T> ReadTimeout for NoTimeout<T> {
+    fn set_read_timeout(&mut self, _: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<T> WriteTimeout for NoTimeout<T> {
+    fn set_write_timeout(&mut self, _: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 fn timeout_fallback(
     new_timeout: Option<Duration>,
     old_timeout: Option<Duration>,
@@ -11,7 +95,7 @@ fn timeout_fallback(
     }
 }
 
-pub fn filter_time_error<T>(result: std::io::Result<T>) -> std::io::Result<Option<T>> {
+pub(super) fn filter_time_error<T>(result: std::io::Result<T>) -> std::io::Result<Option<T>> {
     use std::io::ErrorKind;
     match result {
         Ok(v) => Ok(Some(v)),
@@ -23,7 +107,7 @@ pub fn filter_time_error<T>(result: std::io::Result<T>) -> std::io::Result<Optio
 }
 
 #[derive(Default)]
-pub struct TimeLimits {
+pub(crate) struct TimeLimits {
     read: Option<Duration>,
     write: Option<Duration>,
     /// Whether the write timeout on a stream needs updating. Unused for async.
@@ -45,7 +129,7 @@ impl TimeLimits {
     }
 }
 
-pub struct TimeLimitedSync<'a, C> {
+pub(super) struct TimeLimitedSync<'a, C> {
     conn: &'a mut C,
     read: Option<Instant>,
 }
@@ -118,7 +202,7 @@ impl<'a, C: super::Connection> std::io::BufRead for TimeLimitedSync<'a, C> {
 }
 
 #[cfg(feature = "tokio")]
-pub struct TimeLimitedTokio<'a, C> {
+pub(super) struct TimeLimitedTokio<'a, C> {
     conn: &'a mut C,
     write: Option<Duration>,
 }
@@ -205,7 +289,7 @@ impl<'a, C: super::ConnectionTokio> tokio::io::AsyncWrite for TimeLimitedTokio<'
 }
 
 #[cfg(feature = "tokio")]
-pub async fn timed_io<T, F: std::future::Future<Output = std::io::Result<T>>>(
+pub(super) async fn timed_io<T, F: std::future::Future<Output = std::io::Result<T>>>(
     fut: F,
     new_timeout: Option<Duration>,
     old_timeout: Option<Duration>,

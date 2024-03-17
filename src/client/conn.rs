@@ -1,15 +1,14 @@
 //! Options for connecting to IRC servers.
 
 mod sync;
-pub(super) mod time;
+mod time;
 #[cfg(feature = "tokio")]
 mod tokio;
-
-use std::time::Duration;
 
 #[cfg(feature = "tokio")]
 pub use self::tokio::*;
 pub use sync::*;
+pub use time::*;
 
 use crate::string::{Builder, Word};
 
@@ -91,18 +90,6 @@ impl<'a> ServerAddr<'a> {
     }
 }
 
-/// Bidirectional I/O types with configurable timeouts.
-pub trait IoTimeout {
-    /// Sets the read timeout for this connection.
-    ///
-    /// May error if a duration of zero is provided to `timeout`.
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
-    /// Sets the write timeout for this connection.
-    ///
-    /// May error if a duration of zero is provided to `timeout`.
-    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()>;
-    /// Returns the read timeout.
-    fn read_timeout(&self) -> std::io::Result<Option<Duration>>;
-    /// Returns the write timeout.
-    fn write_timeout(&self) -> std::io::Result<Option<Duration>>;
-}
+/// A pair of unidirectional I/O streams, merged to create a bidirectional stream.
+#[derive(Clone, Debug, Default)]
+pub struct Bidir<R, W>(pub R, pub W);
