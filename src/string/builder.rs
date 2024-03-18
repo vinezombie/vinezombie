@@ -14,7 +14,7 @@ pub struct Builder<T> {
 
 impl<'a, T: BytesNewtype<'a>> Default for Builder<T>
 where
-    T::WithLifetime<'a>: Default,
+    T::This<'a>: BytesNewtype<'a> + Default,
 {
     fn default() -> Self {
         Builder::new(Default::default())
@@ -25,7 +25,10 @@ impl<'a, T: BytesNewtype<'a>> Builder<T> {
     /// Creates a new builder containing the provided initial value.
     ///
     /// `T::This` is `T` with any lifetime.
-    pub fn new(init: T::WithLifetime<'_>) -> Self {
+    pub fn new<'b>(init: T::This<'b>) -> Self
+    where
+        T::This<'b>: BytesNewtype<'b>,
+    {
         let utf8 = init.is_utf8_lazy();
         let bytes = T::into_vec(init);
         Self { bytes, utf8, marker: std::marker::PhantomData }
@@ -85,7 +88,10 @@ impl<'a, T: BytesNewtype<'a>> Builder<T> {
     /// Adds `string` to the end of `self`.
     ///
     /// `T::This` is `T` with any lifetime.
-    pub fn append<'b>(&mut self, string: impl Into<T::WithLifetime<'b>>) {
+    pub fn append<'b>(&mut self, string: impl Into<T::This<'b>>)
+    where
+        T::This<'b>: BytesNewtype<'b>,
+    {
         let string = string.into();
         unsafe {
             let bytes = string.as_bytes_unsafe();

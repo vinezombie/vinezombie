@@ -171,7 +171,6 @@ macro_rules! impl_subtype {
             }
         }
         unsafe impl<'a> BytesNewtype<'a> for $sname<'a> {
-            type WithLifetime<'b> = $sname<'b>;
             unsafe fn as_bytes_unsafe(&self) -> &'a [u8] {
                 self.0.as_bytes_unsafe()
             }
@@ -184,7 +183,7 @@ macro_rules! impl_subtype {
             fn into_bytes(self) -> Bytes<'a> {
                 self.into_bytes()
             }
-            fn into_vec(this: Self::WithLifetime<'_>) -> Vec<u8> {
+            fn into_vec(this: Self::This<'_>) -> Vec<u8> {
                 this.into()
             }
             fn is_invalid(byte: &u8) -> bool {
@@ -303,6 +302,13 @@ macro_rules! impl_subtype {
                 use serde::de::Error;
                 let bytes = Bytes::deserialize(de)?;
                 bytes.try_into().map_err(D::Error::custom)
+            }
+        }
+        unsafe impl<'a> crate::owning::MakeOwning for $sname<'a> {
+            type This<'x> = $sname<'x>;
+
+            fn make_owning(&mut self) {
+                self.0.make_owning()
             }
         }
     };

@@ -41,6 +41,16 @@ impl Bytes<'static> {
     }
 }
 
+unsafe impl<'a> crate::owning::MakeOwning for crate::string::Bytes<'a> {
+    type This<'b> = crate::string::Bytes<'b>;
+
+    fn make_owning(&mut self) {
+        if !self.is_owning() {
+            self.owning_force(false);
+        }
+    }
+}
+
 impl<'a> Bytes<'a> {
     /// Returns a new empty `Bytes`.
     pub const fn empty() -> Bytes<'a> {
@@ -70,14 +80,13 @@ impl<'a> Bytes<'a> {
     /// Returns an owning version of this string.
     ///
     /// If this string already owns its data, this method only extends its lifetime.
-    pub fn owning(self) -> Bytes<'static> {
-        if self.is_owning() {
-            // Lifetime extension.
-            unsafe { std::mem::transmute(self) }
-        } else {
+    pub fn owning<'b>(mut self) -> Bytes<'b> {
+        if !self.is_owning() {
             let secret = self.secret;
-            self.owning_force(secret)
+            self.owning_force(secret);
         }
+        // Lifetime extension.
+        unsafe { std::mem::transmute(self) }
     }
     /// Returns a secret version of this string.
     ///
@@ -87,19 +96,18 @@ impl<'a> Bytes<'a> {
     ///
     /// If the `zeroize` feature is enabled, these strings' buffers are zeroed out
     /// when the last reference to them is lost.
-    pub fn secret(mut self) -> Bytes<'a> {
+    pub fn secret(mut self) -> Self {
         if !self.secret && self.is_owning() {
-            self.owning_force(true)
+            self.owning_force(true);
         } else {
             self.secret = true;
-            self
         }
+        self
     }
-    /// Returns an owning version of this string, unconditionally copying data.
-    fn owning_force(self, secret: bool) -> Bytes<'static> {
+    fn owning_force(&mut self, secret: bool) {
         unsafe {
             let (ownership, value) = OwnedBytes::from_vec(self.value.to_vec());
-            Bytes { value, ownership, utf8: self.utf8.load(Relaxed).into(), secret }
+            *self = Bytes { value, ownership, utf8: self.utf8.load(Relaxed).into(), secret }
         }
     }
 

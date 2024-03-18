@@ -8,7 +8,7 @@ mod impls;
 mod tests;
 
 use super::{Bytes, Transform};
-use crate::{error::InvalidString, string::tf::AsciiCasemap};
+use crate::{error::InvalidString, owning::MakeOwning, string::tf::AsciiCasemap};
 use std::borrow::Borrow;
 
 /// [`Bytes`] newtypes that uphold some invariant.
@@ -20,11 +20,7 @@ use std::borrow::Borrow;
 /// in effect ensuring that byte invalidity checks on UTF-8 strings will only result in
 /// invalidity on character boundaries.
 #[allow(missing_docs)]
-pub unsafe trait BytesNewtype<'a>: AsRef<[u8]> {
-    /// Generic Self type.
-    ///
-    /// Used as a hack to write functions that don't care about self's lifetime.
-    type WithLifetime<'b>: BytesNewtype<'b>;
+pub unsafe trait BytesNewtype<'a>: AsRef<[u8]> + MakeOwning {
     #[doc(hidden)]
     unsafe fn as_bytes_unsafe(&self) -> &'a [u8];
     #[doc(hidden)]
@@ -34,7 +30,7 @@ pub unsafe trait BytesNewtype<'a>: AsRef<[u8]> {
     #[doc(hidden)]
     fn into_bytes(self) -> Bytes<'a>;
     #[doc(hidden)]
-    fn into_vec(this: Self::WithLifetime<'_>) -> Vec<u8>;
+    fn into_vec(this: <Self as MakeOwning>::This<'_>) -> Vec<u8>;
     #[doc(hidden)]
     fn is_invalid(byte: &u8) -> bool;
     #[doc(hidden)]
@@ -47,8 +43,6 @@ pub unsafe trait BytesNewtype<'a>: AsRef<[u8]> {
 
 /// This implementation allows [`Bytes`] to be used wherever any bytes newtype is expected.
 unsafe impl<'a> BytesNewtype<'a> for Bytes<'a> {
-    type WithLifetime<'b> = Bytes<'b>;
-
     unsafe fn as_bytes_unsafe(&self) -> &'a [u8] {
         self.as_bytes_unsafe()
     }
@@ -61,7 +55,7 @@ unsafe impl<'a> BytesNewtype<'a> for Bytes<'a> {
     fn into_bytes(self) -> Bytes<'a> {
         self
     }
-    fn into_vec(this: Self::WithLifetime<'_>) -> Vec<u8> {
+    fn into_vec(this: <Self as MakeOwning>::This<'_>) -> Vec<u8> {
         this.into()
     }
     fn is_invalid(_: &u8) -> bool {
