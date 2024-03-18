@@ -209,14 +209,6 @@ conversions!(User: Line);
 conversions!(User: Word);
 conversions!(User: Arg);
 
-impl<'a> User<'a> {
-    /// Creates a new [`User`] from a u32-bit ID.
-    pub fn new_id(id: u32) -> Self {
-        let retval = format!("i{id:08x}");
-        User::from_bytes(retval).unwrap()
-    }
-}
-
 #[inline(always)]
 const fn cmd_byte_check(byte: &u8) -> bool {
     !byte.is_ascii_uppercase()

@@ -38,5 +38,5 @@ pub fn mangle(h: &impl Hash) -> u32 {
     h.hash(&mut hasher);
     let hash = hasher.finish();
     // XOR-fold.
-    ((hash >> 32) | (hash & 0xFFFFFFFF)) as u32
+    ((hash >> 32) ^ (hash & 0xFFFFFFFF)) as u32
 }

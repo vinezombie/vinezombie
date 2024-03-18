@@ -52,6 +52,18 @@ impl User<'static> {
         }
         None
     }
+
+    /// Creates a new [`User`] from a `u32` ID.
+    pub fn new_id(id: u32) -> Self {
+        let retval = format!("i{id:08x}");
+        User::from_bytes(retval).unwrap()
+    }
+
+    /// Creates a new [`User`] from a `u16` ID.
+    pub fn new_id_short(id: u16) -> Self {
+        let retval = format!("i{id:05}");
+        User::from_bytes(retval).unwrap()
+    }
 }
 
 impl<'a> Cmd<'a> {
