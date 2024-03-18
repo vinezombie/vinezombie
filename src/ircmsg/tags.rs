@@ -1,65 +1,44 @@
 //! Stuctures and utilities for IRCv3 message tags.
 
-use crate::string::{
-    tf::{escape, unescape},
-    Key, NoNul, Splitter,
+use crate::{
+    string::{
+        tf::{escape, unescape},
+        Key, NoNul, Splitter,
+    },
+    util::{FlatMap, FlatMapEditGuard},
 };
 
 /// Collection mapping tag keys to bytes.
 ///
 /// IRCv3 requires that tag values be valid UTF-8,
 /// however server implementations may be non-compliant.
+#[repr(transparent)]
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct Tags<'a> {
-    pairs: Vec<(Key<'a>, NoNul<'a>)>,
+    pairs: FlatMap<Key<'a>, NoNul<'a>>,
 }
-
-type KeyValuePair<'a> = (Key<'a>, NoNul<'a>);
 
 /// Guard for editing [`Tags`].
 #[derive(PartialEq, Eq, Hash, Debug)]
-pub struct TagsEditGuard<'a, 'b> {
-    pairs: &'b mut Vec<KeyValuePair<'a>>,
-    sorted_until: usize,
-}
-
-impl<'a> Drop for TagsEditGuard<'a, '_> {
-    fn drop(&mut self) {
-        self.pairs.sort_unstable_by(|(k1, _), (k2, _)| k1.cmp(k2));
-    }
-}
-
-fn get_impl(mut pairs: &[KeyValuePair<'_>], sorted_until: usize, key: &[u8]) -> Option<usize> {
-    let mut idx = pairs.len();
-    while let Some((last, rest)) = pairs.split_last() {
-        idx -= 1;
-        if idx < sorted_until {
-            break;
-        }
-        pairs = rest;
-        if last.0 == key {
-            return Some(idx);
-        }
-    }
-    if pairs.is_empty() {
-        return None;
-    }
-    pairs.binary_search_by(|(k, _)| k.as_bytes().cmp(key)).ok()
-}
+pub struct TagsEditGuard<'a, 'b>(FlatMapEditGuard<'b, Key<'a>, NoNul<'a>>);
 
 impl<'a> Tags<'a> {
     /// Creates a new empty `Tags`.
     pub const fn new() -> Self {
-        Tags { pairs: Vec::new() }
+        Tags { pairs: FlatMap::new() }
     }
     /// Converts `self` into a version that owns its data.
-    pub fn owning(self) -> Tags<'static> {
-        Tags { pairs: self.pairs.into_iter().map(|(k, v)| (k.owning(), v.owning())).collect() }
+    pub fn owning<'b>(mut self) -> Tags<'b> {
+        use crate::owning::MakeOwning;
+        for (key, value) in self.pairs.as_slice_mut() {
+            key.make_owning();
+            value.make_owning();
+        }
+        unsafe { std::mem::transmute(self) }
     }
     /// Returns a guard that allows editing of `self`.
     pub fn edit(&mut self) -> TagsEditGuard<'a, '_> {
-        let sorted_until = self.pairs.len();
-        TagsEditGuard { pairs: &mut self.pairs, sorted_until }
+        TagsEditGuard(self.pairs.edit())
     }
     /// Returns how many keys are in this map.
     pub fn len(&self) -> usize {
@@ -71,9 +50,7 @@ impl<'a> Tags<'a> {
     }
     /// Returns a reference to the value associated with the provided key, if any.
     pub fn get(&self, key: impl TryInto<Key<'a>>) -> Option<&NoNul<'a>> {
-        let search = key.try_into().ok()?;
-        let idx = get_impl(self.pairs.as_slice(), self.pairs.len(), search.as_bytes())?;
-        Some(unsafe { &self.pairs.get_unchecked(idx).1 })
+        self.pairs.get(key.try_into().ok()?)
     }
     /// Writes `self`, including a leading `'@'` if non-empty,
     /// to the provided [`Write`][std::io::Write].
@@ -81,7 +58,7 @@ impl<'a> Tags<'a> {
     /// This function makes many small writes. Buffering is strongly recommended.
     pub fn write_to(&self, w: &mut (impl std::io::Write + ?Sized)) -> std::io::Result<()> {
         let mut prefix = b"@";
-        for (key, value) in self.pairs.iter() {
+        for (key, value) in self.pairs.as_slice() {
             w.write_all(prefix)?;
             w.write_all(key.as_ref())?;
             if !value.is_empty() {
@@ -96,10 +73,17 @@ impl<'a> Tags<'a> {
     ///
     /// The provided word should NOT contain the leading '@'.
     pub fn parse(word: impl Into<crate::string::Word<'a>>) -> Self {
-        let mut splitter = Splitter::new(word.into());
-        let mut tags = Tags::new();
+        let word = word.into();
+        if word.is_empty() {
+            return Tags::new();
+        }
+        let mut size_hint = 1usize;
+        for c in word.as_bytes() {
+            size_hint += (*c == b';') as usize;
+        }
+        let mut splitter = Splitter::new(word);
+        let mut tags = Vec::with_capacity(size_hint);
         // TODO: Tag bytes available.
-        let mut tags_edit = tags.edit();
         while !splitter.is_empty() {
             let Ok(key) = splitter.string::<Key>(false) else {
                 splitter.consume_invalid::<Key>();
@@ -112,19 +96,16 @@ impl<'a> Tags<'a> {
             } else {
                 NoNul::default()
             };
-            tags_edit.insert_pair(key, value);
+            tags.push((key, value));
         }
-        std::mem::drop(tags_edit);
-        tags
+        Tags { pairs: FlatMap::from_vec(tags) }
     }
 }
 
 impl<'a> TagsEditGuard<'a, '_> {
     /// Returns a mutable reference to the value associated with the provided key, if any.
     pub fn get(&mut self, key: impl TryInto<Key<'a>>) -> Option<&mut NoNul<'a>> {
-        let search = key.try_into().ok()?;
-        let idx = get_impl(self.pairs.as_slice(), self.pairs.len(), search.as_bytes())?;
-        Some(unsafe { &mut self.pairs.get_unchecked_mut(idx).1 })
+        self.0.get_mut(key.try_into().ok()?)
     }
     /// Inserts a key-value pair into this map, returning the old value if present.
     pub fn insert_pair(
@@ -132,17 +113,7 @@ impl<'a> TagsEditGuard<'a, '_> {
         key: impl Into<Key<'a>>,
         value: impl Into<NoNul<'a>>,
     ) -> Option<NoNul<'a>> {
-        let key = key.into();
-        // TODO: Length calculations based off of the escaped size of `value`.
-        let value = value.into();
-        let idx = get_impl(self.pairs.as_slice(), self.pairs.len(), key.as_bytes());
-        if let Some(idx) = idx {
-            let old_value = unsafe { &mut self.pairs.get_unchecked_mut(idx).1 };
-            Some(std::mem::replace(old_value, value))
-        } else {
-            self.pairs.push((key, value));
-            None
-        }
+        self.0.insert(key.into(), value.into())
     }
     /// Inserts a key with no value into this map.
     ///
@@ -152,7 +123,7 @@ impl<'a> TagsEditGuard<'a, '_> {
     }
     /// Removes all key-value pairs.
     pub fn clear(&mut self) {
-        self.pairs.clear();
+        self.0.clear();
     }
 }
 
@@ -160,7 +131,7 @@ impl<'a> TagsEditGuard<'a, '_> {
 impl std::fmt::Display for Tags<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut prefix = '@';
-        for (key, value) in self.pairs.iter() {
+        for (key, value) in self.pairs.as_slice() {
             if !value.is_empty() {
                 let value = escape(value.clone());
                 write!(f, "{prefix}{key}={value}")?;
@@ -193,7 +164,7 @@ impl<'a> serde::Serialize for Tags<'a> {
     {
         use serde::ser::SerializeMap;
         let mut map = ser.serialize_map(Some(self.len()))?;
-        for (key, value) in self.pairs.iter() {
+        for (key, value) in self.pairs.as_slice() {
             map.serialize_entry(key, value)?;
         }
         map.end()
