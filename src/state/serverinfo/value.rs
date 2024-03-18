@@ -3,7 +3,7 @@ use std::{error::Error, num::*};
 
 /// Values that can be used as ISUPPORT tokens.
 pub trait ISupportValue: std::any::Any + PartialEq + Eq + Clone + Send + Sync {
-    /// Parses a value out of a [`Word`].
+    /// Parses a value out of a non-empty [`Word`].
     ///
     /// This function should be idempotent.
     fn try_from_word(value: Word<'_>) -> Result<Self, Box<dyn Error + Send + Sync>>;

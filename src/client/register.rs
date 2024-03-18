@@ -2,6 +2,8 @@
 
 mod defaults;
 mod handler;
+#[cfg(test)]
+mod tests;
 
 pub use {defaults::*, handler::*};
 

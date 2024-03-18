@@ -46,8 +46,7 @@ pub trait ISupport: Any + Send + Sync {
 
 type AnyBox = Box<dyn Any + Send + Sync>;
 type MiscMap = BTreeMap<TypeId, AnyBox>;
-type ValueParser =
-    Box<dyn Fn(&mut ServerInfo, Option<Word<'_>>) -> Result<(), ParseError> + Send + Sync>;
+type ValueParser = Box<dyn Fn(&mut ServerInfo, Word<'_>) -> Result<(), ParseError> + Send + Sync>;
 
 /// Matcher and parser for ISUPPORT tokens.
 pub struct ISupportParser {
@@ -77,7 +76,7 @@ impl ISupportParser {
             .insert(
                 key_string,
                 Box::new(move |si, value| {
-                    let value = if let Some(value) = value {
+                    let value = if !value.is_empty() {
                         K::Value::try_from_word(value).map_err(|e| {
                             ParseError::InvalidField(key.key().to_utf8_lossy_static(), e)
                         })
@@ -101,7 +100,7 @@ impl ISupportParser {
         &self,
         si: &mut ServerInfo,
         key: &Key<'_>,
-        value: Option<Word<'_>>,
+        value: Word<'_>,
     ) -> Result<bool, ParseError> {
         if let Some(updater) = self.map.get(key) {
             updater(si, value)?;

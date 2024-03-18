@@ -253,10 +253,12 @@ impl Handler {
                     let Ok(key) = splitter.string::<Key>(false) else {
                         continue;
                     };
-                    let value = if matches!(splitter.next_byte(), Some(b'=')) {
-                        splitter.rest().ok()
+                    let value = if splitter.next_byte().is_some_and(|b| b != b'=') {
+                        // Weirdness in an ISUPPORT tag. Bail.
+                        // TODO: Log.
+                        continue;
                     } else {
-                        None
+                        splitter.rest_or_default()
                     };
                     if let Err(_e) =
                         self.isupport.parse_and_update(&mut self.reg.serverinfo, &key, value)
