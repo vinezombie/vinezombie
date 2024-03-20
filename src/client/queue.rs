@@ -146,9 +146,8 @@ impl Queue {
 
     /// Create an interface for adding messages to the queue.
     pub fn edit(&mut self) -> QueueEditGuard<'_> {
-        let label = self.is_using_labeler();
         let orig_len = self.queue.len();
-        QueueEditGuard { queue: self, orig_len, label }
+        QueueEditGuard { queue: self, orig_len }
     }
 }
 
@@ -156,17 +155,23 @@ impl Queue {
 pub struct QueueEditGuard<'a> {
     queue: &'a mut Queue,
     orig_len: usize,
-    label: bool,
 }
 
 impl QueueEditGuard<'_> {
     /// Adds a message onto the end of a queue.
-    pub fn push(&mut self, mut msg: ClientMsg<'static>) {
-        if self.label {
-            let label = (self.queue.labeler.as_deref_mut().unwrap())();
-            msg.tags.edit().insert_pair(Key::from_str("label"), label);
-        }
+    pub fn push(&mut self, msg: ClientMsg<'static>) {
         self.queue.queue.push_back(msg);
+    }
+
+    /// Labels a message and pushes it, returning the label (if any).
+    pub fn push_labeled(&mut self, mut msg: ClientMsg<'static>) -> Option<NoNul<'static>> {
+        let label = self.queue.labeler.as_deref_mut().map(|labeler| {
+            let label = labeler();
+            msg.tags.edit().insert_pair(Key::from_str("label"), label.clone());
+            label
+        });
+        self.push(msg);
+        label
     }
 
     /// Returns `true` if no messages have been added using `self`.
@@ -177,26 +182,6 @@ impl QueueEditGuard<'_> {
     /// Returns how many messages have been added to the queue over `self`'s lifetime.
     pub fn len(&self) -> usize {
         self.queue.queue.len() - self.orig_len
-    }
-
-    /// Adds `label` tags to outgoing messages for `labeled-response`.
-    ///
-    /// Returns `None` is no labeler is configured for the underlying queue.
-    pub fn use_labeler(&mut self) -> Option<&mut Self> {
-        let has_labeler = self.queue.labeler.is_some();
-        self.label = has_labeler;
-        has_labeler.then_some(self)
-    }
-
-    /// Returns `true` if a `label` tag will be attached to outgoing messages.
-    pub fn is_using_labeler(&self) -> bool {
-        self.label
-    }
-
-    /// Stops `label` tags from being added to outgoing messages.
-    pub fn use_no_labeler(&mut self) -> &mut Self {
-        self.label = false;
-        self
     }
 
     /// Discard all messages that have been added using `self`.
