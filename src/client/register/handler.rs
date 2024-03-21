@@ -434,7 +434,7 @@ impl Handler {
     fn next_nick(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
         let Some(nicks) = self.nicks.take() else { return Err(HandlerError::NoNicks) };
         let (nick, nicks) = nicks.next_nick();
-        let mut msg = ClientMsg::new_cmd(NICK);
+        let mut msg = ClientMsg::new(NICK);
         msg.args.edit().add_word(nick.clone());
         sink.send(msg);
         self.reg.nick = nick;
@@ -447,7 +447,7 @@ impl Handler {
         let Some((name, logic)) = self.auths.pop_front() else {
             return Ok(());
         };
-        let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
+        let mut msg = ClientMsg::new(AUTHENTICATE);
         msg.args.edit().add_word(name);
         sink.send(msg);
         self.auth = Some(crate::client::auth::Handler::from_logic(logic));
@@ -459,7 +459,7 @@ impl Handler {
             if self.needs_auth && self.reg.account.is_none() {
                 return Err(HandlerError::NoLogin);
             }
-            let mut msg = crate::ircmsg::ClientMsg::new_cmd(CAP);
+            let mut msg = crate::ircmsg::ClientMsg::new(CAP);
             msg.args.edit().add_literal("END");
             sink.send(msg);
             self.state = HandlerState::AwaitWelcome;

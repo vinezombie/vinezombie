@@ -31,7 +31,7 @@ async fn main() -> std::io::Result<()> {
     let network_name = reg.serverinfo.get(&vinezombie::state::serverinfo::isupport::NETWORK);
     tracing::info!("{} connected to {}!", reg.nick, network_name.unwrap_or(&Word::from_str("IRC")));
     // As with the earlier example, let's just quit here.
-    let msg = ClientMsg::new_cmd(vinezombie::consts::cmd::QUIT);
+    let msg = ClientMsg::new(vinezombie::consts::cmd::QUIT);
     client.queue_mut().edit().push(msg);
     client.run_tokio().await?;
     Ok(())

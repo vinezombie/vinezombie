@@ -101,7 +101,7 @@ impl Handler {
             logic: sasl.logic()?,
             decoder: crate::string::base64::ChunkDecoder::new(400),
         };
-        let mut msg = ClientMsg::new_cmd(crate::consts::cmd::AUTHENTICATE);
+        let mut msg = ClientMsg::new(crate::consts::cmd::AUTHENTICATE);
         msg.args.edit().add_word(sasl.name());
         Ok((msg, auth))
     }
@@ -126,7 +126,7 @@ impl Handler {
                     let chal = res.map_err(|e| HandlerError::Broken(e.into()))?;
                     let reply = self.logic.reply(&chal).map_err(HandlerError::Broken)?;
                     for chunk in ChunkEncoder::new(reply, 400, true) {
-                        let mut msg = ClientMsg::new_cmd(AUTHENTICATE);
+                        let mut msg = ClientMsg::new(AUTHENTICATE);
                         msg.args.edit().add_word(chunk);
                         sink.send(msg);
                     }

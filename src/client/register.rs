@@ -73,19 +73,19 @@ impl<O, A> Register<O, A> {
     ) -> std::io::Result<(Nick<'static>, Option<Box<dyn NickGen>>)> {
         use crate::consts::cmd::{CAP, NICK, PASS, USER};
         if let Some(pass) = (self.password)(opts)? {
-            let mut msg = ClientMsg::new_cmd(PASS);
+            let mut msg = ClientMsg::new(PASS);
             msg.args.edit().add(pass);
             sink.send(msg);
         }
         // CAP message.
-        let mut msg = ClientMsg::new_cmd(CAP);
+        let mut msg = ClientMsg::new(CAP);
         let mut args = msg.args.edit();
         args.add_literal("LS");
         // TODO: Don't hardcode this, or at least name this constant.
         args.add_literal("302");
         sink.send(msg);
         // USER message.
-        msg = ClientMsg::new_cmd(USER);
+        msg = ClientMsg::new(USER);
         let mut args = msg.args.edit();
         args.add_word((self.username)(opts));
         args.add_word((self.user_p1)(opts));
@@ -93,7 +93,7 @@ impl<O, A> Register<O, A> {
         args.add((self.realname)(opts));
         sink.send(msg);
         // NICK message.
-        msg = ClientMsg::new_cmd(NICK);
+        msg = ClientMsg::new(NICK);
         let nicks = (self.nicks)(opts);
         let (nick, nickgen) = nicks.next_nick();
         msg.args.edit().add_word(nick.clone());

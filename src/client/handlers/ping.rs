@@ -57,7 +57,7 @@ impl SelfMadeHandler for Ping {
     type Receiver<Spec: ChannelSpec> = Spec::Oneshot<Self::Value>;
 
     fn queue_msgs(&self, mut queue: QueueEditGuard<'_>) {
-        let mut msg = ClientMsg::new_cmd(PING);
+        let mut msg = ClientMsg::new(PING);
         let hash = crate::util::mangle(&self.0);
         let hash: Arg<'static> = format!("{hash:o}").try_into().unwrap();
         msg.args.edit().add_word(hash);
@@ -77,7 +77,7 @@ pub(crate) fn pong(
 ) -> bool {
     let retval = msg.kind == PING;
     if retval {
-        let mut reply = ClientMsg::new_cmd(PONG);
+        let mut reply = ClientMsg::new(PONG);
         if let Some(last) = msg.args.split_last().1 {
             reply.args.edit().add(last.clone().owning());
         }

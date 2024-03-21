@@ -1,5 +1,6 @@
 use super::{Args, Source, Tags};
 use crate::{
+    consts::{ClientMsgKind, Tag},
     error::{InvalidString, ParseError},
     string::{Cmd, Line},
 };
@@ -17,6 +18,10 @@ pub struct ClientMsg<'a> {
 }
 
 impl ClientMsg<'static> {
+    /// Creates a new `ClientMsg` with the provided command.
+    pub const fn new<T: Tag<ClientMsgKind>>(_cmd: T) -> Self {
+        Self::new_cmd(T::RAW)
+    }
     /// Reads a `'static` client message from `read`.
     /// This function may block.
     ///
@@ -108,7 +113,7 @@ impl<'a> ClientMsg<'a> {
     }
     /// The length of the longest permissible client message.
     pub const MAX_LEN: usize = 4608;
-    /// Creates a new `ServerMsg` with the provided command.
+    /// Creates a new `ClientMsg` with the provided command.
     pub const fn new_cmd(cmd: Cmd<'a>) -> Self {
         ClientMsg { tags: Tags::new(), cmd, args: Args::empty() }
     }

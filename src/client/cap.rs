@@ -24,7 +24,7 @@ pub fn req<'a>(
     server: Option<&Source>,
     mut sink: impl ClientMsgSink<'static>,
 ) {
-    let mut msg = ClientMsg::new_cmd(CAP);
+    let mut msg = ClientMsg::new(CAP);
     msg.args.edit().add_literal("REQ");
     // " clientname :" plus one space to simplify length calcs.
     let len_mod = 4 + client.map(|c| c.len()).unwrap_or(1) as isize;

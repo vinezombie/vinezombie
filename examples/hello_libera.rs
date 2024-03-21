@@ -58,7 +58,7 @@ fn main() -> std::io::Result<()> {
     // but we don't care about any of that, so let's just quit.
     // We create the message, push it onto the internal message queue,
     // and then fully flush the queue.
-    let msg = ClientMsg::new_cmd(vinezombie::consts::cmd::QUIT);
+    let msg = ClientMsg::new(vinezombie::consts::cmd::QUIT);
     client.queue_mut().edit().push(msg);
     client.run()?;
     Ok(())

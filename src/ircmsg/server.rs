@@ -1,5 +1,6 @@
-use super::{Args, Numeric, ServerMsgKind, SharedSource, Source, Tags};
+use super::{Args, Numeric, ServerMsgKindRaw, SharedSource, Source, Tags};
 use crate::{
+    consts::{ServerMsgKind, Tag},
     error::{InvalidString, ParseError},
     string::{Cmd, Line, Nick},
 };
@@ -13,7 +14,7 @@ pub struct ServerMsg<'a> {
     /// Where this message originated.
     pub source: Option<SharedSource<'a>>,
     /// What kind of message this is.
-    pub kind: ServerMsgKind<'a>,
+    pub kind: ServerMsgKindRaw<'a>,
     /// This message's arguments.
     pub args: Args<'a>,
 }
@@ -62,6 +63,10 @@ impl ServerMsg<'static> {
 }
 
 impl<'a> ServerMsg<'a> {
+    /// Creates a new `ServerMsg` with the provided message type and source.
+    pub const fn new<T: Tag<ServerMsgKind>>(_kind: T, source: SharedSource<'a>) -> Self {
+        ServerMsg { tags: Tags::new(), source: Some(source), kind: T::RAW, args: Args::empty() }
+    }
     /// Reads a server message from `read`.
     /// This function may block.
     ///
@@ -115,7 +120,7 @@ impl<'a> ServerMsg<'a> {
         ServerMsg {
             tags: Tags::new(),
             source: Some(source),
-            kind: ServerMsgKind::Numeric(num),
+            kind: ServerMsgKindRaw::Numeric(num),
             args: Args::new(vec![target.into()], None),
         }
     }
@@ -124,7 +129,7 @@ impl<'a> ServerMsg<'a> {
         ServerMsg {
             tags: Tags::new(),
             source: None,
-            kind: ServerMsgKind::Cmd(cmd),
+            kind: ServerMsgKindRaw::Cmd(cmd),
             args: Args::empty(),
         }
     }

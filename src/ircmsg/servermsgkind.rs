@@ -2,51 +2,60 @@ use super::Numeric;
 use crate::string::{Arg, Cmd};
 
 /// Either an alphabetic command or a numeric reply.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum ServerMsgKind<'a> {
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum ServerMsgKindRaw<'a> {
     #[allow(missing_docs)]
     Numeric(Numeric),
     #[allow(missing_docs)]
     Cmd(Cmd<'a>),
 }
 
-impl<'a> From<Cmd<'a>> for ServerMsgKind<'a> {
+impl<'a> std::hash::Hash for ServerMsgKindRaw<'a> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            ServerMsgKindRaw::Numeric(n) => n.hash(state),
+            ServerMsgKindRaw::Cmd(c) => c.hash(state),
+        }
+    }
+}
+
+impl<'a> From<Cmd<'a>> for ServerMsgKindRaw<'a> {
     fn from(value: Cmd<'a>) -> Self {
-        ServerMsgKind::Cmd(value)
+        ServerMsgKindRaw::Cmd(value)
     }
 }
 
-impl<'a> From<Numeric> for ServerMsgKind<'a> {
+impl<'a> From<Numeric> for ServerMsgKindRaw<'a> {
     fn from(value: Numeric) -> Self {
-        ServerMsgKind::Numeric(value)
+        ServerMsgKindRaw::Numeric(value)
     }
 }
 
-impl<'a> PartialEq<str> for ServerMsgKind<'a> {
+impl<'a> PartialEq<str> for ServerMsgKindRaw<'a> {
     fn eq(&self, other: &str) -> bool {
         self.as_arg() == other
     }
 }
 
-impl<'a> PartialEq<[u8]> for ServerMsgKind<'a> {
+impl<'a> PartialEq<[u8]> for ServerMsgKindRaw<'a> {
     fn eq(&self, other: &[u8]) -> bool {
         self.as_arg() == other
     }
 }
 
-impl<'a> PartialEq<&str> for ServerMsgKind<'a> {
+impl<'a> PartialEq<&str> for ServerMsgKindRaw<'a> {
     fn eq(&self, other: &&str) -> bool {
         self.as_arg() == *other
     }
 }
 
-impl<'a> PartialEq<&[u8]> for ServerMsgKind<'a> {
+impl<'a> PartialEq<&[u8]> for ServerMsgKindRaw<'a> {
     fn eq(&self, other: &&[u8]) -> bool {
         self.as_arg() == *other
     }
 }
 
-impl<'a> PartialEq<Cmd<'_>> for ServerMsgKind<'a> {
+impl<'a> PartialEq<Cmd<'_>> for ServerMsgKindRaw<'a> {
     fn eq(&self, other: &Cmd<'_>) -> bool {
         if let Self::Cmd(cmd) = self {
             cmd == other
@@ -56,7 +65,7 @@ impl<'a> PartialEq<Cmd<'_>> for ServerMsgKind<'a> {
     }
 }
 
-impl<'a> PartialEq<Numeric> for ServerMsgKind<'a> {
+impl<'a> PartialEq<Numeric> for ServerMsgKindRaw<'a> {
     fn eq(&self, other: &Numeric) -> bool {
         if let Self::Numeric(num) = self {
             num == other
@@ -67,12 +76,12 @@ impl<'a> PartialEq<Numeric> for ServerMsgKind<'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a> ServerMsgKind<'a> {
+impl<'a> ServerMsgKindRaw<'a> {
     /// Converts `self` into a version that owns its data.
-    pub fn owning(self) -> ServerMsgKind<'static> {
+    pub fn owning(self) -> ServerMsgKindRaw<'static> {
         match self {
-            ServerMsgKind::Numeric(num) => ServerMsgKind::Numeric(num),
-            ServerMsgKind::Cmd(c) => ServerMsgKind::Cmd(c.owning()),
+            ServerMsgKindRaw::Numeric(num) => ServerMsgKindRaw::Numeric(num),
+            ServerMsgKindRaw::Cmd(c) => ServerMsgKindRaw::Cmd(c.owning()),
         }
     }
     /// Returns `self`'s value as an [`Arg`].
@@ -83,8 +92,8 @@ impl<'a> ServerMsgKind<'a> {
     /// Returns a reference to `self`'s value as a [`str`].
     pub const fn as_str(&self) -> &str {
         match self {
-            ServerMsgKind::Numeric(num) => num.as_str(),
-            ServerMsgKind::Cmd(c) => c.as_str(),
+            ServerMsgKindRaw::Numeric(num) => num.as_str(),
+            ServerMsgKindRaw::Cmd(c) => c.as_str(),
         }
     }
     /// The length of the server message kind, in bytes.
@@ -92,16 +101,16 @@ impl<'a> ServerMsgKind<'a> {
     /// This value is guaranteed to be non-zero.
     pub const fn len(&self) -> usize {
         match self {
-            ServerMsgKind::Numeric(_) => 3,
-            ServerMsgKind::Cmd(c) => c.len(),
+            ServerMsgKindRaw::Numeric(_) => 3,
+            ServerMsgKindRaw::Cmd(c) => c.len(),
         }
     }
     /// Returns `Some(true)` if `self` represents an error,
     /// `Some(false)` if it does not, or `None` if it's unknown.
     pub const fn is_error(&self) -> Option<bool> {
         match self {
-            ServerMsgKind::Numeric(n) => n.is_error(),
-            ServerMsgKind::Cmd(c) => match c.as_str().as_bytes() {
+            ServerMsgKindRaw::Numeric(n) => n.is_error(),
+            ServerMsgKindRaw::Cmd(c) => match c.as_str().as_bytes() {
                 b"FAIL" => Some(true),
                 b"ERROR" => Some(true),
                 _ => Some(false),
