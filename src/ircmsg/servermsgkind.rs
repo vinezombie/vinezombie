@@ -10,6 +10,15 @@ pub enum ServerMsgKindRaw<'a> {
     Cmd(Cmd<'a>),
 }
 
+impl<'a> std::borrow::Borrow<[u8]> for ServerMsgKindRaw<'a> {
+    fn borrow(&self) -> &[u8] {
+        match self {
+            ServerMsgKindRaw::Numeric(n) => n.as_ref(),
+            ServerMsgKindRaw::Cmd(c) => c,
+        }
+    }
+}
+
 impl<'a> std::hash::Hash for ServerMsgKindRaw<'a> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {

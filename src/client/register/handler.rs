@@ -1,17 +1,17 @@
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
 use crate::{
     client::{auth::SaslLogic, nick::NickGen, ClientMsgSink},
-    consts::cmd::{CAP, NICK},
+    consts::{
+        cmd::{CAP, NICK},
+        Cap, ISupport, TagMap,
+    },
     ircmsg::{ClientMsg, ServerMsg, SharedSource, Source, UserHost},
-    state::serverinfo::{ISupportParser, ServerInfo},
     string::{Arg, Key, Line, Nick, Splitter, Word},
-};
-use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
-    sync::Arc,
 };
 
 /// The result of successful registration.
-#[derive(Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Registration {
     /// The nickname used for this connection.
     pub nick: Nick<'static>,
@@ -26,12 +26,14 @@ pub struct Registration {
     pub userhost: Option<UserHost<'static>>,
     /// The name of logged-into account, if any.
     pub account: Option<Arg<'static>>,
-    /// The enabled capabilities and their values.
-    pub caps: BTreeMap<Key<'static>, Word<'static>>,
     /// The source associated with the server you're connected to.
     pub source: Option<Source<'static>>,
+    /// The capabilities, their values, and whether they are enabled.
+    pub caps: TagMap<Cap, bool>,
+    /// The server version string, if any.
+    pub version: Option<Arg<'static>>,
     /// Information about the server.
-    pub serverinfo: Box<ServerInfo>,
+    pub isupport: TagMap<ISupport>,
 }
 
 impl Registration {
@@ -41,10 +43,26 @@ impl Registration {
             nick,
             userhost: None,
             account: None,
-            caps: BTreeMap::new(),
             source: None,
-            serverinfo: Box::new(ServerInfo::new()),
+            caps: TagMap::new(),
+            version: None,
+            isupport: TagMap::new(),
         }
+    }
+}
+
+impl Registration {
+    /// Updates from a `RPL_MYINFO` (004) message.
+    ///
+    /// Currently ignores mode info.
+    pub fn parse_myinfo(&mut self, args: &[Arg<'_>]) {
+        let mut args = args.iter().skip(2);
+        // ^ client, servername
+        let Some(version) = args.next() else {
+            return;
+        };
+        self.version = Some(version.clone().owning());
+        // TODO: Modes.
     }
 }
 
@@ -115,7 +133,7 @@ impl From<HandlerError> for std::io::Error {
 
 pub(super) enum HandlerState {
     Req(BTreeSet<Key<'static>>),
-    Ack(BTreeSet<Key<'static>>),
+    Ack(VecDeque<Key<'static>>),
     Sasl,
     CapEnd,
     AwaitWelcome,
@@ -138,12 +156,10 @@ pub struct Handler {
     pub(super) nicks: Option<Box<dyn NickGen>>,
     pub(super) state: HandlerState,
     pub(super) needs_auth: bool,
-    pub(super) caps_avail: BTreeMap<Key<'static>, Word<'static>>,
     #[cfg(feature = "base64")]
     pub(super) auth: Option<crate::client::auth::Handler>,
     pub(super) auths: VecDeque<(Arg<'static>, Box<dyn SaslLogic>)>,
     pub(super) reg: Registration,
-    pub(super) isupport: Arc<ISupportParser>,
 }
 
 impl Handler {
@@ -152,19 +168,16 @@ impl Handler {
         caps: BTreeSet<Key<'static>>,
         needs_auth: bool,
         auths: VecDeque<(Arg<'static>, Box<dyn SaslLogic>)>,
-        isupport: Arc<ISupportParser>,
     ) -> Self {
         let (nick, nicks) = nicks;
         Handler {
             nicks,
             state: HandlerState::Req(caps),
             needs_auth,
-            caps_avail: BTreeMap::new(),
             #[cfg(feature = "base64")]
             auth: None,
             auths,
             reg: Registration::new(nick),
-            isupport,
         }
     }
     /// Handles a server message sent during connection registration.
@@ -217,7 +230,7 @@ impl Handler {
         }
         let retval = match msg.kind.as_str() {
             "001" | "002" | "003" | "004" if self.needs_auth && self.reg.account.is_none() => {
-                // We hit the end of registration without logging in. Run!
+                // We hit the end of registration without logging in. Bail!
                 Err(HandlerError::NoLogin)
             }
             "001" => {
@@ -240,7 +253,7 @@ impl Handler {
                 Ok(None)
             }
             "004" if matches!(self.state, HandlerState::AwaitEnd) => {
-                self.reg.serverinfo.parse_myinfo(msg.args.words());
+                self.reg.parse_myinfo(msg.args.words());
                 Ok(None)
             }
             "005" if matches!(self.state, HandlerState::AwaitEnd) => {
@@ -248,23 +261,20 @@ impl Handler {
                     // Bad ISUPPORT message, but let's be forgiving.
                     return Ok(None);
                 };
+                let mut ism = self.reg.isupport.edit();
                 for isupport in isupports {
-                    let mut splitter = Splitter::new(isupport.clone());
+                    let mut splitter = Splitter::new(isupport.clone().owning());
                     let Ok(key) = splitter.string::<Key>(false) else {
                         continue;
                     };
-                    let value = if splitter.next_byte().is_some_and(|b| b != b'=') {
+                    let value: Word<'static> = if splitter.next_byte().is_some_and(|b| b != b'=') {
                         // Weirdness in an ISUPPORT tag. Bail.
                         // TODO: Log.
                         continue;
                     } else {
-                        splitter.rest_or_default()
+                        splitter.rest_or_default::<Word>()
                     };
-                    if let Err(_e) =
-                        self.isupport.parse_and_update(&mut self.reg.serverinfo, &key, value)
-                    {
-                        // TODO: Really should log the error.
-                    }
+                    ism.insert((key, value), ());
                 }
                 Ok(None)
             }
@@ -366,14 +376,18 @@ impl Handler {
             }
             "CAP" => {
                 use crate::client::cap;
-                let mut cap_msg = cap::ServerMsgArgs::parse(&msg.args.clone().owning())
+                let cap_msg = cap::ServerMsgArgs::parse(&msg.args.clone().owning())
                     .map_err(HandlerError::broken)?;
                 match cap_msg.subcmd {
                     cap::SubCmd::Ls if cap_msg.is_last => {
-                        self.caps_avail.append(&mut cap_msg.caps);
+                        let mut caps = self.reg.caps.edit();
+                        for (key, value) in cap_msg.caps {
+                            caps.try_insert((key, value), false);
+                        }
+                        std::mem::drop(caps);
                         if let HandlerState::Req(reqs) = &mut self.state {
                             let mut reqs = std::mem::take(reqs);
-                            reqs.retain(|key| self.caps_avail.contains_key(key));
+                            reqs.retain(|key| self.reg.caps.get_extra_raw(key).is_some());
                             self.state = if reqs.is_empty() {
                                 HandlerState::CapEnd
                             } else {
@@ -383,35 +397,41 @@ impl Handler {
                                     self.reg.source.as_ref(),
                                     sink.borrow_mut(),
                                 );
-                                HandlerState::Ack(reqs)
+                                HandlerState::Ack(reqs.into_iter().collect())
                             };
                         }
                     }
                     cap::SubCmd::Ls | cap::SubCmd::New => {
-                        self.caps_avail.append(&mut cap_msg.caps);
+                        let mut caps = self.reg.caps.edit();
+                        for (key, value) in cap_msg.caps {
+                            caps.try_insert((key, value), false);
+                        }
                     }
                     cap::SubCmd::Ack => {
+                        let mut caps = self.reg.caps.edit();
                         self.state.ack(&cap_msg.caps);
-                        for key in cap_msg.caps.into_keys() {
-                            let value = self.caps_avail.get(&key).cloned().unwrap_or_default();
-                            self.reg.caps.insert(key, value);
+                        // Assume that every ACK is a positive ACK without actually checking.
+                        for (key, value) in cap_msg.caps {
+                            caps.insert_or_update((key, value), true);
                         }
                     }
                     cap::SubCmd::Nak => {
                         self.state.ack(&cap_msg.caps);
                     }
                     cap::SubCmd::Del => {
+                        let mut caps = self.reg.caps.edit();
                         for cap in cap_msg.caps.keys() {
-                            self.caps_avail.remove(cap);
-                            self.reg.caps.remove(cap);
+                            caps.remove_raw(cap);
                         }
                         self.state.ack(&cap_msg.caps);
                     }
                     cap::SubCmd::List => return Err(HandlerError::broken("unexpected CAP LIST")),
                 }
                 if matches!(self.state, HandlerState::Sasl) {
-                    if let Some(names) = self.caps_avail.get("sasl".as_bytes()) {
-                        crate::client::cap::filter_sasl(&mut self.auths, names.clone());
+                    if let Some(Ok(names)) = self.reg.caps.get_parsed(crate::consts::cap::SASL) {
+                        if !names.is_empty() {
+                            self.auths.retain(|(name, _)| names.contains(name.as_bytes()));
+                        }
                     } else {
                         self.auths.clear();
                     }

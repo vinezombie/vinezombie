@@ -52,8 +52,9 @@ fn main() -> std::io::Result<()> {
     // But how does the network we connected to choose to name itself?
     // ISUPPORT is vital for understanding the capabilities of the target network,
     // and vinezombie eagerly parses it during registration. Let's print the network name.
-    let network_name = reg.serverinfo.get(&vinezombie::state::serverinfo::isupport::NETWORK);
-    tracing::info!("{} connected to {}!", reg.nick, network_name.unwrap_or(&Word::from_str("IRC")));
+    let network_name =
+        reg.isupport.get_parsed(vinezombie::consts::isupport::NETWORK).transpose()?;
+    tracing::info!("{} connected to {}!", reg.nick, network_name.unwrap_or(Word::from_str("IRC")));
     // From here, we can keep reading messages (including 004 and 005)
     // but we don't care about any of that, so let's just quit.
     // We create the message, push it onto the internal message queue,

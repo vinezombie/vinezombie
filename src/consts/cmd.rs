@@ -1,3 +1,5 @@
+//! Client and server commands.
+
 use super::{ClientMsgKind, ServerMsgKind, Tag};
 use crate::ircmsg::ServerMsgKindRaw;
 use crate::string::{Bytes, Cmd};
@@ -8,11 +10,19 @@ macro_rules! defn_cmd {
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
         pub struct $cmd;
         impl $cmd {
+            /// The value `self` stands in for as a [`Cmd`].
+            #[allow(clippy::declare_interior_mutable_const)]
+            pub const CMD: Cmd<'static> =
+                unsafe { Cmd::from_unchecked(Bytes::from_str(stringify!($cmd))) };
             /// Returns a reference to a static [`Cmd`] representing `self`'s value.
             pub fn as_cmd<'a>(&self) -> &'static Cmd<'a> {
-                static VALUE: Cmd<'static> =
-                    unsafe { Cmd::from_unchecked(Bytes::from_str(stringify!($cmd))) };
+                static VALUE: Cmd<'static> = $cmd::CMD;
                 &VALUE
+            }
+        }
+        impl std::fmt::Display for $cmd {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                stringify!($cmd).fmt(f)
             }
         }
         impl std::hash::Hash for $cmd {
@@ -46,9 +56,9 @@ macro_rules! defn_cmd {
 macro_rules! impl_cmd_client {
     ($cmd:ident) => {
         impl Tag<ClientMsgKind> for $cmd {
-            #[allow(clippy::declare_interior_mutable_const)]
-            const RAW: Cmd<'static> =
-                unsafe { Cmd::from_unchecked(Bytes::from_str(stringify!($cmd))) };
+            fn as_raw(&self) -> &'static Cmd<'static> {
+                self.as_cmd()
+            }
         }
     };
 }
@@ -56,11 +66,14 @@ macro_rules! impl_cmd_client {
 macro_rules! impl_cmd_server {
     ($cmd:ident) => {
         impl $cmd {
+            /// The value `self` stands in for as a [`ServerMsgKindRaw`].
+            #[allow(clippy::declare_interior_mutable_const)]
+            pub const KIND: ServerMsgKindRaw<'static> = ServerMsgKindRaw::Cmd(unsafe {
+                Cmd::from_unchecked(Bytes::from_str(stringify!($cmd)))
+            });
             /// Returns a reference to a static [`ServerMsgKindRaw`] representing `self`'s value.
             pub fn as_kind<'a>(&self) -> &'static ServerMsgKindRaw<'a> {
-                static VALUE: ServerMsgKindRaw<'static> = ServerMsgKindRaw::Cmd(unsafe {
-                    Cmd::from_unchecked(Bytes::from_str(stringify!($cmd)))
-                });
+                static VALUE: ServerMsgKindRaw<'static> = $cmd::KIND;
                 &VALUE
             }
         }
@@ -71,9 +84,9 @@ macro_rules! impl_cmd_server {
         }
         impl Tag<ServerMsgKind> for $cmd {
             #[allow(clippy::declare_interior_mutable_const)]
-            const RAW: ServerMsgKindRaw<'static> = unsafe {
-                ServerMsgKindRaw::Cmd(Cmd::from_unchecked(Bytes::from_str(stringify!($cmd))))
-            };
+            fn as_raw(&self) -> &'static ServerMsgKindRaw<'static> {
+                self.as_kind()
+            }
         }
         impl From<$cmd> for ServerMsgKindRaw<'static> {
             fn from(v: $cmd) -> ServerMsgKindRaw<'static> {

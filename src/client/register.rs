@@ -10,7 +10,6 @@ pub use {defaults::*, handler::*};
 use crate::{
     client::{auth::Sasl, nick::NickGen, ClientMsgSink, MakeHandler},
     ircmsg::ClientMsg,
-    state::serverinfo::ISupportParser,
     string::{Arg, Key, Line, Nick, User},
 };
 use std::{
@@ -54,10 +53,6 @@ pub struct Register<O, A> {
     /// Returns a boxed iterator of references to [`Sasl`] authenticators to attempt
     /// and whether to close the connection on non-authentication.
     pub auth: fn(&O) -> SaslOptions<'_, A>,
-    /// The [`ISupportParser`] used to parse ISUPPORT messages after registration completes.
-    ///
-    /// `ISupportParser`s are not `Clone`, making this `Arc` necessary.
-    pub isupport_parser: Arc<ISupportParser>,
 }
 
 impl<O, A> Register<O, A> {
@@ -128,7 +123,7 @@ impl<O, A: Sasl> Register<O, A> {
         } else {
             (VecDeque::new(), false)
         };
-        Ok(Handler::new(nicks, caps, needs_auth, auths, self.isupport_parser.clone()))
+        Ok(Handler::new(nicks, caps, needs_auth, auths))
     }
 }
 

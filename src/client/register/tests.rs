@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     client::{auth::Clear, channel::SyncChannels, conn::Bidir, new_client},
-    string::Nick,
+    string::{Key, Nick},
 };
 
 use super::{register_as_bot, HandlerError, Options, Registration};
@@ -45,7 +45,7 @@ fn ircv2_reg() {
 
 #[test]
 fn ircv3_reg_simple() {
-    use crate::state::serverinfo::isupport::NETWORK;
+    use crate::consts::{cap::LABELED_RESPONSE, isupport::NETWORK};
     // TODO: Test more thoroughly.
     // We should be able to handle any values for messages 001 through 003,
     // so we're just going to put silliness here.
@@ -65,7 +65,13 @@ fn ircv3_reg_simple() {
         .as_bytes(),
     )
     .expect("ircv3 reg failed");
-    assert_eq!(reg.serverinfo.get(&NETWORK).expect("NETWORK should have a value"), b"example.com");
+    assert_eq!(reg.caps.get_extra(LABELED_RESPONSE).copied(), Some(true));
+    assert_eq!(
+        reg.caps.get_extra_raw(&Key::from_str("quickbrownfox/lazydogjumping")).copied(),
+        Some(false)
+    );
+    let netname = reg.isupport.get_parsed(NETWORK).expect("NETWORK should have a value").unwrap();
+    assert_eq!(netname, b"example.com");
 }
 
 #[test]

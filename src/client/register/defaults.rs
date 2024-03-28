@@ -5,7 +5,6 @@ use crate::{
         nick::{NickGen, Suffix, SuffixStrategy, SuffixType},
     },
     error::InvalidString,
-    state::serverinfo::ISupportParser,
     string::{Arg, Key, Line, Nick, User},
 };
 use std::collections::BTreeSet;
@@ -92,7 +91,6 @@ pub fn register_as_custom<O, A: Sasl>(
         nicks,
         caps,
         auth,
-        isupport_parser: ISupportParser::global(),
     }
 }
 

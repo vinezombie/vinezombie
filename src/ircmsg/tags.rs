@@ -1,12 +1,14 @@
 //! Stuctures and utilities for IRCv3 message tags.
 
 use crate::{
+    consts::{MsgTag, TagExtractor},
     string::{
         tf::{escape, unescape},
         Key, NoNul, Splitter,
     },
     util::{FlatMap, FlatMapEditGuard},
 };
+use std::borrow::Borrow;
 
 /// Collection mapping tag keys to bytes.
 ///
@@ -15,12 +17,14 @@ use crate::{
 #[repr(transparent)]
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct Tags<'a> {
-    pairs: FlatMap<Key<'a>, NoNul<'a>>,
+    pairs: FlatMap<((Key<'a>, NoNul<'a>), ()), TagExtractor<'a, MsgTag>>,
 }
 
 /// Guard for editing [`Tags`].
 #[derive(PartialEq, Eq, Hash, Debug)]
-pub struct TagsEditGuard<'a, 'b>(FlatMapEditGuard<'b, Key<'a>, NoNul<'a>>);
+pub struct TagsEditGuard<'a, 'b>(
+    FlatMapEditGuard<'b, ((Key<'a>, NoNul<'a>), ()), TagExtractor<'a, MsgTag>>,
+);
 
 impl<'a> Tags<'a> {
     /// Creates a new empty `Tags`.
@@ -30,7 +34,7 @@ impl<'a> Tags<'a> {
     /// Converts `self` into a version that owns its data.
     pub fn owning<'b>(mut self) -> Tags<'b> {
         use crate::owning::MakeOwning;
-        for (key, value) in self.pairs.as_slice_mut() {
+        for ((key, value), _) in self.pairs.as_slice_mut() {
             key.make_owning();
             value.make_owning();
         }
@@ -40,17 +44,14 @@ impl<'a> Tags<'a> {
     pub fn edit(&mut self) -> TagsEditGuard<'a, '_> {
         TagsEditGuard(self.pairs.edit())
     }
-    /// Returns how many keys are in this map.
-    pub fn len(&self) -> usize {
-        self.pairs.len()
-    }
-    /// Returns `true` if this map contains no keys.
-    pub fn is_empty(&self) -> bool {
-        self.pairs.is_empty()
-    }
-    /// Returns a reference to the value associated with the provided key, if any.
+    collection_methods!(pairs);
+    /// Returns a shared reference to the value associated with the provided key, if any.
     pub fn get(&self, key: impl TryInto<Key<'a>>) -> Option<&NoNul<'a>> {
-        self.pairs.get(key.try_into().ok()?)
+        self.pairs.get(key.try_into().ok()?.borrow()).map(|((_, v), _)| v)
+    }
+    /// Returns a mutable reference to the value associated with the provided key, if any.
+    pub fn get_mut(&mut self, key: impl TryInto<Key<'a>>) -> Option<&mut NoNul<'a>> {
+        self.pairs.get_mut(key.try_into().ok()?.borrow()).map(|((_, v), _)| v)
     }
     /// Writes `self`, including a leading `'@'` if non-empty,
     /// to the provided [`Write`][std::io::Write].
@@ -58,7 +59,7 @@ impl<'a> Tags<'a> {
     /// This function makes many small writes. Buffering is strongly recommended.
     pub fn write_to(&self, w: &mut (impl std::io::Write + ?Sized)) -> std::io::Result<()> {
         let mut prefix = b"@";
-        for (key, value) in self.pairs.as_slice() {
+        for ((key, value), _) in self.pairs.as_slice() {
             w.write_all(prefix)?;
             w.write_all(key.as_ref())?;
             if !value.is_empty() {
@@ -96,16 +97,23 @@ impl<'a> Tags<'a> {
             } else {
                 NoNul::default()
             };
-            tags.push((key, value));
+            tags.push(((key, value), ()));
         }
         Tags { pairs: FlatMap::from_vec(tags) }
     }
 }
 
 impl<'a> TagsEditGuard<'a, '_> {
+    // Present throughout: `Some(expr?.1)` which could be a map, but field extraction on tuples
+    // is not particularly nice either way.
+    collection_methods!(0);
+    /// Returns a shared reference to the value associated with the provided key, if any.
+    pub fn get(&self, key: impl TryInto<Key<'a>>) -> Option<&NoNul<'a>> {
+        Some(&self.0.get(key.try_into().ok()?.borrow())?.0 .1)
+    }
     /// Returns a mutable reference to the value associated with the provided key, if any.
-    pub fn get(&mut self, key: impl TryInto<Key<'a>>) -> Option<&mut NoNul<'a>> {
-        self.0.get_mut(key.try_into().ok()?)
+    pub fn get_mut(&mut self, key: impl TryInto<Key<'a>>) -> Option<&mut NoNul<'a>> {
+        Some(&mut self.0.get_mut(key.try_into().ok()?.borrow())?.0 .1)
     }
     /// Inserts a key-value pair into this map, returning the old value if present.
     pub fn insert_pair(
@@ -113,13 +121,17 @@ impl<'a> TagsEditGuard<'a, '_> {
         key: impl Into<Key<'a>>,
         value: impl Into<NoNul<'a>>,
     ) -> Option<NoNul<'a>> {
-        self.0.insert(key.into(), value.into())
+        Some(self.0.insert(((key.into(), value.into()), ()))?.0 .1)
     }
     /// Inserts a key with no value into this map.
     ///
     /// This is equivalent to inserting a key-value pair with an empty value.
     pub fn insert_key(&mut self, key: impl Into<Key<'a>>) -> Option<NoNul<'a>> {
         self.insert_pair(key.into(), NoNul::default())
+    }
+    /// Removes a key and returns the value, if present.
+    pub fn remove(&mut self, key: impl Into<Key<'a>>) -> Option<NoNul<'a>> {
+        Some(self.0.remove(key.into().borrow())?.0 .1)
     }
     /// Removes all key-value pairs.
     pub fn clear(&mut self) {
@@ -131,7 +143,7 @@ impl<'a> TagsEditGuard<'a, '_> {
 impl std::fmt::Display for Tags<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut prefix = '@';
-        for (key, value) in self.pairs.as_slice() {
+        for ((key, value), _) in self.pairs.as_slice() {
             if !value.is_empty() {
                 let value = escape(value.clone());
                 write!(f, "{prefix}{key}={value}")?;
@@ -164,7 +176,7 @@ impl<'a> serde::Serialize for Tags<'a> {
     {
         use serde::ser::SerializeMap;
         let mut map = ser.serialize_map(Some(self.len()))?;
-        for (key, value) in self.pairs.as_slice() {
+        for ((key, value), _) in self.pairs.as_slice() {
             map.serialize_entry(key, value)?;
         }
         map.end()
@@ -179,7 +191,7 @@ impl<'a, 'de> serde::Deserialize<'de> for Tags<'a> {
     {
         use std::collections::BTreeMap;
         let tags = BTreeMap::<Key<'a>, NoNul<'a>>::deserialize(de)?;
-        let pairs = tags.into_iter().collect();
+        let pairs = tags.into_iter().map(|v| (v, ())).collect();
         Ok(Tags { pairs })
     }
 }

@@ -7,7 +7,7 @@ use crate::{
     ircmsg::{Args, ClientMsg, Source},
     string::{Arg, Builder, Cmd, Key, Line, Nick, Splitter, Word},
 };
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 
 type LineBuilder = Builder<Line<'static>>;
 
@@ -177,29 +177,6 @@ impl<'a> ServerMsgArgs<'a> {
     /// Returns `true` if `self.caps` contains a capability.
     pub fn contains(&self, cap: impl AsRef<[u8]>) -> bool {
         return self.caps.get(cap.as_ref()).is_some();
-    }
-}
-
-/// Parses the value of the advertised "sasl" capability
-/// and retains only the elements in `auths`
-/// whose names are included in `value`.
-///
-/// If `value` is empty, `auths` is not filtered.
-pub(crate) fn filter_sasl<V>(auths: &mut VecDeque<(Arg<'static>, V)>, value: Word<'_>) {
-    use crate::string::{tf::AsciiCasemap, Bytes};
-    use std::collections::BTreeSet;
-    let mut names = BTreeSet::new();
-    let mut splitter = Splitter::new(value);
-    while !splitter.is_empty() {
-        let mut name = splitter.save_end().until_byte(b',').rest_or_default::<Bytes>();
-        if !name.is_empty() {
-            name.transform(AsciiCasemap::<true>);
-            names.insert(name);
-        }
-        splitter.next_byte();
-    }
-    if !names.is_empty() {
-        auths.retain(|s| names.contains(s.0.as_bytes()));
     }
 }
 

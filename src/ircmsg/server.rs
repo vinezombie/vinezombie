@@ -64,8 +64,13 @@ impl ServerMsg<'static> {
 
 impl<'a> ServerMsg<'a> {
     /// Creates a new `ServerMsg` with the provided message type and source.
-    pub const fn new<T: Tag<ServerMsgKind>>(_kind: T, source: SharedSource<'a>) -> Self {
-        ServerMsg { tags: Tags::new(), source: Some(source), kind: T::RAW, args: Args::empty() }
+    pub fn new<T: Tag<ServerMsgKind>>(kind: T, source: SharedSource<'a>) -> Self {
+        ServerMsg {
+            tags: Tags::new(),
+            source: Some(source),
+            kind: kind.as_raw().clone(),
+            args: Args::empty(),
+        }
     }
     /// Reads a server message from `read`.
     /// This function may block.

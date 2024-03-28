@@ -13,6 +13,9 @@
 #![deny(rustdoc::private_intra_doc_links)]
 #![cfg_attr(doc_unstable, feature(doc_auto_cfg))]
 
+#[macro_use]
+mod macros;
+
 #[cfg(feature = "client")]
 pub mod client;
 pub mod consts;

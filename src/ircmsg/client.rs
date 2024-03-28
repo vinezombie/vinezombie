@@ -19,8 +19,8 @@ pub struct ClientMsg<'a> {
 
 impl ClientMsg<'static> {
     /// Creates a new `ClientMsg` with the provided command.
-    pub const fn new<T: Tag<ClientMsgKind>>(_cmd: T) -> Self {
-        Self::new_cmd(T::RAW)
+    pub fn new<T: Tag<ClientMsgKind>>(cmd: T) -> Self {
+        Self::new_cmd(cmd.as_raw().clone())
     }
     /// Reads a `'static` client message from `read`.
     /// This function may block.
