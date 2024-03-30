@@ -15,8 +15,7 @@ macro_rules! defn_cap {
         impl $key {
             /// The capability name `self` stands in for as a [`Key`].
             #[allow(clippy::declare_interior_mutable_const)]
-            pub const NAME: Key<'static> =
-                unsafe { Key::from_unchecked(Bytes::from_str($value)) };
+            pub const NAME: Key<'static> = unsafe { Key::from_unchecked(Bytes::from_str($value)) };
             /// Returns a reference to a static [`Key`] representing `self`'s name.
             pub fn as_key<'a>(&self) -> &'static Key<'a> {
                 static VALUE: Key<'static> = $key::NAME;

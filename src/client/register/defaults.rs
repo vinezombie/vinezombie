@@ -236,7 +236,10 @@ pub fn default_client_nicks<S, A>(opts: &Options<S, A>) -> Box<dyn NickGen> {
 }
 
 /// For use with [`Register`].
-pub fn default_client_username<O>(_: &O) -> User<'static> {
+pub fn default_client_username<S, A>(opts: &Options<S, A>) -> User<'static> {
+    if let Some(uname) = opts.username.as_ref() {
+        return uname.clone();
+    }
     #[cfg(feature = "whoami")]
     {
         let mut id = crate::util::mangle(&(whoami::username(), whoami::realname()));
@@ -264,7 +267,10 @@ pub fn default_bot_nicks<S, A>(opts: &Options<S, A>) -> Box<dyn NickGen> {
 }
 
 /// For use with [`Register`].
-pub fn default_bot_username<O>(_: &O) -> User<'static> {
+pub fn default_bot_username<S, A>(opts: &Options<S, A>) -> User<'static> {
+    if let Some(uname) = opts.username.as_ref() {
+        return uname.clone();
+    }
     User::from_str("vnzb_bot")
 }
 
