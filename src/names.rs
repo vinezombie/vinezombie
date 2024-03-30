@@ -1,7 +1,10 @@
 //! Well-known values for IRC messages.
 //!
-//! These constants exist to sidestep needing to use `from_unchecked` all over the place
-//! for a large subset of possible messages.
+//! This module contains a large number of zero-sized `structs` which can stand in for
+//! specific values within IRC messages. Each of these implements [`Name`],
+//! which provides most of the necessary structure. Some implement [`NameValued`],
+//! which allows parsing a value out from the context the `Name` implementor can usually be
+//! found in (e.g. an IRC message).
 #![allow(non_camel_case_types)]
 
 // Throughout this, we'll be doing the `from_unchecked(Bytes::from_str)` dance.
@@ -34,7 +37,7 @@ pub const PLUS: Arg<'static> = unsafe { Arg::from_unchecked(Bytes::from_str("+")
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum ClientMsgKind {}
 
-impl TagClass for ClientMsgKind {
+impl NameClass for ClientMsgKind {
     type Raw<'a> = crate::string::Cmd<'a>;
     type Union<'a> = crate::ircmsg::ClientMsg<'a>;
     fn get_tag<'a, 'b>(outer: &'a Self::Union<'b>) -> &'a Self::Raw<'b> {
@@ -49,7 +52,7 @@ impl TagClass for ClientMsgKind {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum ServerMsgKind {}
 
-impl TagClass for ServerMsgKind {
+impl NameClass for ServerMsgKind {
     type Raw<'a> = crate::ircmsg::ServerMsgKindRaw<'a>;
     type Union<'a> = crate::ircmsg::ServerMsg<'a>;
     fn get_tag<'a, 'b>(outer: &'a Self::Union<'b>) -> &'a Self::Raw<'b> {
@@ -64,7 +67,7 @@ impl TagClass for ServerMsgKind {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum ISupport {}
 
-impl TagClass for ISupport {
+impl NameClass for ISupport {
     type Raw<'a> = crate::string::Key<'a>;
     type Union<'a> = (Self::Raw<'a>, crate::string::Word<'a>);
     fn get_tag<'a, 'b>(outer: &'a Self::Union<'b>) -> &'a Self::Raw<'b> {
@@ -79,7 +82,7 @@ impl TagClass for ISupport {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum MsgTag {}
 
-impl TagClass for MsgTag {
+impl NameClass for MsgTag {
     type Raw<'a> = crate::string::Key<'a>;
     type Union<'a> = (Self::Raw<'a>, crate::string::NoNul<'a>);
     fn get_tag<'a, 'b>(outer: &'a Self::Union<'b>) -> &'a Self::Raw<'b> {
@@ -94,7 +97,7 @@ impl TagClass for MsgTag {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Cap {}
 
-impl TagClass for Cap {
+impl NameClass for Cap {
     type Raw<'a> = crate::string::Key<'a>;
     type Union<'a> = (Self::Raw<'a>, crate::string::Word<'a>);
     fn get_tag<'a, 'b>(outer: &'a Self::Union<'b>) -> &'a Self::Raw<'b> {

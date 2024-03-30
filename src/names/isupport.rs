@@ -4,7 +4,7 @@
 
 use std::num::{NonZeroU16, NonZeroU32};
 
-use super::{ISupport, Tag, TagWithValue};
+use super::{ISupport, Name, NameValued};
 use crate::state::Mode;
 use crate::{
     error::ParseError,
@@ -57,16 +57,16 @@ macro_rules! defn_isupport {
                 self.as_key()
             }
         }
-        impl Tag<ISupport> for $key {
-            fn as_raw(&self) -> &'static <ISupport as super::TagClass>::Raw<'static> {
+        impl Name<ISupport> for $key {
+            fn as_raw(&self) -> &'static <ISupport as super::NameClass>::Raw<'static> {
                 self.as_key()
             }
         }
-        impl TagWithValue<ISupport> for $key {
+        impl NameValued<ISupport> for $key {
             type Value<'a> = $value;
 
             fn from_union<'a>(
-                input: &<ISupport as super::TagClass>::Union<'a>,
+                input: &<ISupport as super::NameClass>::Union<'a>,
             ) -> Result<Self::Value<'a>, crate::error::ParseError> {
                 use std::error::Error;
                 let (_, raw) = input;

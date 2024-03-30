@@ -1,7 +1,7 @@
 use super::{Args, Numeric, ServerMsgKindRaw, SharedSource, Source, Tags};
 use crate::{
-    consts::{ServerMsgKind, Tag},
     error::{InvalidString, ParseError},
+    names::{Name, ServerMsgKind},
     string::{Cmd, Line, Nick},
 };
 use std::io::Write;
@@ -64,7 +64,7 @@ impl ServerMsg<'static> {
 
 impl<'a> ServerMsg<'a> {
     /// Creates a new `ServerMsg` with the provided message type and source.
-    pub fn new<T: Tag<ServerMsgKind>>(kind: T, source: SharedSource<'a>) -> Self {
+    pub fn new<T: Name<ServerMsgKind>>(kind: T, source: SharedSource<'a>) -> Self {
         ServerMsg {
             tags: Tags::new(),
             source: Some(source),

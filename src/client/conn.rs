@@ -70,7 +70,7 @@ impl<'a> ServerAddr<'a> {
         builder.reserve_exact(self.address.len() + 9);
         builder.append(self.address.clone());
         if self.tls {
-            builder.append(crate::consts::PLUS);
+            builder.append(crate::names::PLUS);
         }
         unsafe {
             // TODO: Method for appending integers to a builder.

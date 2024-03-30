@@ -66,7 +66,7 @@ impl<O, A> Register<O, A> {
         opts: &O,
         mut sink: impl ClientMsgSink<'static>,
     ) -> std::io::Result<(Nick<'static>, Option<Box<dyn NickGen>>)> {
-        use crate::consts::cmd::{CAP, NICK, PASS, USER};
+        use crate::names::cmd::{CAP, NICK, PASS, USER};
         if let Some(pass) = (self.password)(opts)? {
             let mut msg = ClientMsg::new(PASS);
             msg.args.edit().add(pass);

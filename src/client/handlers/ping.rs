@@ -1,5 +1,5 @@
 use super::{Handler, SelfMadeHandler};
-use crate::consts::cmd::{PING, PONG};
+use crate::names::cmd::{PING, PONG};
 use crate::{
     client::{
         channel::{ChannelSpec, Sender, SenderRef},

@@ -69,8 +69,7 @@ impl Iterator for ChunkEncoder {
                 Some(chunk)
             }
             Err(secret) => {
-                let retval =
-                    if *secret { crate::consts::PLUS.secret() } else { crate::consts::PLUS };
+                let retval = if *secret { crate::names::PLUS.secret() } else { crate::names::PLUS };
                 *self = Self::empty();
                 Some(retval)
             }

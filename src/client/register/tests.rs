@@ -45,7 +45,7 @@ fn ircv2_reg() {
 
 #[test]
 fn ircv3_reg_simple() {
-    use crate::consts::{cap::LABELED_RESPONSE, isupport::NETWORK};
+    use crate::names::{cap::LABELED_RESPONSE, isupport::NETWORK};
     // TODO: Test more thoroughly.
     // We should be able to handle any values for messages 001 through 003,
     // so we're just going to put silliness here.

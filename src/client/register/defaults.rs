@@ -190,7 +190,7 @@ pub fn default_user_p1<O>(_: &O) -> Arg<'static> {
 /// The default implementation returns `"*"`,
 /// as per recommendations.
 pub fn default_user_p2<O>(_: &O) -> Arg<'static> {
-    crate::consts::STAR.into()
+    crate::names::STAR.into()
 }
 
 /// A sensible nick transformer for fallback user nicks.

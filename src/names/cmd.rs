@@ -1,6 +1,6 @@
 //! Client and server commands.
 
-use super::{ClientMsgKind, ServerMsgKind, Tag};
+use super::{ClientMsgKind, Name, ServerMsgKind};
 use crate::ircmsg::ServerMsgKindRaw;
 use crate::string::{Bytes, Cmd};
 
@@ -55,7 +55,7 @@ macro_rules! defn_cmd {
 
 macro_rules! impl_cmd_client {
     ($cmd:ident) => {
-        impl Tag<ClientMsgKind> for $cmd {
+        impl Name<ClientMsgKind> for $cmd {
             fn as_raw(&self) -> &'static Cmd<'static> {
                 self.as_cmd()
             }
@@ -82,7 +82,7 @@ macro_rules! impl_cmd_server {
                 self.as_kind()
             }
         }
-        impl Tag<ServerMsgKind> for $cmd {
+        impl Name<ServerMsgKind> for $cmd {
             #[allow(clippy::declare_interior_mutable_const)]
             fn as_raw(&self) -> &'static ServerMsgKindRaw<'static> {
                 self.as_kind()

@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::{
     client::{auth::SaslLogic, nick::NickGen, ClientMsgSink},
-    consts::{
-        cmd::{CAP, NICK},
-        Cap, ISupport, TagMap,
-    },
     ircmsg::{ClientMsg, ServerMsg, SharedSource, Source, UserHost},
+    names::{
+        cmd::{CAP, NICK},
+        Cap, ISupport, NameMap,
+    },
     string::{Arg, Key, Line, Nick, Splitter, Word},
 };
 
@@ -29,11 +29,11 @@ pub struct Registration {
     /// The source associated with the server you're connected to.
     pub source: Option<Source<'static>>,
     /// The capabilities, their values, and whether they are enabled.
-    pub caps: TagMap<Cap, bool>,
+    pub caps: NameMap<Cap, bool>,
     /// The server version string, if any.
     pub version: Option<Arg<'static>>,
     /// Information about the server.
-    pub isupport: TagMap<ISupport>,
+    pub isupport: NameMap<ISupport>,
 }
 
 impl Registration {
@@ -44,9 +44,9 @@ impl Registration {
             userhost: None,
             account: None,
             source: None,
-            caps: TagMap::new(),
+            caps: NameMap::new(),
             version: None,
-            isupport: TagMap::new(),
+            isupport: NameMap::new(),
         }
     }
 }
@@ -68,7 +68,7 @@ impl Registration {
 
 impl Default for Registration {
     fn default() -> Self {
-        Self::new(crate::consts::STAR)
+        Self::new(crate::names::STAR)
     }
 }
 
@@ -238,7 +238,7 @@ impl Handler {
                     .args
                     .words()
                     .first()
-                    .filter(|n| *n != crate::consts::STAR.as_bytes())
+                    .filter(|n| *n != crate::names::STAR.as_bytes())
                     .and_then(|n| Nick::from_super(n.clone().owning()).ok());
                 if let Some(nick) = nick {
                     self.reg.nick = nick;
@@ -428,7 +428,7 @@ impl Handler {
                     cap::SubCmd::List => return Err(HandlerError::broken("unexpected CAP LIST")),
                 }
                 if matches!(self.state, HandlerState::Sasl) {
-                    if let Some(Ok(names)) = self.reg.caps.get_parsed(crate::consts::cap::SASL) {
+                    if let Some(Ok(names)) = self.reg.caps.get_parsed(crate::names::cap::SASL) {
                         if !names.is_empty() {
                             self.auths.retain(|(name, _)| names.contains(name.as_bytes()));
                         }
@@ -463,7 +463,7 @@ impl Handler {
     }
     #[cfg(feature = "base64")]
     fn next_sasl(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
-        use crate::consts::cmd::AUTHENTICATE;
+        use crate::names::cmd::AUTHENTICATE;
         let Some((name, logic)) = self.auths.pop_front() else {
             return Ok(());
         };

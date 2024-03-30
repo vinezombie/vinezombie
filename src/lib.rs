@@ -18,9 +18,9 @@ mod macros;
 
 #[cfg(feature = "client")]
 pub mod client;
-pub mod consts;
 pub mod error;
 pub mod ircmsg;
+pub mod names;
 pub mod owning;
 pub mod state;
 pub mod string;

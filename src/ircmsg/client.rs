@@ -1,7 +1,7 @@
 use super::{Args, Source, Tags};
 use crate::{
-    consts::{ClientMsgKind, Tag},
     error::{InvalidString, ParseError},
+    names::{ClientMsgKind, Name},
     string::{Cmd, Line},
 };
 use std::io::Write;
@@ -19,7 +19,7 @@ pub struct ClientMsg<'a> {
 
 impl ClientMsg<'static> {
     /// Creates a new `ClientMsg` with the provided command.
-    pub fn new<T: Tag<ClientMsgKind>>(cmd: T) -> Self {
+    pub fn new<T: Name<ClientMsgKind>>(cmd: T) -> Self {
         Self::new_cmd(cmd.as_raw().clone())
     }
     /// Reads a `'static` client message from `read`.

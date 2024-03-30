@@ -2,9 +2,9 @@
 
 use super::ClientMsgSink;
 use crate::{
-    consts::cmd::CAP,
     error::ParseError,
     ircmsg::{Args, ClientMsg, Source},
+    names::cmd::CAP,
     string::{Arg, Builder, Cmd, Key, Line, Nick, Splitter, Word},
 };
 use std::collections::BTreeMap;

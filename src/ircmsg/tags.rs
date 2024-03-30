@@ -1,7 +1,7 @@
 //! Stuctures and utilities for IRCv3 message tags.
 
 use crate::{
-    consts::{MsgTag, TagExtractor},
+    names::{MsgTag, NameExtractor},
     string::{
         tf::{escape, unescape},
         Key, NoNul, Splitter,
@@ -17,13 +17,13 @@ use std::borrow::Borrow;
 #[repr(transparent)]
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct Tags<'a> {
-    pairs: FlatMap<((Key<'a>, NoNul<'a>), ()), TagExtractor<'a, MsgTag>>,
+    pairs: FlatMap<((Key<'a>, NoNul<'a>), ()), NameExtractor<'a, MsgTag>>,
 }
 
 /// Guard for editing [`Tags`].
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub struct TagsEditGuard<'a, 'b>(
-    FlatMapEditGuard<'b, ((Key<'a>, NoNul<'a>), ()), TagExtractor<'a, MsgTag>>,
+    FlatMapEditGuard<'b, ((Key<'a>, NoNul<'a>), ()), NameExtractor<'a, MsgTag>>,
 );
 
 impl<'a> Tags<'a> {

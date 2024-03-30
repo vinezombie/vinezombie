@@ -3,7 +3,7 @@
 //! To maintain consistency, these names are all uppercased
 //! from their official versions.
 
-use super::{Cap, Tag, TagWithValue};
+use super::{Cap, Name, NameValued};
 use crate::string::{Bytes, Key, Splitter, Word};
 use std::collections::BTreeSet;
 
@@ -52,8 +52,8 @@ macro_rules! defn_cap {
                 self.as_key()
             }
         }
-        impl Tag<Cap> for $key {
-            fn as_raw(&self) -> &'static <Cap as super::TagClass>::Raw<'static> {
+        impl Name<Cap> for $key {
+            fn as_raw(&self) -> &'static <Cap as super::NameClass>::Raw<'static> {
                 self.as_key()
             }
         }
@@ -78,11 +78,11 @@ defn_cap!(SETNAME = "setname");
 defn_cap!(STANDARD_REPLIES = "standard-replies");
 defn_cap!(USERHOST_IN_NAMES = "userhost-in-names");
 
-impl TagWithValue<Cap> for SASL {
+impl NameValued<Cap> for SASL {
     type Value<'a> = BTreeSet<Word<'a>>;
 
     fn from_union<'a>(
-        input: &<Cap as super::TagClass>::Union<'a>,
+        input: &<Cap as super::NameClass>::Union<'a>,
     ) -> Result<Self::Value<'a>, crate::error::ParseError> {
         use crate::string::tf::AsciiCasemap;
         let (_, mechs_raw) = input;
