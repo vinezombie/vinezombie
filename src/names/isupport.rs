@@ -5,15 +5,16 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
 use super::{ISupport, Name, NameValued};
-use crate::state::Mode;
+use crate::state::{Mode, ModeTypes, StatusModes};
 use crate::{
     error::ParseError,
     string::{Bytes, Key, Word},
 };
 
 macro_rules! defn_isupport {
-    ($key:ident: $value:ty = |$arg:ident| $parse:expr) => {
+    ($key:ident: $value:ty = |$arg:ident| $parse:expr $(, $doc:literal)*) => {
         #[doc = concat!("The `", stringify!($key), "` ISUPPORT token.")]
+        $(#[doc = $doc])*
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
         pub struct $key;
         impl $key {
@@ -172,3 +173,12 @@ isupport_mode! {
 }
 
 defn_isupport!(NETWORK: Word<'static> = |arg| Ok(arg.clone().owning()));
+defn_isupport!(CHANMODES: ModeTypes = |arg| Ok(ModeTypes::parse(arg.as_bytes()).0));
+defn_isupport!(PREFIX: StatusModes = |arg| Ok(StatusModes::parse(arg.as_bytes())?));
+defn_isupport!(
+    USERMODES: ModeTypes = |arg| Ok(ModeTypes::parse(arg.as_bytes()).0),
+    "",
+    "This ISUPPORT token is not standard nor generally used.",
+    "The information associated with this token is generally obtained from the 004 message.",
+    "The name was chosen as the most probable name for this token should it exist in the future."
+);

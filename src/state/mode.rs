@@ -4,6 +4,8 @@ use std::{
     num::{NonZeroU64, NonZeroU8},
 };
 
+use crate::{error::ParseError, names::{ISupport, NameMap}};
+
 /// A single mode letter.
 ///
 /// This is a newtype around an ASCII alphabetic character.
@@ -113,7 +115,7 @@ impl Mode {
 }
 
 /// A set of (non-list) modes.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ModeSet(u64);
 
 impl ModeSet {
@@ -155,7 +157,39 @@ impl ModeSet {
     pub const fn len(&self) -> usize {
         self.0.count_ones() as usize
     }
-    // TODO: Set operations, converting to strings.
+    /// Returns a set with all of the modes in both sets.
+    pub const fn union(self, b: Self) -> Self {
+        ModeSet(self.0 | b.0)
+    }
+    /// Returns a set with only the modes in both sets.
+    pub const fn intersection(self, b: Self) -> Self {
+        ModeSet(self.0 & b.0)
+    }
+    /// Returns a set with only the modes that are in `self` but not `b`.
+    pub const fn difference(self, b: Self) -> Self {
+        ModeSet(self.0 & !b.0)
+    }
+}
+
+impl PartialOrd for ModeSet {
+    fn partial_cmp(&self, b: &Self) -> Option<std::cmp::Ordering> {
+        let intersect = self.intersection(*b);
+        match (intersect == *self, intersect == *b) {
+            (true, false) => Some(std::cmp::Ordering::Less),
+            (false, true) => Some(std::cmp::Ordering::Greater),
+            (true, true) => Some(std::cmp::Ordering::Equal),
+            (false, false) => None
+        }
+    }
+}
+
+impl std::fmt::Display for ModeSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for mode in self {
+            f.write_char(mode.into_char())?;
+        }
+        Ok(())
+    }
 }
 
 impl IntoIterator for ModeSet {
@@ -194,15 +228,6 @@ impl std::fmt::Debug for ModeSet {
     }
 }
 
-impl std::fmt::Display for ModeSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for mode in self {
-            f.write_char(mode.into_char())?;
-        }
-        Ok(())
-    }
-}
-
 /// Iterator over [`ModeSet`]s.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct ModeSetIter(u64);
@@ -238,5 +263,280 @@ impl DoubleEndedIterator for ModeSetIter {
 
 impl FusedIterator for ModeSetIter {}
 impl ExactSizeIterator for ModeSetIter {}
+
+/// The various types of (channel) modes.
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum ModeType {
+    // WARNING: Later transmutation of ints back into these variants!
+    /// Type A modes, the list modes.
+    TypeA = 0,
+    /// Type B modes, the parameterized modes that require a parameter to unset.
+    TypeB,
+    /// Type C modes, the parameterized modes.
+    TypeC,
+    /// Type D modes, the unitary modes.
+    #[default]
+    TypeD,
+    /// Channel status modes.
+    Status
+}
+
+impl ModeType {
+    pub(self) fn index(self) -> usize {
+        (self as u8) as usize
+    }
+    /// Returns `true` if this mode can be meaningfully set multiple times.
+    pub fn is_listlike(self) -> bool {
+        matches!(self, Self::TypeA | Self::Status)
+    }
+    /// Returns `true` if a mode of this type needs an argument to be set.
+    pub fn needs_arg_to_set(self) -> bool {
+        !matches!(self, Self::TypeD)
+    }
+    /// Returns `true` if a mode of this type needs an argument to be unset.
+    pub fn needs_arg_to_unset(self) -> bool {
+        matches!(self, Self::TypeA | Self::TypeB | Self::Status)
+    }
+}
+
+/// A map of the non-status modes to their [`ModeType`]s.
+///
+/// This type explicitly excludes status modes.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub struct ModeTypes([ModeSet; 4]);
+
+impl ModeTypes {
+    /// Returns a new, empty `ModeTypes`.
+    pub const fn new() -> Self {
+        ModeTypes([ModeSet::new(); 4])
+    }
+    /// Returns a `ModeTypes` constructed from one set of modes of a given [`ModeType`].
+    pub fn from_set(set: ModeSet, mode_type: ModeType) -> Self {
+        match mode_type {
+            ModeType::TypeA => ModeTypes([set, ModeSet::new(), ModeSet::new(), ModeSet::new()]),
+            ModeType::TypeB => ModeTypes([ModeSet::new(), set, ModeSet::new(), ModeSet::new()]),
+            ModeType::TypeC => ModeTypes([ModeSet::new(), ModeSet::new(), set, ModeSet::new()]),
+            ModeType::TypeD => ModeTypes([ModeSet::new(), ModeSet::new(), ModeSet::new(), set]),
+            _ => ModeTypes::new()
+        }
+    }
+    /// Returns a `ModeTypes` constructed from the provided sets.
+    ///
+    /// To ensure coherence, any overlaps between sets are removed
+    /// and returned as a separate set. Use [`insert_set()`][Self::insert_set] to add them back.
+    pub fn from_sets(a: ModeSet, b: ModeSet, c: ModeSet, d: ModeSet) -> (Self, ModeSet) {
+        let mut overlap = a.intersection(b);
+        overlap = overlap.union(b.intersection(c));
+        overlap = overlap.union(c.intersection(d));
+        overlap = overlap.union(b.intersection(d));
+        overlap = overlap.union(c.intersection(d));
+        (
+            ModeTypes([
+                a.difference(overlap),
+                b.difference(overlap),
+                c.difference(overlap),
+                d.difference(overlap),
+            ]),
+            overlap,
+        )
+    }
+    /// Parses a string as if it's the value of a `CHANMODES` ISUPPORT token.
+    ///
+    /// This function is deliberately permissive to support mode strings with modes that are not
+    /// valid [`Mode`]s.
+    ///
+    /// In addition to `Self`, returns the rest of the mode string if there are additional
+    /// mode types beyond what this type supports.
+    /// It also returns any overlapping modes as [`from_sets`][Self::from_sets].
+    pub fn parse(mut bytes: &[u8]) -> (Self, ModeSet, &[u8]) {
+        let mut sets = [ModeSet::new(); 4];
+        let mut set_iter = sets.iter_mut();
+        let mut set = set_iter.next().unwrap();
+        while let Some((byte, rest)) = bytes.split_first() {
+            let byte = *byte;
+            bytes = rest;
+            if byte == b',' {
+                let Some(next_set) = set_iter.next() else {
+                    break;
+                };
+                set = next_set;
+            } else if let Some(mode) = Mode::new(byte) {
+                set.set(mode);
+            }
+        }
+        let [a, b, c, d] = sets;
+        let (retval, overlap) = Self::from_sets(a, b, c, d);
+        (retval, overlap, bytes)
+    }
+    /// Returns the [`ModeType`] the provided mode, if known.
+    pub fn get(&self, mode: Mode) -> Option<ModeType> {
+        for value in [3u8, 0u8, 1u8, 2u8] {
+            if self.0[value as usize].contains(mode) {
+                // Safety: The values are a subset of valid values for ModeType.
+                return Some(unsafe { std::mem::transmute(value)});
+            }
+        }
+        None
+    }
+    /// Sets the provided [`Mode`]'s [`ModeType`].
+    pub fn insert(&mut self, mode: Mode, mode_type: ModeType) {
+        for (idx, set) in self.0.iter_mut().enumerate() {
+            if idx != mode_type.index() {
+                set.unset(mode);
+            } else {
+                set.set(mode);
+            }
+        }
+    }
+    /// Sets the [`ModeType`] for all the modes in the provided [`ModeSet`].
+    pub fn insert_set(&mut self, mode_set: ModeSet, mode_type: ModeType) {
+        for (idx, set) in self.0.iter_mut().enumerate() {
+            if idx != mode_type.index() {
+                *set = set.difference(mode_set);
+            } else {
+                *set = set.union(mode_set);
+            }
+        }
+    }
+}
+
+// TODO: PartialOrd
+
+impl std::fmt::Display for ModeTypes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [a, b, c, d] = self.0;
+        write!(f, "{a},{b},{c},{d}")
+    }
+}
+
+/// A bidirectional map of status modes; list-like modes that can be applied to strings.
+///
+/// This type assumes single-byte status prefixes in ASCII.
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)] // TODO: Manual impl PartialOrd.
+pub struct StatusModes {
+    map: Vec<(Mode, u8)>
+}
+
+impl StatusModes {
+    /// Creates a new empty `StatusModes`.
+    pub const fn new() -> Self {
+        StatusModes { map: Vec::new() }
+    }
+    /// Parse `self` from the value of the `PREFIX` ISUPPORT token.
+    pub fn parse(arg: &[u8]) -> Result<Self, ParseError> {
+        let Some((b'(', arg)) = arg.split_first() else {
+            return Err(ParseError::InvalidField(
+                "PREFIX value".into(),
+                "missing leading '('".into()
+            ));
+        };
+        let mut splitter = arg.splitn(2, |c| *c == b')');
+        let Some(modes) = splitter.next() else {
+            return Err(ParseError::InvalidField(
+                "PREFIX value".into(),
+                "empty string after '('".into()
+            ));
+        };
+        let Some(prefixes) = splitter.next() else {
+            return Err(ParseError::InvalidField(
+                "PREFIX value".into(),
+                "empty string after ')'".into()
+            ));
+        };
+        let mut map = Vec::with_capacity(modes.len());
+        let mut skip_prefixes = false;
+        let mut mode_iter = modes.iter().copied();
+        let mut prefix_iter = prefixes.iter().copied();
+        loop {
+            let prefix = if !skip_prefixes {
+                prefix_iter.next().filter(u8::is_ascii).unwrap_or_else(|| {
+                    skip_prefixes = true;
+                    b'\0'
+                })
+            } else {
+                b'\0'
+            };
+            let Some(mode) = mode_iter.next() else {
+                break;
+            };
+            let Some(mode) = Mode::new(mode) else {
+                continue;
+            };
+            for (mode_b, prefix_b) in map.iter().copied() {
+                if mode == mode_b {
+                    return Err(ParseError::InvalidField(
+                        "PREFIX value".into(),
+                        format!("duplicate mode `{mode}`").into()
+                    ));
+                }
+                if prefix == prefix_b {
+                    return Err(ParseError::InvalidField(
+                        "PREFIX value".into(),
+                        format!("duplicate prefix `{}`", prefix.escape_ascii()).into()
+                    ));
+                }
+            }
+            map.push((mode, prefix))
+        }
+        Ok(StatusModes {map})
+    }
+    /// Returns `true` if `self` contains a mapping for the provided mode letter.
+    pub fn contains(&self, mode: Mode) -> bool {
+        self.map.iter().any(|(k, _)| *k == mode)
+    }
+    // TODO: Iter, lookup methods.
+}
+
+/// The available channel modes on a server.
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
+pub struct ServerChanModes {
+    nonstatus: ModeTypes,
+    status: StatusModes,
+    overlap: ModeSet,
+    extra: Vec<ModeSet>
+}
+
+impl ServerChanModes {
+    /// Parse an instance of `self` from ISUPPORT tokens.
+    pub fn from_isupport<T>(isupport: &NameMap<ISupport, T>) -> Self {
+        use crate::names::isupport::{CHANMODES, PREFIX};
+        let (nonstatus, overlap, extra) = if let Some((_, raw)) = isupport.get_union(CHANMODES) {
+            let (nonstatus, overlap, mut extra_raw) = ModeTypes::parse(raw.as_bytes());
+            let mut extra = Vec::new();
+            let mut set = ModeSet::new();
+            while let Some((byte, rest)) = extra_raw.split_first() {
+                let byte = *byte;
+                extra_raw = rest;
+                if byte == b',' {
+                    extra.push(std::mem::take(&mut set));
+                } else if let Some(mode) = Mode::new(byte) {
+                    set.set(mode);
+                }
+            }
+            if !set.is_empty() {
+                extra.push(set);
+            }
+            (nonstatus, overlap, extra)
+        } else {
+            (ModeTypes::new(), ModeSet::new(), Vec::new())
+        };
+        let status = if let Some((_, raw)) = isupport.get_union(PREFIX) {
+            // TODO: Log error.
+            StatusModes::parse(raw.as_bytes()).unwrap_or_default()
+        } else {
+            StatusModes::new()
+        };
+        ServerChanModes { nonstatus, status, overlap, extra }
+    }
+    /// Returns the [`ModeType`] the provided mode, if known.
+    pub fn get(&self, mode: Mode) -> Option<ModeType> {
+        if self.status.contains(mode) {
+            Some(ModeType::Status)
+        } else {
+            self.nonstatus.get(mode)
+        }
+    }
+}
 
 // TODO: ModeMap.

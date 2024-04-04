@@ -67,6 +67,14 @@ pub struct NameMap<K: NameClass, V: 'static = ()> {
 
 macro_rules! tagmap_methods {
     ($field:tt) => {
+        #[doc = "Returns a shared reference to the union containing `tag`, if any."]
+        pub fn get_union<T: Name<K>>(&self, tag: T) -> Option<&K::Union<'static>> {
+            self.get_union_raw(tag.as_raw())
+        }
+        #[doc = "Returns a shared reference to the union containing `tag`, if any."]
+        pub fn get_union_raw(&self, tag: &K::Raw<'_>) -> Option<&K::Union<'static>> {
+            Some(&self.$field.get(tag.borrow())?.0)
+        }
         #[doc = "Returns a shared reference to the extra value for `tag`, if any."]
         pub fn get_extra_raw(&self, tag: &K::Raw<'_>) -> Option<&V> {
             Some(&self.$field.get(tag.borrow())?.1)
