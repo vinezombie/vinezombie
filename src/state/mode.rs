@@ -4,7 +4,10 @@ use std::{
     num::{NonZeroU64, NonZeroU8},
 };
 
-use crate::{error::ParseError, names::{ISupport, NameMap}};
+use crate::{
+    error::ParseError,
+    names::{ISupport, NameMap},
+};
 
 /// A single mode letter.
 ///
@@ -178,7 +181,7 @@ impl PartialOrd for ModeSet {
             (true, false) => Some(std::cmp::Ordering::Less),
             (false, true) => Some(std::cmp::Ordering::Greater),
             (true, true) => Some(std::cmp::Ordering::Equal),
-            (false, false) => None
+            (false, false) => None,
         }
     }
 }
@@ -279,7 +282,7 @@ pub enum ModeType {
     #[default]
     TypeD,
     /// Channel status modes.
-    Status
+    Status,
 }
 
 impl ModeType {
@@ -318,7 +321,7 @@ impl ModeTypes {
             ModeType::TypeB => ModeTypes([ModeSet::new(), set, ModeSet::new(), ModeSet::new()]),
             ModeType::TypeC => ModeTypes([ModeSet::new(), ModeSet::new(), set, ModeSet::new()]),
             ModeType::TypeD => ModeTypes([ModeSet::new(), ModeSet::new(), ModeSet::new(), set]),
-            _ => ModeTypes::new()
+            _ => ModeTypes::new(),
         }
     }
     /// Returns a `ModeTypes` constructed from the provided sets.
@@ -374,7 +377,7 @@ impl ModeTypes {
         for value in [3u8, 0u8, 1u8, 2u8] {
             if self.0[value as usize].contains(mode) {
                 // Safety: The values are a subset of valid values for ModeType.
-                return Some(unsafe { std::mem::transmute(value)});
+                return Some(unsafe { std::mem::transmute(value) });
             }
         }
         None
@@ -415,7 +418,7 @@ impl std::fmt::Display for ModeTypes {
 /// This type assumes single-byte status prefixes in ASCII.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)] // TODO: Manual impl PartialOrd.
 pub struct StatusModes {
-    map: Vec<(Mode, u8)>
+    map: Vec<(Mode, u8)>,
 }
 
 impl StatusModes {
@@ -428,20 +431,20 @@ impl StatusModes {
         let Some((b'(', arg)) = arg.split_first() else {
             return Err(ParseError::InvalidField(
                 "PREFIX value".into(),
-                "missing leading '('".into()
+                "missing leading '('".into(),
             ));
         };
         let mut splitter = arg.splitn(2, |c| *c == b')');
         let Some(modes) = splitter.next() else {
             return Err(ParseError::InvalidField(
                 "PREFIX value".into(),
-                "empty string after '('".into()
+                "empty string after '('".into(),
             ));
         };
         let Some(prefixes) = splitter.next() else {
             return Err(ParseError::InvalidField(
                 "PREFIX value".into(),
-                "empty string after ')'".into()
+                "missing closing ')'".into(),
             ));
         };
         let mut map = Vec::with_capacity(modes.len());
@@ -467,25 +470,36 @@ impl StatusModes {
                 if mode == mode_b {
                     return Err(ParseError::InvalidField(
                         "PREFIX value".into(),
-                        format!("duplicate mode `{mode}`").into()
+                        format!("duplicate mode `{mode}`").into(),
                     ));
                 }
                 if prefix == prefix_b {
                     return Err(ParseError::InvalidField(
                         "PREFIX value".into(),
-                        format!("duplicate prefix `{}`", prefix.escape_ascii()).into()
+                        format!("duplicate prefix `{}`", prefix.escape_ascii()).into(),
                     ));
                 }
             }
             map.push((mode, prefix))
         }
-        Ok(StatusModes {map})
+        Ok(StatusModes { map })
     }
     /// Returns `true` if `self` contains a mapping for the provided mode letter.
     pub fn contains(&self, mode: Mode) -> bool {
-        self.map.iter().any(|(k, _)| *k == mode)
+        self.map.iter().any(|(m, _)| *m == mode)
     }
-    // TODO: Iter, lookup methods.
+    /// Retrieves the prefix for a provided mode.
+    ///
+    /// Note that this potential returns `Some` for on a subset of values
+    /// for which [`contains`][Self::contains] returns `true`.
+    pub fn get_prefix(&self, mode: Mode) -> Option<NonZeroU8> {
+        self.map.iter().find(|(m, _)| *m == mode).and_then(|(_, p)| NonZeroU8::new(*p))
+    }
+    /// Retrieves the mode for a provided status prefix.
+    pub fn get_mode(&self, prefix: NonZeroU8) -> Option<Mode> {
+        self.map.iter().find(|(_, p)| *p == prefix.get()).map(|pair| pair.0)
+    }
+    // TODO: Iter, ordering lookup methods.
 }
 
 /// The available channel modes on a server.
@@ -494,7 +508,7 @@ pub struct ServerChanModes {
     nonstatus: ModeTypes,
     status: StatusModes,
     overlap: ModeSet,
-    extra: Vec<ModeSet>
+    extra: Vec<ModeSet>,
 }
 
 impl ServerChanModes {
