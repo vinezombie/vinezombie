@@ -1,8 +1,8 @@
 //! Client and server commands.
 
-use super::{ClientMsgKind, Name, ServerMsgKind};
-use crate::ircmsg::ServerMsgKindRaw;
-use crate::string::{Bytes, Cmd};
+use super::{ClientMsgKind, Name, NameValued, ServerMsgKind};
+use crate::ircmsg::{ClientMsg, ServerMsg, ServerMsgKindRaw, TargetedMsg};
+use crate::string::{Bytes, Cmd, Line};
 
 macro_rules! defn_cmd {
     ($cmd:ident) => {
@@ -194,4 +194,80 @@ defn_cmd_both! {
     TOPIC
     VERIFY
     WALLOPS
+}
+
+macro_rules! basic_unary {
+    ($name:ident: $target_pat:pat => $target_val:expr) => {
+        impl NameValued<ServerMsgKind> for $name {
+            type Value<'a> = TargetedMsg<'a, Line<'a>>;
+
+            fn from_union<'a>(
+                input: &<ServerMsgKind as super::NameClass>::Union<'a>,
+            ) -> Result<Self::Value<'a>, crate::error::ParseError> {
+                let ServerMsg { tags, source, args, .. } = input;
+                let ($target_pat, Some(value)) = args.split_last() else {
+                    return Err(crate::error::ParseError::InvalidField(
+                        concat!(stringify!($name), " args").into(),
+                        "invalid arguments".into(),
+                    ));
+                };
+                Ok(TargetedMsg {
+                    tags: tags.clone(),
+                    source: source.clone(),
+                    target: $target_val,
+                    value: value.clone(),
+                })
+            }
+        }
+        impl NameValued<ClientMsgKind> for $name {
+            type Value<'a> = TargetedMsg<'a, Line<'a>>;
+
+            fn from_union<'a>(
+                input: &<ClientMsgKind as super::NameClass>::Union<'a>,
+            ) -> Result<Self::Value<'a>, crate::error::ParseError> {
+                let ClientMsg { tags, args, .. } = input;
+                let ($target_pat, Some(value)) = args.split_last() else {
+                    return Err(crate::error::ParseError::InvalidField(
+                        concat!(stringify!($name), " args").into(),
+                        "invalid arguments".into(),
+                    ));
+                };
+                Ok(TargetedMsg {
+                    tags: tags.clone(),
+                    source: None,
+                    target: $target_val,
+                    value: value.clone(),
+                })
+            }
+        }
+    };
+}
+
+basic_unary!(NOTICE: [target] => target.clone());
+basic_unary!(PART: [target] => target.clone());
+basic_unary!(PRIVMSG: [target] => target.clone());
+basic_unary!(QUIT: [] => crate::names::STAR.into());
+basic_unary!(TOPIC: [target] => target.clone());
+basic_unary!(WALLOPS: [] => crate::names::STAR.into());
+
+impl NameValued<ServerMsgKind> for JOIN {
+    type Value<'a> = TargetedMsg<'a, ()>;
+
+    fn from_union<'a>(
+        input: &<ServerMsgKind as super::NameClass>::Union<'a>,
+    ) -> Result<Self::Value<'a>, crate::error::ParseError> {
+        let ServerMsg { tags, source, args, .. } = input;
+        let Some([target]) = args.all() else {
+            return Err(crate::error::ParseError::InvalidField(
+                concat!(stringify!($name), " args").into(),
+                "invalid arguments".into(),
+            ));
+        };
+        Ok(TargetedMsg {
+            tags: tags.clone(),
+            source: source.clone(),
+            target: target.clone(),
+            value: (),
+        })
+    }
 }

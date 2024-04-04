@@ -480,7 +480,7 @@ impl StatusModes {
                     ));
                 }
             }
-            map.push((mode, prefix))
+            map.push((mode, prefix));
         }
         Ok(StatusModes { map })
     }

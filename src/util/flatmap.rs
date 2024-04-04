@@ -170,6 +170,9 @@ impl<E, X: KeyExtractor<E>> FlatMap<E, X> {
     pub const fn new() -> Self {
         FlatMap(Vec::new(), std::marker::PhantomData)
     }
+    pub fn singleton(elem: E) -> Self {
+        FlatMap(vec![elem], std::marker::PhantomData)
+    }
     pub fn from_vec(mut vec: Vec<E>) -> Self {
         vec.sort_by(|l, r| X::extract_key(l).cmp(X::extract_key(r)));
         FlatMap(do_dedup::<E, X>(vec), std::marker::PhantomData)
