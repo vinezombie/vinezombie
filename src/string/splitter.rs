@@ -114,9 +114,8 @@ impl<T> Splitter<T> {
 }
 
 impl<T: AsRef<[u8]>> Splitter<T> {
-    /// Checks `self`'s UTF-8 validity.
-    pub fn check_encoding(&mut self) -> Result<(), std::str::Utf8Error> {
-        if self.range.encoding < Encoding::Ascii {
+    fn check_encoding_inner(&mut self, accept: Encoding) -> Result<(), std::str::Utf8Error> {
+        if self.range.encoding < accept {
             let slice = self.range.constrain(self.as_ref());
             let idx = slice.iter().position(|c| !c.is_ascii());
             self.range.encoding = if let Some(idx) = idx {
@@ -129,13 +128,17 @@ impl<T: AsRef<[u8]>> Splitter<T> {
         }
         Ok(())
     }
+    /// Checks `self`'s UTF-8 validity.
+    pub fn check_encoding(&mut self) -> Result<(), std::str::Utf8Error> {
+        self.check_encoding_inner(Encoding::Ascii)
+    }
     /// View the slice.
     pub fn as_slice(&self) -> &[u8] {
         self.range.constrain(self.string.as_ref())
     }
     /// Gets the next byte without consuming it.
     pub fn peek_byte(&self) -> Option<u8> {
-        self.as_slice().first().cloned()
+        self.as_slice().first().copied()
     }
     /// Gets the next byte.
     pub fn next_byte(&mut self) -> Option<u8> {
@@ -168,14 +171,14 @@ impl<T: AsRef<[u8]>> Splitter<T> {
         }
     }
     /// Truncates the slice after and including the first byte for which `f` returns true.
-    pub fn until<F: FnMut(&u8) -> bool>(&mut self, f: F) -> &mut Self {
+    pub fn until_byte<F: FnMut(&u8) -> bool>(&mut self, f: F) -> &mut Self {
         if let Some(idx) = self.as_slice().iter().position(f) {
             self.range.consume(idx, true);
         }
         self
     }
     /// Truncates the slice after and including the first byte which equals `byte`.
-    pub fn until_byte(&mut self, byte: u8) -> &mut Self {
+    pub fn until_byte_eq(&mut self, byte: u8) -> &mut Self {
         if let Some(idx) = self.as_slice().iter().position(|b| *b == byte) {
             self.range.end = self.range.start + idx;
             if self.range.encoding == Encoding::Utf8 && !byte.is_ascii() {

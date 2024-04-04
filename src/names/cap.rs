@@ -89,7 +89,7 @@ impl NameValued<Cap> for SASL {
         let mut splitter = Splitter::new(mechs_raw.clone());
         let mut names = BTreeSet::new();
         while !splitter.is_empty() {
-            let mut name = splitter.save_end().until_byte(b',').rest_or_default::<Word>();
+            let mut name = splitter.save_end().until_byte_eq(b',').rest_or_default::<Word>();
             if !name.is_empty() {
                 name.transform(AsciiCasemap::<true>);
                 names.insert(name);

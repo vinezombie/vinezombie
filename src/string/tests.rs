@@ -68,7 +68,7 @@ fn splitter_basic() {
 #[test]
 fn splitter_until() {
     let mut splitter = Splitter::new(Line::from_str("foo.bar"));
-    let word: Word = splitter.save_end().until_byte(b'.').string_or_default(true);
+    let word: Word = splitter.save_end().until_byte_eq(b'.').string_or_default(true);
     assert_eq!(word, "foo");
     assert_eq!(splitter.next_byte(), Some(b'.'));
 }

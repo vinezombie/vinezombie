@@ -91,7 +91,7 @@ impl<'a> Tags<'a> {
                 continue;
             };
             let value = if matches!(splitter.next_byte(), Some(b'=')) {
-                let value = splitter.save_end().until_byte(b';').rest::<NoNul>().unwrap();
+                let value = splitter.save_end().until_byte_eq(b';').rest::<NoNul>().unwrap();
                 splitter.next_byte();
                 unescape(value)
             } else {

@@ -93,7 +93,7 @@ impl<'a> Source<'a> {
             Some(b'!') => {
                 let user = word
                     .save_end()
-                    .until_byte(b'@')
+                    .until_byte_eq(b'@')
                     .string::<User>(true)
                     .map_err(ParseError::InvalidUser)?;
                 word.next_byte();
