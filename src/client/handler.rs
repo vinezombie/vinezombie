@@ -30,8 +30,12 @@ pub trait Handler: 'static {
     }
 }
 
-/// No handler was returned because none is needed.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+/// Marker indicating no handler was returned because none is needed.
+///
+/// This is used by some [`MakeHandler`] implementations that may not reasonably
+/// expect a response from the server if certain capabilities are not in use,
+/// usually `labeled-response` and `echo-message`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct NoHandler;
 
 impl std::fmt::Display for NoHandler {
@@ -44,7 +48,8 @@ impl std::error::Error for NoHandler {}
 
 /// Converters for values into [`Handler`]s.
 ///
-/// This exists to allow a reusable set of options to be used
+/// This exists to allow blanket conversions of certain types into handlers,
+/// such as SASL authenticators.
 pub trait MakeHandler<T> {
     /// The type of values yielded by the handler.
     type Value: 'static;
@@ -58,7 +63,7 @@ pub trait MakeHandler<T> {
 
     /// Converts `T` into a [`Handler`] and queues messages.
     fn make_handler(
-        &self,
+        self,
         queue: QueueEditGuard<'_>,
         value: T,
     ) -> Result<impl Handler<Value = Self::Value>, Self::Error>;
@@ -95,7 +100,7 @@ impl<T: SelfMadeHandler> MakeHandler<T> for () {
     type Receiver<Spec: ChannelSpec> = T::Receiver<Spec>;
 
     fn make_handler(
-        &self,
+        self,
         queue: QueueEditGuard<'_>,
         handler: T,
     ) -> Result<impl Handler<Value = Self::Value>, Self::Error> {

@@ -102,7 +102,7 @@ impl<C, A> Client<C, A> {
     pub fn add<T, M: MakeHandler<T>, S: ChannelSpec>(
         &mut self,
         chanspec: &S,
-        make_handler: &M,
+        make_handler: M,
         value: T,
     ) -> Result<(usize, M::Receiver<S>), M::Error> {
         let (send, recv) = M::make_channel(chanspec);
@@ -115,7 +115,7 @@ impl<C, A> Client<C, A> {
     pub fn add_with_sender<T, M: MakeHandler<T>>(
         &mut self,
         sender: std::sync::Arc<dyn channel::Sender<Value = M::Value>>,
-        make_handler: &M,
+        make_handler: M,
         value: T,
     ) -> Result<usize, M::Error> {
         let handler = make_handler.make_handler(self.queue.edit(), value)?;

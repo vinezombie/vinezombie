@@ -35,7 +35,7 @@ async fn main() -> std::io::Result<()> {
     tracing::info!("nick: {}", nick);
     // Let's add a handler to auto-reply to PING messages for us. Most IRC networks need this.
     // Do this before anything else.
-    let _ = client.add(&TokioChannels, &(), AutoPong);
+    let _ = client.add(&TokioChannels, (), AutoPong);
     // Let's join all the channels provided as command-line arguments.
     // This is a VERY crude way of joining multiple channels, but works for illustration
     // of how to construct messages that are less-trivial than a no-argument QUIT message.
@@ -58,7 +58,7 @@ async fn main() -> std::io::Result<()> {
     }
     // We now need to receive PRIVMSGs and send them somewhere for further processing.
     // `YieldParsed` exists exactly for this purpose.
-    let (_, mut msgs) = client.add(&TokioChannels, &(), YieldParsed::just(PRIVMSG)).unwrap();
+    let (_, mut msgs) = client.add(&TokioChannels, (), YieldParsed::just(PRIVMSG)).unwrap();
     // Since we are async, let's do the actual printing in another task, because we can.
     tokio::spawn(async move {
         while let Some(msg) = msgs.recv().await {

@@ -127,7 +127,7 @@ impl<O, A: Sasl> Register<O, A> {
     }
 }
 
-impl<'a, O, A: Sasl> MakeHandler<&'a O> for Register<O, A> {
+impl<'a, O, A: Sasl> MakeHandler<&'a O> for &'a Register<O, A> {
     type Value = Result<Registration, HandlerError>;
 
     type Error = std::io::Error;
@@ -135,7 +135,7 @@ impl<'a, O, A: Sasl> MakeHandler<&'a O> for Register<O, A> {
     type Receiver<Spec: super::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
 
     fn make_handler(
-        &self,
+        self,
         mut queue: super::QueueEditGuard<'_>,
         opts: &'a O,
     ) -> Result<impl super::Handler<Value = Self::Value>, Self::Error> {

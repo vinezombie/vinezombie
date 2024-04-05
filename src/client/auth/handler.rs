@@ -61,7 +61,7 @@ impl std::error::Error for HandlerError {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Authenticate;
 
-impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for Authenticate {
+impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for &'a Authenticate {
     type Value = Result<(), HandlerError>;
 
     type Error = std::io::Error;
@@ -69,7 +69,7 @@ impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for Authenticate {
     type Receiver<Spec: crate::client::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
 
     fn make_handler(
-        &self,
+        self,
         mut queue: crate::client::QueueEditGuard<'_>,
         sasl: &'a T,
     ) -> Result<impl crate::client::Handler<Value = Self::Value>, Self::Error> {
