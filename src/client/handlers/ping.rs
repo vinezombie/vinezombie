@@ -8,7 +8,6 @@ use crate::{
     ircmsg::{ClientMsg, ServerMsg},
     string::Arg,
 };
-use std::sync::Arc;
 use std::time::Instant;
 
 /// [`Handler`] that pings the server and yields the duration it took.
@@ -66,7 +65,7 @@ impl SelfMadeHandler for Ping {
 
     fn make_channel<Spec: ChannelSpec>(
         spec: &Spec,
-    ) -> (Arc<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
         spec.new_oneshot()
     }
 }
@@ -115,7 +114,7 @@ impl SelfMadeHandler for AutoPong {
 
     fn make_channel<Spec: ChannelSpec>(
         _: &Spec,
-    ) -> (Arc<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
-        (Arc::new(crate::client::channel::ClosedSender::default()), ())
+    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+        (Box::<crate::client::channel::ClosedSender<_>>::default(), ())
     }
 }

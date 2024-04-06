@@ -1,8 +1,4 @@
-use std::{
-    collections::VecDeque,
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{collections::VecDeque, time::Duration};
 
 use crate::{
     client::{auth::Clear, channel::SyncChannels, conn::Bidir, new_client},
@@ -21,7 +17,7 @@ fn static_register(msg: &[u8]) -> Result<Registration, HandlerError> {
     client.queue_mut().set_rate_limit(Duration::ZERO, 1);
     let (_, reg) = client.add(&SyncChannels, &reg, &options).unwrap();
     client.run().unwrap();
-    Arc::into_inner(reg).and_then(OnceLock::into_inner).unwrap()
+    reg.0.recv_nonblocking().unwrap()
 }
 
 #[test]

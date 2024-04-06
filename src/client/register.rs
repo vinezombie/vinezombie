@@ -12,10 +12,7 @@ use crate::{
     ircmsg::ClientMsg,
     string::{Arg, Key, Line, Nick, User},
 };
-use std::{
-    collections::{BTreeSet, VecDeque},
-    sync::Arc,
-};
+use std::collections::{BTreeSet, VecDeque};
 
 /// An iterator of references to [`Sasl`]s and indicator of whether SASL is required.
 pub type SaslOptions<'a, A> = (Box<dyn Iterator<Item = &'a A> + 'a>, bool);
@@ -144,7 +141,7 @@ impl<'a, O, A: Sasl> MakeHandler<&'a O> for &'a Register<O, A> {
 
     fn make_channel<Spec: super::channel::ChannelSpec>(
         spec: &Spec,
-    ) -> (Arc<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
         spec.new_oneshot()
     }
 }

@@ -1,5 +1,3 @@
-use std::sync::{Arc, OnceLock};
-
 use vinezombie::{
     client::{
         self,
@@ -47,7 +45,9 @@ fn main() -> std::io::Result<()> {
     // but we're only running one handler that always yields one value on completion,
     // so we can ignore it.
     client.run()?;
-    let reg = Arc::into_inner(reg_result).and_then(OnceLock::into_inner).unwrap()?;
+    // If we're here, the handler finished and gave us a value back.
+    // Let's fetch it and see what it is!
+    let reg = reg_result.0.recv_nonblocking().unwrap()?;
     // Connection registration is done!
     // But how does the network we connected to choose to name itself?
     // ISUPPORT is vital for understanding the capabilities of the target network,

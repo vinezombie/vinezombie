@@ -2,7 +2,6 @@ pub mod channel;
 
 use super::{Queue, QueueEditGuard};
 use crate::ircmsg::ServerMsg;
-use std::sync::Arc;
 
 use channel::*;
 
@@ -73,7 +72,7 @@ pub trait MakeHandler<T> {
     /// This typically just calls one method of the provided [`ChannelSpec`].
     fn make_channel<Spec: ChannelSpec>(
         spec: &Spec,
-    ) -> (Arc<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>);
+    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>);
 }
 
 /// Handlers that can be used directly without any further options.
@@ -89,7 +88,7 @@ pub trait SelfMadeHandler: Handler {
     /// This typically just calls one method of the provided [`ChannelSpec`].
     fn make_channel<Spec: ChannelSpec>(
         spec: &Spec,
-    ) -> (Arc<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>);
+    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>);
 }
 
 impl<T: SelfMadeHandler> MakeHandler<T> for () {
@@ -110,7 +109,7 @@ impl<T: SelfMadeHandler> MakeHandler<T> for () {
 
     fn make_channel<Spec: ChannelSpec>(
         spec: &Spec,
-    ) -> (Arc<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
         T::make_channel(spec)
     }
 }
@@ -125,12 +124,11 @@ enum HandlerStatus {
 
 fn box_handler<T: 'static>(
     mut handler: impl Handler<Value = T>,
-    sender: Arc<dyn Sender<Value = T>>,
+    mut sender: Box<dyn Sender<Value = T>>,
 ) -> BoxHandler {
-    let mut sender = Some(sender);
     Box::new(move |msg, queue| {
         let mut yielded = false;
-        let sr = SenderRef { sender: &mut sender, flag: &mut yielded };
+        let sr = SenderRef { sender: &mut *sender, flag: &mut yielded };
         if handler.handle(msg, queue, sr) {
             HandlerStatus::Done { yielded }
         } else {
@@ -161,7 +159,7 @@ impl Handlers {
     pub fn add<T: 'static>(
         &mut self,
         handler: impl Handler<Value = T>,
-        sender: Arc<dyn Sender<Value = T>>,
+        sender: Box<dyn Sender<Value = T>>,
     ) -> usize {
         self.wants_owning |= handler.wants_owning();
         let id = self.finished.pop().unwrap_or(self.handlers.len());

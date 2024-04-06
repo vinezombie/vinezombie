@@ -25,7 +25,7 @@ impl Handler for YieldAll {
         mut channel: super::channel::SenderRef<'_, Self::Value>,
     ) -> bool {
         channel.send(msg.clone().owning());
-        !channel.can_send()
+        !channel.may_send()
     }
 
     fn wants_owning(&self) -> bool {
@@ -40,8 +40,7 @@ impl SelfMadeHandler for YieldAll {
 
     fn make_channel<Spec: super::channel::ChannelSpec>(
         spec: &Spec,
-    ) -> (std::sync::Arc<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>)
-    {
+    ) -> (Box<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
         spec.new_queue()
     }
 }
@@ -131,8 +130,7 @@ impl<T: 'static> SelfMadeHandler for YieldParsed<T> {
 
     fn make_channel<Spec: super::channel::ChannelSpec>(
         spec: &Spec,
-    ) -> (std::sync::Arc<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>)
-    {
+    ) -> (Box<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
         spec.new_queue()
     }
 }

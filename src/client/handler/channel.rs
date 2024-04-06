@@ -2,8 +2,6 @@
 //!
 //! No relation to IRC channels.
 
-use std::sync::Arc;
-
 /// Send halves of non-blocking channels
 pub trait Sender {
     /// The type of values consumed by this channel.
@@ -11,8 +9,8 @@ pub trait Sender {
 
     /// Attempts to send a value over the channel.
     ///
-    /// This function must never block.
-    fn send(self: Arc<Self>, value: Self::Value) -> SendCont<Self::Value>;
+    /// This function must never block, as if may be called from async contexts.
+    fn send(&mut self, value: Self::Value) -> SendCont;
 
     /// Returns whether attempting to send a value may succeed.
     ///
@@ -24,19 +22,20 @@ pub trait Sender {
 }
 
 /// The outcome of attempting to send a message via a [`Sender`].
-#[derive(Clone)]
-pub enum SendCont<T> {
-    /// The message was sent.
-    Sent(Arc<dyn Sender<Value = T>>),
-    /// The message was sent, but the channel accepts no further messages.
-    SentClosed,
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[repr(u8)]
+pub enum SendCont {
     /// The message was not sent and the channel accepts no further messages.
     Closed,
+    /// The message was sent, but the channel accepts no further messages.
+    SentClosed,
+    /// The message was sent.
+    Sent,
 }
 
 /// The sender half of channel as provided to a handler.
 pub struct SenderRef<'a, T> {
-    pub(super) sender: &'a mut Option<Arc<dyn Sender<Value = T>>>,
+    pub(super) sender: &'a mut dyn Sender<Value = T>,
     pub(super) flag: &'a mut bool,
 }
 
@@ -46,21 +45,14 @@ impl<'a, T> SenderRef<'a, T> {
     /// Returns `true` if the value sent successfully, otherwise returns `false`.
     /// This return value can often be safely ignored.
     pub fn send(&mut self, value: T) -> bool {
-        if let Some(sender) = self.sender.take() {
-            let result = sender.send(value);
-            let success = !matches!(result, SendCont::Closed);
-            *self.flag |= success;
-            if let SendCont::Sent(cont) = result {
-                *self.sender = Some(cont);
-            }
-            success
-        } else {
-            false
-        }
+        let result = self.sender.send(value);
+        let success = !matches!(result, SendCont::Closed);
+        *self.flag |= success;
+        success
     }
     /// Returns `false` if a later send operation is guaranteed to fail.
-    pub fn can_send(&self) -> bool {
-        self.sender.is_some()
+    pub fn may_send(&self) -> bool {
+        self.sender.may_send()
     }
 }
 
@@ -71,7 +63,7 @@ pub struct ClosedSender<T>(std::marker::PhantomData<fn(T)>);
 impl<T> Sender for ClosedSender<T> {
     type Value = T;
 
-    fn send(self: Arc<Self>, _value: T) -> SendCont<Self::Value> {
+    fn send(&mut self, _value: T) -> SendCont {
         SendCont::Closed
     }
 
@@ -83,33 +75,9 @@ impl<T> Sender for ClosedSender<T> {
 impl<T: 'static> Sender for std::sync::mpsc::Sender<T> {
     type Value = T;
 
-    fn send(self: Arc<Self>, value: T) -> SendCont<Self::Value> {
+    fn send(&mut self, value: T) -> SendCont {
         if std::sync::mpsc::Sender::send(&*self, value).is_ok() {
-            SendCont::Sent(self)
-        } else {
-            SendCont::Closed
-        }
-    }
-}
-
-impl<T> Sender for std::sync::OnceLock<T> {
-    type Value = T;
-
-    fn send(self: Arc<Self>, value: Self::Value) -> SendCont<Self::Value> {
-        if self.set(value).is_ok() {
-            SendCont::SentClosed
-        } else {
-            SendCont::Closed
-        }
-    }
-}
-
-impl<T> Sender for std::cell::OnceCell<T> {
-    type Value = T;
-
-    fn send(self: Arc<Self>, value: Self::Value) -> SendCont<Self::Value> {
-        if self.set(value).is_ok() {
-            SendCont::SentClosed
+            SendCont::Sent
         } else {
             SendCont::Closed
         }
@@ -117,11 +85,11 @@ impl<T> Sender for std::cell::OnceCell<T> {
 }
 
 #[cfg(feature = "tokio")]
-impl<T> Sender for tokio::sync::oneshot::Sender<T> {
+impl<T> Sender for Option<tokio::sync::oneshot::Sender<T>> {
     type Value = T;
 
-    fn send(self: Arc<Self>, value: Self::Value) -> SendCont<Self::Value> {
-        if let Some(sender) = Arc::into_inner(self) {
+    fn send(&mut self, value: Self::Value) -> SendCont {
+        if let Some(sender) = self.take() {
             if sender.send(value).is_ok() {
                 return SendCont::SentClosed;
             }
@@ -134,9 +102,9 @@ impl<T> Sender for tokio::sync::oneshot::Sender<T> {
 impl<T: 'static> Sender for tokio::sync::mpsc::UnboundedSender<T> {
     type Value = T;
 
-    fn send(self: Arc<Self>, value: T) -> SendCont<Self::Value> {
+    fn send(&mut self, value: T) -> SendCont {
         if tokio::sync::mpsc::UnboundedSender::send(&*self, value).is_ok() {
-            SendCont::Sent(self)
+            SendCont::Sent
         } else {
             SendCont::Closed
         }
@@ -147,10 +115,10 @@ impl<T: 'static> Sender for tokio::sync::mpsc::UnboundedSender<T> {
 impl<T: 'static> Sender for tokio::sync::mpsc::WeakUnboundedSender<T> {
     type Value = T;
 
-    fn send(self: Arc<Self>, value: T) -> SendCont<Self::Value> {
+    fn send(&mut self, value: T) -> SendCont {
         if let Some(sender) = self.upgrade() {
             if sender.send(value).is_ok() {
-                return SendCont::Sent(self);
+                return SendCont::Sent;
             }
         }
         SendCont::Closed
@@ -167,10 +135,10 @@ pub trait ChannelSpec {
     type Queue<T>;
 
     /// Creates a new oneshot channel, the sender half of which is boxed.
-    fn new_oneshot<T: 'static>(&self) -> (Arc<dyn Sender<Value = T>>, Self::Oneshot<T>);
+    fn new_oneshot<T: 'static>(&self) -> (Box<dyn Sender<Value = T>>, Self::Oneshot<T>);
 
     /// Creates a new queue channel, the sender half of which is boxed.
-    fn new_queue<T: 'static>(&self) -> (Arc<dyn Sender<Value = T>>, Self::Queue<T>);
+    fn new_queue<T: 'static>(&self) -> (Box<dyn Sender<Value = T>>, Self::Queue<T>);
 }
 
 /// [`ChannelSpec`] for thread-safe synchronous channels.
@@ -180,19 +148,19 @@ pub struct SyncChannels;
 pub struct TokioChannels;
 
 impl ChannelSpec for SyncChannels {
-    type Oneshot<T> = std::sync::Arc<std::sync::OnceLock<T>>;
+    type Oneshot<T> = (self::oneshot::Receiver<T>, self::parker::Parker);
 
     type Queue<T> = std::sync::mpsc::Receiver<T>;
 
-    fn new_oneshot<T: 'static>(&self) -> (Arc<dyn Sender<Value = T>>, Self::Oneshot<T>) {
-        let cell = std::sync::Arc::new(std::sync::OnceLock::new());
-        let cellb = cell.clone();
-        (cellb, cell)
+    fn new_oneshot<T: 'static>(&self) -> (Box<dyn Sender<Value = T>>, Self::Oneshot<T>) {
+        let (send, recv) = self::oneshot::channel();
+        let (unparker, parker) = self::parker::new(Some(send));
+        (Box::new(unparker), (recv, parker))
     }
 
-    fn new_queue<T: 'static>(&self) -> (Arc<dyn Sender<Value = T>>, Self::Queue<T>) {
+    fn new_queue<T: 'static>(&self) -> (Box<dyn Sender<Value = T>>, Self::Queue<T>) {
         let (send, recv) = std::sync::mpsc::channel();
-        (Arc::new(send), recv)
+        (Box::new(send), recv)
     }
 }
 
@@ -202,13 +170,179 @@ impl ChannelSpec for TokioChannels {
 
     type Queue<T> = tokio::sync::mpsc::UnboundedReceiver<T>;
 
-    fn new_oneshot<T: 'static>(&self) -> (Arc<dyn Sender<Value = T>>, Self::Oneshot<T>) {
+    fn new_oneshot<T: 'static>(&self) -> (Box<dyn Sender<Value = T>>, Self::Oneshot<T>) {
         let (send, recv) = tokio::sync::oneshot::channel();
-        (Arc::new(send), recv)
+        (Box::new(Some(send)), recv)
     }
 
-    fn new_queue<T: 'static>(&self) -> (Arc<dyn Sender<Value = T>>, Self::Queue<T>) {
+    fn new_queue<T: 'static>(&self) -> (Box<dyn Sender<Value = T>>, Self::Queue<T>) {
         let (send, recv) = tokio::sync::mpsc::unbounded_channel();
-        (Arc::new(send), recv)
+        (Box::new(send), recv)
+    }
+}
+
+pub mod parker {
+    //! Utilities for temporarily parking threads, awaiting some activity on another thread.
+    //!
+    //! These can be used to turn non-blocking channels into blocking ones in synchronous code.
+    //! They are designed for mpsc usecases, allowing multiple threads to unpark one thread.
+
+    use std::mem::ManuallyDrop;
+    use std::sync::{Arc, Mutex, Weak};
+    use std::thread::Thread;
+
+    /// A wrapped [`Sender`][super::Sender] that can unpark a thread blocked by a [`Parker`].
+    #[derive(Clone, Debug, Default)]
+    pub struct Unparker<S>(S, ManuallyDrop<Arc<Mutex<Option<Thread>>>>);
+    /// A synchronization primitive for parking the thread indefinitely pending activity
+    /// on a thread with an [`Unparker`].
+    #[derive(Debug)]
+    pub struct Parker(Weak<Mutex<Option<Thread>>>);
+
+    /// Creates a new [`Unparker`] from the provided sender,
+    /// also returning a [`Parker`] for that unparker.
+    pub fn new<S>(sender: S) -> (Unparker<S>, Parker) {
+        let arc = Arc::new(Mutex::new(None));
+        let weak = Arc::downgrade(&arc);
+        (Unparker(sender, ManuallyDrop::new(arc)), Parker(weak))
+    }
+
+    impl<S> Drop for Unparker<S> {
+        fn drop(&mut self) {
+            let arc = unsafe { ManuallyDrop::take(&mut self.1) };
+            if let Some(handle) = Arc::into_inner(arc).and_then(|m| m.into_inner().unwrap()) {
+                handle.unpark();
+            }
+        }
+    }
+
+    impl<S> Unparker<S> {
+        /// Unparks a thread that is blocked by a [`Parker`], if any.
+        ///
+        /// This generally doesn't need to be called manually unless `S` is not a sender.
+        pub fn unpark(&self) {
+            if let Some(thread) = self.1.lock().unwrap().take() {
+                thread.unpark();
+            }
+        }
+    }
+
+    impl<S: super::Sender> super::Sender for Unparker<S> {
+        type Value = <S as super::Sender>::Value;
+
+        fn send(&mut self, value: Self::Value) -> super::SendCont {
+            let result = self.0.send(value);
+            if result != super::SendCont::Closed {
+                self.unpark();
+            }
+            result
+        }
+
+        fn may_send(&self) -> bool {
+            self.0.may_send()
+        }
+    }
+
+    impl Parker {
+        /// Block this thread until either all [`Unparker`]s are dropped or
+        /// until one of them unparks this thread.
+        pub fn park(&self) {
+            let Some(strong) = self.0.upgrade() else {
+                return;
+            };
+            *strong.lock().unwrap() = Some(std::thread::current());
+            if Arc::into_inner(strong).is_some() {
+                // Whoops, the last Unparker vanished during this function. Do not park.
+                return;
+            }
+            std::thread::park();
+        }
+    }
+}
+
+pub mod oneshot {
+    //! An implementation of a non-blocking oneshot channel.
+    //!
+    //! This is essentially just a [`OnceLock`][std::sync::OnceLock] in an [`Arc`].
+    //! It offers no means of blocking.
+    //! This makes it safe to use in `async` contexts, but means that users of these types
+    //! need to work out synchronization to prevent premature reads.
+    //!
+    //! Consider using a [`Parker`][super::parker::Parker] if synchronization is needed.
+
+    use super::parker::Parker;
+    use std::sync::{Arc, OnceLock, Weak};
+
+    /// The sender portion of a oneshot channel.
+    #[derive(Clone, Debug)]
+    pub struct Sender<T>(Weak<OnceLock<T>>);
+
+    /// The reciever portion of a oneshot channel.
+    #[derive(Debug)]
+    pub struct Receiver<T>(Arc<OnceLock<T>>);
+
+    /// Creates a new oneshot channel for sending single values.
+    pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
+        let strong = Arc::new(OnceLock::new());
+        let weak = Arc::downgrade(&strong);
+        (Sender(weak), Receiver(strong))
+    }
+
+    impl<T> Sender<T> {
+        /// Returns `true` if sends on this channel are guaranteed to fail.
+        pub fn is_closed(&self) -> bool {
+            self.0.strong_count() == 0
+        }
+        /// Attempts to send a value over this channel.
+        pub fn send(self, value: T) -> Result<(), T> {
+            let Some(strong) = self.0.upgrade() else {
+                return Err(value);
+            };
+            strong.set(value)?;
+            if let Some(existing) = Arc::into_inner(strong).and_then(OnceLock::into_inner) {
+                Err(existing)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl<T> super::Sender for Option<Sender<T>> {
+        type Value = T;
+
+        fn send(&mut self, value: Self::Value) -> super::SendCont {
+            let Some(sender) = self.take() else {
+                return super::SendCont::Closed;
+            };
+            if sender.send(value).is_ok() {
+                super::SendCont::SentClosed
+            } else {
+                super::SendCont::Closed
+            }
+        }
+
+        fn may_send(&self) -> bool {
+            self.as_ref().is_some_and(|snd| !snd.is_closed())
+        }
+    }
+
+    impl<T> Receiver<T> {
+        /// Returns a reference to the value that is ready to be received, if any.
+        pub fn peek(&self) -> Option<&T> {
+            self.0.get()
+        }
+        /// Receives a value over this channel, consuming the receiver.
+        ///
+        /// This method never blocks.
+        pub fn recv_nonblocking(self) -> Option<T> {
+            Arc::into_inner(self.0).and_then(OnceLock::into_inner)
+        }
+        /// Receives a value over this channel, blocking until one is present.
+        pub fn recv(self, parker: &Parker) -> Option<T> {
+            if self.peek().is_none() {
+                parker.park();
+            }
+            self.recv_nonblocking()
+        }
     }
 }
