@@ -188,41 +188,56 @@ pub mod parker {
     //! They are designed for mpsc usecases, allowing multiple threads to unpark one thread.
 
     use std::mem::ManuallyDrop;
-    use std::sync::{Arc, Mutex, Weak};
+    use std::sync::{
+        atomic::{AtomicPtr, Ordering},
+        Arc, Weak,
+    };
     use std::thread::Thread;
+
+    /// Global location whose address we can use to indicate that a [`Parker`] should skip parking.
+    static mut SKIP_PARKING: std::mem::MaybeUninit<Thread> = std::mem::MaybeUninit::uninit();
 
     /// A wrapped [`Sender`][super::Sender] that can unpark a thread blocked by a [`Parker`].
     #[derive(Clone, Debug, Default)]
-    pub struct Unparker<S>(S, ManuallyDrop<Arc<Mutex<Option<Thread>>>>);
+    pub struct Unparker<S>(S, ManuallyDrop<Arc<AtomicPtr<Thread>>>);
     /// A synchronization primitive for parking the thread indefinitely pending activity
     /// on a thread with an [`Unparker`].
     #[derive(Debug)]
-    pub struct Parker(Weak<Mutex<Option<Thread>>>);
+    pub struct Parker(Weak<AtomicPtr<Thread>>);
 
     /// Creates a new [`Unparker`] from the provided sender,
     /// also returning a [`Parker`] for that unparker.
     pub fn new<S>(sender: S) -> (Unparker<S>, Parker) {
-        let arc = Arc::new(Mutex::new(None));
+        let arc = Arc::new(AtomicPtr::new(std::ptr::null_mut()));
         let weak = Arc::downgrade(&arc);
         (Unparker(sender, ManuallyDrop::new(arc)), Parker(weak))
     }
 
     impl<S> Drop for Unparker<S> {
         fn drop(&mut self) {
-            let arc = unsafe { ManuallyDrop::take(&mut self.1) };
-            if let Some(handle) = Arc::into_inner(arc).and_then(|m| m.into_inner().unwrap()) {
-                handle.unpark();
+            let Some(arc) = Arc::into_inner(unsafe { ManuallyDrop::take(&mut self.1) }) else {
+                return;
+            };
+            let ptr = arc.into_inner();
+            if ptr != unsafe { SKIP_PARKING.as_mut_ptr() } {
+                if let Some(th) = unsafe { ptr.as_ref() } {
+                    th.clone().unpark();
+                }
             }
         }
     }
 
     impl<S> Unparker<S> {
-        /// Unparks a thread that is blocked by a [`Parker`], if any.
+        /// Unparks a thread that is blocked by a [`Parker`].
+        /// If no thread is parked for this unparker, skips the next parking operation.
         ///
         /// This generally doesn't need to be called manually unless `S` is not a sender.
         pub fn unpark(&self) {
-            if let Some(thread) = self.1.lock().unwrap().take() {
-                thread.unpark();
+            let ptr = self.1.swap(unsafe { SKIP_PARKING.as_mut_ptr() }, Ordering::AcqRel);
+            if ptr != unsafe { SKIP_PARKING.as_mut_ptr() } {
+                if let Some(th) = unsafe { ptr.as_ref() } {
+                    th.clone().unpark();
+                }
             }
         }
     }
@@ -250,12 +265,27 @@ pub mod parker {
             let Some(strong) = self.0.upgrade() else {
                 return;
             };
-            *strong.lock().unwrap() = Some(std::thread::current());
-            if Arc::into_inner(strong).is_some() {
-                // Whoops, the last Unparker vanished during this function. Do not park.
-                return;
+            let mut th = std::thread::current();
+            if strong
+                .compare_exchange(
+                    std::ptr::null_mut(),
+                    std::ptr::from_mut(&mut th),
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                if Arc::into_inner(strong).is_none() {
+                    std::thread::park();
+                } else {
+                    // No unparkers left!
+                    return;
+                }
             }
-            std::thread::park();
+            let Some(strong) = self.0.upgrade() else {
+                return;
+            };
+            strong.store(std::ptr::null_mut(), Ordering::Release);
         }
     }
 }
@@ -344,5 +374,83 @@ pub mod oneshot {
             }
             self.recv_nonblocking()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Park, expecting the thread to be blocked for 100 to 2000 ms.
+    /// Panic if the time falls outside of this range.
+    fn timed_park() {
+        let then = std::time::Instant::now();
+        std::thread::park_timeout(std::time::Duration::from_secs(2));
+        let now = std::time::Instant::now();
+        let diff = now - then;
+        if diff < std::time::Duration::from_millis(100) {
+            panic!("probable non-block; parked for {}ms", diff.as_millis());
+        }
+        if diff >= std::time::Duration::from_secs(2) {
+            panic!("probable deadlock; parked for {}ms", diff.as_millis());
+        }
+    }
+    #[test]
+    fn parker_slow_unpark() {
+        let (unparker, parker) = super::parker::new(());
+        let current = std::thread::current();
+        std::thread::spawn(move || {
+            parker.park();
+            current.unpark();
+        });
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            unparker.unpark();
+        });
+        timed_park();
+    }
+    #[test]
+    fn parker_slow_park() {
+        let (unparker, parker) = super::parker::new(());
+        let current = std::thread::current();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            parker.park();
+            current.unpark();
+        });
+        std::thread::spawn(move || {
+            unparker.unpark();
+        });
+        timed_park();
+    }
+    #[test]
+    fn unparker_drop_slow_unpark() {
+        let (unparker1, parker) = super::parker::new(());
+        let unparker2 = unparker1.clone();
+        let current = std::thread::current();
+        std::thread::spawn(move || {
+            parker.park();
+            current.unpark();
+        });
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            std::mem::drop(unparker1);
+            std::mem::drop(unparker2);
+        });
+        timed_park();
+    }
+    #[test]
+    fn unparker_drop_slow_park() {
+        let (unparker1, parker) = super::parker::new(());
+        let unparker2 = unparker1.clone();
+        let current = std::thread::current();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            parker.park();
+            current.unpark();
+        });
+        std::thread::spawn(move || {
+            std::mem::drop(unparker1);
+            std::mem::drop(unparker2);
+        });
+        timed_park();
     }
 }
