@@ -60,12 +60,15 @@ pub trait MakeHandler<T> {
     /// The type of the receiver half of the preferred channel type.
     type Receiver<Spec: ChannelSpec>;
 
+    /// The type of handler produced by `self`.
+    type Handler: Handler<Value = Self::Value>;
+
     /// Converts `T` into a [`Handler`] and queues messages.
     fn make_handler(
         self,
         queue: QueueEditGuard<'_>,
         value: T,
-    ) -> Result<impl Handler<Value = Self::Value>, Self::Error>;
+    ) -> Result<Self::Handler, Self::Error>;
 
     /// Creates an instance of the preferred channel type for a given channel spec.
     ///
@@ -98,11 +101,9 @@ impl<T: SelfMadeHandler> MakeHandler<T> for () {
 
     type Receiver<Spec: ChannelSpec> = T::Receiver<Spec>;
 
-    fn make_handler(
-        self,
-        queue: QueueEditGuard<'_>,
-        handler: T,
-    ) -> Result<impl Handler<Value = Self::Value>, Self::Error> {
+    type Handler = T;
+
+    fn make_handler(self, queue: QueueEditGuard<'_>, handler: T) -> Result<T, Self::Error> {
         handler.queue_msgs(queue);
         Ok(handler)
     }

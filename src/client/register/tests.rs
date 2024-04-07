@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, time::Duration};
+use std::{io::Cursor, time::Duration};
 
 use crate::{
     client::{auth::Clear, channel::SyncChannels, conn::Bidir, new_client},
@@ -12,7 +12,7 @@ fn static_register(msg: &[u8]) -> Result<Registration, HandlerError> {
     let mut options: Options<Clear> = Options::new();
     options.nicks = vec![Nick::from_str("Me")];
     let reg = register_as_bot(); // Somewhat more deterministic.
-    let io = Bidir::<VecDeque<u8>, _>(msg.to_vec().into(), std::io::empty());
+    let io = Bidir::<Cursor<Vec<u8>>, _>(Cursor::new(msg.to_vec()), std::io::sink());
     let mut client = new_client(io);
     client.queue_mut().set_rate_limit(Duration::ZERO, 1);
     let (_, reg) = client.add(&SyncChannels, &reg, &options).unwrap();

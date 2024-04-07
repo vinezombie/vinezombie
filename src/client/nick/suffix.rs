@@ -127,8 +127,6 @@ impl NickTransformer for Suffix {
         }
         let (seed, limit) = match self.strategy {
             SuffixStrategy::Rng(seed) => {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{BuildHasher, BuildHasherDefault};
                 let limit = self
                     .suffixes
                     .iter()
@@ -136,8 +134,7 @@ impl NickTransformer for Suffix {
                 if let Some(seed) = seed {
                     (seed, limit)
                 } else {
-                    let hasher = BuildHasherDefault::<DefaultHasher>::default();
-                    let mut seed = hasher.hash_one(&prefix) as u32;
+                    let mut seed = crate::util::mangle(&prefix);
                     if let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) {
                         seed ^= dur.as_millis() as u32;
                         seed ^= dur.as_nanos() as u32;

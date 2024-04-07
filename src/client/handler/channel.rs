@@ -269,7 +269,7 @@ pub mod parker {
             if strong
                 .compare_exchange(
                     std::ptr::null_mut(),
-                    std::ptr::from_mut(&mut th),
+                    &mut th as *mut Thread,
                     Ordering::AcqRel,
                     Ordering::Acquire,
                 )

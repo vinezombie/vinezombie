@@ -131,11 +131,13 @@ impl<'a, O, A: Sasl> MakeHandler<&'a O> for &'a Register<O, A> {
 
     type Receiver<Spec: super::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
 
+    type Handler = Handler;
+
     fn make_handler(
         self,
         mut queue: super::QueueEditGuard<'_>,
         opts: &'a O,
-    ) -> Result<impl super::Handler<Value = Self::Value>, Self::Error> {
+    ) -> Result<Handler, Self::Error> {
         self.handler(opts, &mut queue)
     }
 

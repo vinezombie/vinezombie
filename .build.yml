@@ -7,10 +7,13 @@ environment:
   CARGO_TERM_COLOR: always
 tasks:
   - setup: |
-      rustup install stable
+      rustup install 1.70
   - build-min: |
       cd vinezombie
       cargo build --no-default-features --message-format short
+  - build-min-client: |
+      cd vinezombie
+      cargo build --no-default-features --features client --message-format short
   - build-default: |
       cd vinezombie
       cargo build --message-format short

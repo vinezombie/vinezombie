@@ -68,11 +68,13 @@ impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for &'a Authenticate {
 
     type Receiver<Spec: crate::client::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
 
+    type Handler = Handler;
+
     fn make_handler(
         self,
         mut queue: crate::client::QueueEditGuard<'_>,
         sasl: &'a T,
-    ) -> Result<impl crate::client::Handler<Value = Self::Value>, Self::Error> {
+    ) -> Result<Handler, Self::Error> {
         let (msg, handler) = Handler::from_sasl(sasl)?;
         queue.push(msg);
         Ok(handler)

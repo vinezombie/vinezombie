@@ -17,12 +17,17 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: default
-          toolchain: stable
+          toolchain: 1.70
       - name: Build (No Features)
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: "--no-default-features"
+      - name: Build (Min Client)
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: "--no-default-features --features client"
       - name: Build (Default Features)
         uses: actions-rs/cargo@v1
         with:
