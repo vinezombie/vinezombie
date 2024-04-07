@@ -1,0 +1,25 @@
+image: archlinux # We need rustup, and Arch happily packages it.
+packages:
+  - rustup
+sources:
+  - https://git.sr.ht/~daemoness/vinezombie
+environment:
+  CARGO_TERM_COLOR: always
+tasks:
+  - setup: |
+      rustup install --profile minimal 1.70
+  - check-min: |
+      cd vinezombie
+      cargo check --no-default-features --message-format short
+  - check-min-client: |
+      cd vinezombie
+      cargo check --no-default-features --features client --message-format short
+  - check-default: |
+      cd vinezombie
+      cargo check --message-format short
+  - check-max: |
+      cd vinezombie
+      cargo check --all-features --message-format short
+  - test: |
+      cd vinezombie
+      cargo test --all-features --message-format short

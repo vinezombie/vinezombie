@@ -7,8 +7,43 @@ on:
       - main
 
 jobs:
+  test:
+    name: MSRV Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: 1.70
+      - name: Check (No Features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: "--no-default-features"
+      - name: Check (Min Client)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: "--no-default-features --features client"
+      - name: Check (Default Features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+      - name: Check (All Features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: "--all-features"
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: "--all-features"
   quality:
-    name: Build+Test
+    name: Code Quality
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,42 +52,18 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: default
-          toolchain: 1.70
-      - name: Build (No Features)
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: "--no-default-features"
-      - name: Build (Min Client)
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: "--no-default-features --features client"
-      - name: Build (Default Features)
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-      - name: Build (All Features)
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: "--all-features"
-      - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: "--all-features"
-      - name: Check Clippy
+          toolchain: stable
+      - name: Clippy
         uses: actions-rs/cargo@v1
         with:
           command: clippy
           args: "--all-features"
-      - name: Check Docs
+      - name: Check Rustdoc
         uses: actions-rs/cargo@v1
         with:
           command: doc
           args: "--all-features --no-deps"
-      - name: Check Style
+      - name: Check Format
         uses: actions-rs/cargo@v1
         with:
           command: fmt

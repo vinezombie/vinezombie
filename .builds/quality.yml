@@ -1,0 +1,19 @@
+image: archlinux # We need rustup, and Arch happily packages it.
+packages:
+  - rustup
+sources:
+  - https://git.sr.ht/~daemoness/vinezombie
+environment:
+  CARGO_TERM_COLOR: always
+tasks:
+  - setup: |
+      rustup install stable
+  - clippy: |
+      cd vinezombie
+      cargo clippy --all-features --message-format short
+  - doc: |
+      cd vinezombie
+      cargo doc --all-features --no-deps --message-format short
+  - fmt: |
+      cd vinezombie
+      cargo fmt --check
