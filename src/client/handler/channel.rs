@@ -304,7 +304,7 @@ pub mod oneshot {
     use std::sync::{Arc, OnceLock, Weak};
 
     /// The sender portion of a oneshot channel.
-    #[derive(Clone, Debug)]
+    #[derive(Debug)]
     pub struct Sender<T>(Weak<OnceLock<T>>);
 
     /// The reciever portion of a oneshot channel.
