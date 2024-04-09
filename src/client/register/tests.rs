@@ -17,7 +17,7 @@ fn static_register(msg: &[u8]) -> Result<Registration, HandlerError> {
     client.queue_mut().set_rate_limit(Duration::ZERO, 1);
     let (_, reg) = client.add(&SyncChannels, &reg, &options).unwrap();
     client.run().unwrap();
-    reg.0.recv_nonblocking().unwrap()
+    reg.0.recv_now().unwrap()
 }
 
 #[test]

@@ -17,7 +17,7 @@ pub struct Queue {
     sub: Duration,
     timepoint: Instant,
     // TODO: Bespoke trait for this. We want Clone back.
-    labeler: Option<Box<dyn FnMut() -> NoNul<'static>>>,
+    labeler: Option<Box<dyn FnMut() -> NoNul<'static> + Send>>,
 }
 
 impl std::fmt::Debug for Queue {
@@ -128,7 +128,7 @@ impl Queue {
     /// Adds `label` tags to outgoing messages for `labeled-response`.
     ///
     /// Returns `None` is no labeler is configured for the underlying queue.
-    pub fn use_labeler(&mut self, f: impl FnMut() -> NoNul<'static> + 'static) -> &mut Self {
+    pub fn use_labeler(&mut self, f: impl FnMut() -> NoNul<'static> + 'static + Send) -> &mut Self {
         self.labeler = Some(Box::new(f));
         self
     }

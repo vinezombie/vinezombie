@@ -65,7 +65,7 @@ impl SelfMadeHandler for Ping {
 
     fn make_channel<Spec: ChannelSpec>(
         spec: &Spec,
-    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>) {
         spec.new_oneshot()
     }
 }
@@ -114,7 +114,7 @@ impl SelfMadeHandler for AutoPong {
 
     fn make_channel<Spec: ChannelSpec>(
         _: &Spec,
-    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>) {
         (Box::<crate::client::channel::ClosedSender<_>>::default(), ())
     }
 }

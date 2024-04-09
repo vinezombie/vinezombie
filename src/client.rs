@@ -114,7 +114,7 @@ impl<C, A> Client<C, A> {
     /// Returns the handler id.
     pub fn add_with_sender<T, M: MakeHandler<T>>(
         &mut self,
-        sender: Box<dyn channel::Sender<Value = M::Value>>,
+        sender: Box<dyn channel::Sender<Value = M::Value> + Send>,
         make_handler: M,
         value: T,
     ) -> Result<usize, M::Error> {

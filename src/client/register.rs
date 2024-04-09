@@ -143,7 +143,7 @@ impl<'a, O, A: Sasl> MakeHandler<&'a O> for &'a Register<O, A> {
 
     fn make_channel<Spec: super::channel::ChannelSpec>(
         spec: &Spec,
-    ) -> (Box<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn super::channel::Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>) {
         spec.new_oneshot()
     }
 }

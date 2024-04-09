@@ -40,7 +40,7 @@ impl Error for EndOfNicks {}
 /// Nick generators.
 ///
 /// Nick generators always yield at least one nick, are peekable, and have explicit continuations.
-pub trait NickGen: 'static {
+pub trait NickGen: 'static + Send {
     /// Generates a new nickname and an optional continuation.
     ///
     /// The returned nick should not depend on the value of `prev_was_invalid`,
@@ -105,7 +105,7 @@ pub fn from_iter_or<It: FusedIterator<Item = Nick<'static>>, I: IntoIterator<Int
     FromIter { nick, iter }
 }
 
-impl<I: Iterator<Item = Nick<'static>> + 'static> NickGen for FromIter<I> {
+impl<I: Iterator<Item = Nick<'static>> + 'static + Send> NickGen for FromIter<I> {
     fn next_nick(mut self: Box<Self>) -> (Nick<'static>, Option<Box<dyn NickGen>>) {
         if let Some(mut next) = self.iter.next() {
             std::mem::swap(&mut next, &mut self.nick);

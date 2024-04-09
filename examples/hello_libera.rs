@@ -47,7 +47,7 @@ fn main() -> std::io::Result<()> {
     client.run()?;
     // If we're here, the handler finished and gave us a value back.
     // Let's fetch it and see what it is!
-    let reg = reg_result.0.recv_nonblocking().unwrap()?;
+    let reg = reg_result.0.recv_now().unwrap()?;
     // Connection registration is done!
     // But how does the network we connected to choose to name itself?
     // ISUPPORT is vital for understanding the capabilities of the target network,

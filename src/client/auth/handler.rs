@@ -82,7 +82,8 @@ impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for &'a Authenticate {
 
     fn make_channel<Spec: crate::client::channel::ChannelSpec>(
         spec: &Spec,
-    ) -> (Box<dyn crate::client::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn crate::client::channel::Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>)
+    {
         spec.new_oneshot()
     }
 }

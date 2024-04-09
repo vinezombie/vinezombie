@@ -40,18 +40,18 @@ impl SelfMadeHandler for YieldAll {
 
     fn make_channel<Spec: super::channel::ChannelSpec>(
         spec: &Spec,
-    ) -> (Box<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn super::channel::Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>) {
         spec.new_queue()
     }
 }
 
-type Parser<T> = dyn FnMut(ServerMsg<'static>) -> Option<T>;
+type Parser<T> = dyn FnMut(ServerMsg<'static>) -> Option<T> + Send;
 
 /// [`Handler`] that yields every message that successfully parses into `T`.
 #[derive(Default)]
 pub struct YieldParsed<T>(FlatMap<(ServerMsgKindRaw<'static>, Box<Parser<T>>)>);
 
-impl<T: 'static> YieldParsed<T> {
+impl<T: 'static + Send> YieldParsed<T> {
     /// Creates a new instance that parses no messages.
     pub const fn new() -> Self {
         YieldParsed(FlatMap::new())
@@ -70,7 +70,7 @@ impl<T: 'static> YieldParsed<T> {
     pub fn just_map<U, N, F>(kind: N, mut f: F) -> Self
     where
         N: NameValued<ServerMsgKind, Value<'static> = U>,
-        F: FnMut(U) -> Option<T> + 'static,
+        F: FnMut(U) -> Option<T> + 'static + Send,
     {
         YieldParsed(FlatMap::singleton((
             kind.as_raw().clone(),
@@ -89,7 +89,7 @@ impl<T: 'static> YieldParsed<T> {
     pub fn with_map<U, N, F>(mut self, kind: N, mut f: F) -> Self
     where
         N: NameValued<ServerMsgKind, Value<'static> = U>,
-        F: FnMut(U) -> Option<T> + 'static,
+        F: FnMut(U) -> Option<T> + 'static + Send,
     {
         self.0.edit().insert((
             kind.as_raw().clone(),
@@ -99,7 +99,7 @@ impl<T: 'static> YieldParsed<T> {
     }
 }
 
-impl<T: 'static> Handler for YieldParsed<T> {
+impl<T: 'static + Send> Handler for YieldParsed<T> {
     type Value = T;
 
     fn handle(
@@ -123,14 +123,14 @@ impl<T: 'static> Handler for YieldParsed<T> {
     }
 }
 
-impl<T: 'static> SelfMadeHandler for YieldParsed<T> {
+impl<T: 'static + Send> SelfMadeHandler for YieldParsed<T> {
     type Receiver<Spec: super::channel::ChannelSpec> = Spec::Queue<T>;
 
     fn queue_msgs(&self, _: super::QueueEditGuard<'_>) {}
 
     fn make_channel<Spec: super::channel::ChannelSpec>(
         spec: &Spec,
-    ) -> (Box<dyn super::channel::Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn super::channel::Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>) {
         spec.new_queue()
     }
 }

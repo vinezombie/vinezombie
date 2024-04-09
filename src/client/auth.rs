@@ -22,7 +22,7 @@ pub fn msg_abort() -> ClientMsg<'static> {
 }
 
 /// The logic of a SASL mechanism.
-pub trait SaslLogic {
+pub trait SaslLogic: Send {
     /// Handles data sent by the server.
     fn reply<'a>(
         &'a mut self,

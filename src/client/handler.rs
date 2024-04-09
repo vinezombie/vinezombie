@@ -7,7 +7,7 @@ use channel::*;
 
 /// Generic message handlers, typically intended to handle one expected batch of messages
 /// and parse them into a more-useful form.
-pub trait Handler: 'static {
+pub trait Handler: 'static + Send {
     /// The type of values produced by this handler.
     type Value: 'static;
     /// Processes one message.
@@ -75,7 +75,7 @@ pub trait MakeHandler<T> {
     /// This typically just calls one method of the provided [`ChannelSpec`].
     fn make_channel<Spec: ChannelSpec>(
         spec: &Spec,
-    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>);
+    ) -> (Box<dyn Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>);
 }
 
 /// Handlers that can be used directly without any further options.
@@ -91,7 +91,7 @@ pub trait SelfMadeHandler: Handler {
     /// This typically just calls one method of the provided [`ChannelSpec`].
     fn make_channel<Spec: ChannelSpec>(
         spec: &Spec,
-    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>);
+    ) -> (Box<dyn Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>);
 }
 
 impl<T: SelfMadeHandler> MakeHandler<T> for () {
@@ -110,12 +110,12 @@ impl<T: SelfMadeHandler> MakeHandler<T> for () {
 
     fn make_channel<Spec: ChannelSpec>(
         spec: &Spec,
-    ) -> (Box<dyn Sender<Value = Self::Value>>, Self::Receiver<Spec>) {
+    ) -> (Box<dyn Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>) {
         T::make_channel(spec)
     }
 }
 
-type BoxHandler = Box<dyn FnMut(&ServerMsg<'_>, QueueEditGuard<'_>) -> HandlerStatus>;
+type BoxHandler = Box<dyn FnMut(&ServerMsg<'_>, QueueEditGuard<'_>) -> HandlerStatus + Send>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum HandlerStatus {
@@ -125,7 +125,7 @@ enum HandlerStatus {
 
 fn box_handler<T: 'static>(
     mut handler: impl Handler<Value = T>,
-    mut sender: Box<dyn Sender<Value = T>>,
+    mut sender: Box<dyn Sender<Value = T> + Send>,
 ) -> BoxHandler {
     Box::new(move |msg, queue| {
         let mut yielded = false;
@@ -160,7 +160,7 @@ impl Handlers {
     pub fn add<T: 'static>(
         &mut self,
         handler: impl Handler<Value = T>,
-        sender: Box<dyn Sender<Value = T>>,
+        sender: Box<dyn Sender<Value = T> + Send>,
     ) -> usize {
         self.wants_owning |= handler.wants_owning();
         let id = self.finished.pop().unwrap_or(self.handlers.len());
