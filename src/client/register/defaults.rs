@@ -1,7 +1,7 @@
-use super::{Register, SaslOptions};
+use super::Register;
 use crate::{
     client::{
-        auth::{AnySasl, Sasl, Secret},
+        auth::{AnySasl, Sasl, SaslQueue, Secret},
         nick::{NickGen, Suffix, SuffixStrategy, SuffixType},
     },
     error::InvalidString,
@@ -74,14 +74,14 @@ impl<S, A: Sasl> Options<S, A> {
 }
 
 /// Returns a [`Register`] with sensible functions.
-pub fn register_as_custom<O, A: Sasl>(
+pub fn register_as_custom<O>(
     password: fn(&O) -> std::io::Result<Option<Line<'static>>>,
     username: fn(&O) -> User<'static>,
     realname: fn(&O) -> Line<'static>,
     nicks: fn(&O) -> Box<dyn crate::client::nick::NickGen>,
     caps: fn(&O) -> &BTreeSet<Key<'static>>,
-    auth: fn(&O) -> SaslOptions<'_, A>,
-) -> Register<O, A> {
+    auth: fn(&O) -> (SaslQueue, bool),
+) -> Register<O> {
     Register {
         password,
         username,
@@ -95,7 +95,7 @@ pub fn register_as_custom<O, A: Sasl>(
 }
 
 /// Returns a [`Register`] with sensible functions for human-oriented clients.
-pub fn register_as_client<S: Secret, A: Sasl>() -> Register<Options<S, A>, A> {
+pub fn register_as_client<S: Secret, A: Sasl>() -> Register<Options<S, A>> {
     register_as_custom(
         default_password,
         default_client_username,
@@ -107,7 +107,7 @@ pub fn register_as_client<S: Secret, A: Sasl>() -> Register<Options<S, A>, A> {
 }
 
 /// Returns a [`Register`] with sensible functions for bots.
-pub fn register_as_bot<S: Secret, A: Sasl>() -> Register<Options<S, A>, A> {
+pub fn register_as_bot<S: Secret, A: Sasl>() -> Register<Options<S, A>> {
     register_as_custom(
         default_password,
         default_bot_username,
@@ -172,9 +172,9 @@ pub fn default_password<S: Secret, A>(
 }
 
 /// For use with [`Register`].
-pub fn default_auth<S, A>(opts: &Options<S, A>) -> SaslOptions<'_, A> {
+pub fn default_auth<S, A: Sasl>(opts: &Options<S, A>) -> (SaslQueue, bool) {
     let require_sasl = !opts.allow_sasl_fail;
-    (Box::new(opts.sasl.iter()), require_sasl)
+    (opts.sasl.iter().collect(), require_sasl)
 }
 
 /// For use with [`Register`].

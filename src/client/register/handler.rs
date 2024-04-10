@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::{
-    client::{auth::SaslLogic, nick::NickGen, ClientMsgSink},
+    client::{auth::SaslQueue, nick::NickGen, ClientMsgSink},
     ircmsg::{ClientMsg, ServerMsg, SharedSource, Source, UserHost},
     names::{
         cmd::{CAP, NICK},
@@ -158,7 +158,7 @@ pub struct Handler {
     pub(super) needs_auth: bool,
     #[cfg(feature = "base64")]
     pub(super) auth: Option<crate::client::auth::Handler>,
-    pub(super) auths: VecDeque<(Arg<'static>, Box<dyn SaslLogic>)>,
+    pub(super) auths: SaslQueue,
     pub(super) reg: Registration,
 }
 
@@ -167,7 +167,7 @@ impl Handler {
         nicks: (Nick<'static>, Option<Box<dyn NickGen>>),
         caps: BTreeSet<Key<'static>>,
         needs_auth: bool,
-        auths: VecDeque<(Arg<'static>, Box<dyn SaslLogic>)>,
+        auths: SaslQueue,
     ) -> Self {
         let (nick, nicks) = nicks;
         Handler {
@@ -212,7 +212,7 @@ impl Handler {
                     return Ok(None);
                 }
                 Err(auth::HandlerError::WrongMechanism(set)) => {
-                    self.auths.retain(|(k, _)| set.contains(k));
+                    self.auths.retain(&set);
                     self.state = HandlerState::CapEnd;
                     self.next_sasl(sink.borrow_mut())?;
                     self.cap_end(sink.borrow_mut())?;
@@ -430,7 +430,7 @@ impl Handler {
                 if matches!(self.state, HandlerState::Sasl) {
                     if let Some(Ok(names)) = self.reg.caps.get_parsed(crate::names::cap::SASL) {
                         if !names.is_empty() {
-                            self.auths.retain(|(name, _)| names.contains(name.as_bytes()));
+                            self.auths.retain(&names);
                         }
                     } else {
                         self.auths.clear();
@@ -464,7 +464,7 @@ impl Handler {
     #[cfg(feature = "base64")]
     fn next_sasl(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
         use crate::names::cmd::AUTHENTICATE;
-        let Some((name, logic)) = self.auths.pop_front() else {
+        let Some((name, logic)) = self.auths.pop() else {
             return Ok(());
         };
         let mut msg = ClientMsg::new(AUTHENTICATE);

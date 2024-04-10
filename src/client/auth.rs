@@ -7,6 +7,8 @@ mod handler;
 pub mod sasl;
 mod secret;
 
+use std::borrow::Borrow;
+
 #[cfg(feature = "base64")]
 pub use handler::*;
 pub use secret::*;
@@ -36,6 +38,93 @@ pub trait Sasl {
     fn name(&self) -> Arg<'static>;
     /// Returns the logic for this mechanism as a [`SaslLogic]`.
     fn logic(&self) -> std::io::Result<Box<dyn SaslLogic>>;
+}
+
+/// A queue of SASL authenticators to try in order.
+#[derive(Default)]
+pub struct SaslQueue {
+    seq: std::collections::VecDeque<(Arg<'static>, Box<dyn SaslLogic>)>,
+    had_values: bool,
+}
+
+impl SaslQueue {
+    /// Creates a new, empty list of SASL authenticators.
+    pub const fn new() -> Self {
+        SaslQueue { seq: std::collections::VecDeque::new(), had_values: false }
+    }
+
+    /// Returns `true` if this queue has or had values in it.
+    ///
+    /// This is also `true` if this queue was constructed from a non-empty iterator.
+    pub const fn had_values(&self) -> bool {
+        self.had_values
+    }
+
+    /// Returns `true` if the queue is empty.
+    pub fn is_empty(&self) -> bool {
+        self.seq.is_empty()
+    }
+
+    /// Returns the number of SASL authenticators in `self.`
+    pub fn len(&self) -> usize {
+        self.seq.len()
+    }
+
+    /// Adds a SASL authenticator to the end of the list.
+    pub fn push(&mut self, sasl: &(impl Sasl + ?Sized)) -> std::io::Result<()> {
+        let logic = sasl.logic()?;
+        let name = sasl.name();
+        self.seq.push_back((name, logic));
+        self.had_values = true;
+        Ok(())
+    }
+
+    /// Returns a pair containing the name and logic of a SASL authenticator.
+    pub fn pop(&mut self) -> Option<(Arg<'static>, Box<dyn SaslLogic>)> {
+        self.seq.pop_front()
+    }
+
+    /// Removes all SASL authenticators with a protocol name matching `name`.
+    pub fn remove(&mut self, name: &Arg<'_>) {
+        self.seq.retain(|(k, _)| *k != *name);
+    }
+
+    /// Removes all SASL authenticators except those with a protocol name in `names`.
+    pub fn retain(&mut self, names: &std::collections::BTreeSet<impl Borrow<[u8]> + Ord>) {
+        self.seq.retain(|(k, _)| names.contains(k.borrow()));
+    }
+
+    /// Cleares the queue.
+    pub fn clear(&mut self) {
+        self.seq.clear();
+    }
+}
+
+impl<'a, S: Sasl + ?Sized> std::iter::FromIterator<&'a S> for SaslQueue {
+    fn from_iter<T: IntoIterator<Item = &'a S>>(iter: T) -> Self {
+        let iter = iter.into_iter();
+        let mut seq = std::collections::VecDeque::with_capacity(iter.size_hint().0);
+        let mut had_values = false;
+        for sasl in iter {
+            had_values = true;
+            let Ok(logic) = sasl.logic() else {
+                continue;
+            };
+            let name = sasl.name();
+            seq.push_back((name, logic));
+        }
+        SaslQueue { seq, had_values }
+    }
+}
+
+impl std::fmt::Debug for SaslQueue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_list();
+        for (arg, _) in self.seq.iter() {
+            f.entry(arg);
+        }
+        f.finish()
+    }
 }
 
 /// Enum of included SASL mechanisms and options for them.

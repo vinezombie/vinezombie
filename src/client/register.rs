@@ -5,24 +5,23 @@ mod handler;
 #[cfg(test)]
 mod tests;
 
+use super::auth::SaslQueue;
+
 pub use {defaults::*, handler::*};
 
 use crate::{
-    client::{auth::Sasl, nick::NickGen, ClientMsgSink, MakeHandler},
+    client::{nick::NickGen, ClientMsgSink, MakeHandler},
     ircmsg::ClientMsg,
     string::{Arg, Key, Line, Nick, User},
 };
-use std::collections::{BTreeSet, VecDeque};
-
-/// An iterator of references to [`Sasl`]s and indicator of whether SASL is required.
-pub type SaslOptions<'a, A> = (Box<dyn Iterator<Item = &'a A> + 'a>, bool);
+use std::collections::BTreeSet;
 
 /// Client logic for the connection registration process.
 ///
 /// Consider using the [`register_as_bot()`], [`register_as_client()`],
 /// or [`register_as_custom()`] functions to instantiate one of these.
 #[derive(Clone)]
-pub struct Register<O, A> {
+pub struct Register<O> {
     /// Returns the server password, if any.
     pub password: fn(&O) -> std::io::Result<Option<Line<'static>>>,
     /// Returns the username to use for connection.
@@ -47,12 +46,12 @@ pub struct Register<O, A> {
     ///
     /// This does not need to include `sasl` if the authenticator list is non-empty.
     pub caps: fn(&O) -> &BTreeSet<Key<'static>>,
-    /// Returns a boxed iterator of references to [`Sasl`] authenticators to attempt
+    /// Returns a [`SaslQueue`] to attempt
     /// and whether to close the connection on non-authentication.
-    pub auth: fn(&O) -> SaslOptions<'_, A>,
+    pub auth: fn(&O) -> (SaslQueue, bool),
 }
 
-impl<O, A> Register<O, A> {
+impl<O> Register<O> {
     /// Sends the initial burst of messages for connection registration.
     /// Also returns the nickname used and a generator for fallback nicknames.
     ///
@@ -94,7 +93,7 @@ impl<O, A> Register<O, A> {
     }
 }
 
-impl<O, A: Sasl> Register<O, A> {
+impl<O> Register<O> {
     /// Sends the initial burst of messages for connection registration.
     /// Also returns a [`Handler`] to perform the rest of the connection registration.
     ///
@@ -104,27 +103,17 @@ impl<O, A: Sasl> Register<O, A> {
     pub fn handler(&self, opts: &O, sink: impl ClientMsgSink<'static>) -> std::io::Result<Handler> {
         let nicks = self.register_msgs(opts, sink)?;
         let mut caps = (self.caps)(opts).clone();
-        let (auths, needs_auth) = (self.auth)(opts);
-        let mut auths_vec = Vec::with_capacity(auths.size_hint().0);
-        for sasl in auths {
-            let name = sasl.name();
-            let Ok(logic) = sasl.logic() else {
-                // TODO: Replace with match and log the error.
-                continue;
-            };
-            auths_vec.push((name, logic));
-        }
-        let (auths, needs_auth) = if !auths_vec.is_empty() {
+        let (auths, mut needs_auth) = (self.auth)(opts);
+        if !auths.is_empty() {
             caps.insert(Key::from_str("sasl"));
-            (auths_vec.into(), needs_auth)
         } else {
-            (VecDeque::new(), false)
+            needs_auth &= auths.had_values();
         };
         Ok(Handler::new(nicks, caps, needs_auth, auths))
     }
 }
 
-impl<'a, O, A: Sasl> MakeHandler<&'a O> for &'a Register<O, A> {
+impl<'a, O> MakeHandler<&'a O> for &'a Register<O> {
     type Value = Result<Registration, HandlerError>;
 
     type Error = std::io::Error;
