@@ -31,6 +31,17 @@ pub struct Options<S, A = AnySasl<S>> {
     ///
     /// Does nothing if `sasl` is empty.
     pub allow_sasl_fail: bool,
+    /// Additional capabilities to request, on top of what the client supports.
+    pub caps: BTreeSet<Key<'static>>,
+}
+
+impl<S, A: Sasl> Options<S, A> {
+    /// Returns a [`SaslQueue`] and whether SASL is required,
+    /// as used by [`Register`][super::Register].
+    pub fn auths(&self) -> (SaslQueue, bool) {
+        let require_sasl = !self.allow_sasl_fail;
+        (self.sasl.iter().collect(), require_sasl)
+    }
 }
 
 impl<S, A> Default for Options<S, A> {
@@ -49,6 +60,7 @@ impl<S, A> Options<S, A> {
             realname: None,
             sasl: Vec::new(),
             allow_sasl_fail: false,
+            caps: BTreeSet::new(),
         }
     }
 }
@@ -75,11 +87,11 @@ impl<S, A: Sasl> Options<S, A> {
 
 /// Returns a [`Register`] with sensible functions.
 pub fn register_as_custom<O>(
-    password: fn(&O) -> std::io::Result<Option<Line<'static>>>,
+    password: fn(&O) -> Option<std::io::Result<Line<'static>>>,
     username: fn(&O) -> User<'static>,
     realname: fn(&O) -> Line<'static>,
     nicks: fn(&O) -> Box<dyn crate::client::nick::NickGen>,
-    caps: fn(&O) -> &BTreeSet<Key<'static>>,
+    caps: fn(&O) -> BTreeSet<Key<'static>>,
     auth: fn(&O) -> (SaslQueue, bool),
 ) -> Register<O> {
     Register {
@@ -97,24 +109,24 @@ pub fn register_as_custom<O>(
 /// Returns a [`Register`] with sensible functions for human-oriented clients.
 pub fn register_as_client<S: Secret, A: Sasl>() -> Register<Options<S, A>> {
     register_as_custom(
-        default_password,
-        default_client_username,
-        default_client_realname,
-        default_client_nicks,
-        default_caps,
-        default_auth,
+        |opts| default_password(opts.pass.as_ref()),
+        |opts| default_client_username(opts.username.as_ref()),
+        |opts| default_client_realname(opts.realname.as_ref()),
+        |opts| default_client_nicks(opts.nicks.clone()),
+        |opts| default_caps().union(&opts.caps).cloned().collect(),
+        Options::auths,
     )
 }
 
 /// Returns a [`Register`] with sensible functions for bots.
 pub fn register_as_bot<S: Secret, A: Sasl>() -> Register<Options<S, A>> {
     register_as_custom(
-        default_password,
-        default_bot_username,
-        default_bot_realname,
-        default_bot_nicks,
-        default_caps,
-        default_auth,
+        |opts| default_password(opts.pass.as_ref()),
+        |opts| default_bot_username(opts.username.as_ref()),
+        |opts| default_bot_realname(opts.realname.as_ref()),
+        |opts| default_bot_nicks(opts.nicks.clone()),
+        |opts| opts.caps.clone(),
+        Options::auths,
     )
 }
 
@@ -122,13 +134,16 @@ static DEFAULT_CAPS: std::sync::OnceLock<BTreeSet<Key<'static>>> = std::sync::On
 
 macro_rules! make_default_caps {
     ($($name:literal,)+) => {
-        #[doc="For use with [`Register`]."]
         #[doc="Returns a large set of IRCv3 capabilities."]
         #[doc=""]
-        #[doc="Every handler provided by this library can handle these capabilities."]
+        #[doc="Every handler provided by this library can handle these capabilities,"]
+        #[doc="and they are a reasonable baseline for modern IRC software."]
+        #[doc="This set excludes capabilities that are in draft status or"]
+        #[doc="are likely to significantly change how consumers of this library must"]
+        #[doc="handle messages from the server (e.g. `batch`, `echo-message`)."]
         #[doc="The specific capabilities included are:"]
         $(#[doc=concat!(" `",$name,"`")])+
-        pub fn default_caps<O>(_: &O) -> &'static BTreeSet<Key<'static>> {
+        pub fn default_caps() -> &'static BTreeSet<Key<'static>> {
             DEFAULT_CAPS.get_or_init(|| {
                 [$(Key::from_str($name)),+].into_iter().collect()
             })
@@ -136,13 +151,13 @@ macro_rules! make_default_caps {
     }
 }
 
-// Add batch when we actually have a batch handler type because handling it otherwise is pain.
 // Request sasl as-needed for auth.
+// Do not request batch or echo-message because they are prone to dramatically changing
+// how downstream software needs to handle messages.
 make_default_caps! {
     "account-notify",
     "account-tag",
     "chghost",
-    "echo-message",
     "extended-join",
     "extended-monitor",
     "invite-notify",
@@ -157,24 +172,16 @@ make_default_caps! {
 }
 
 /// For use with [`Register`].
-pub fn default_password<S: Secret, A>(
-    opts: &Options<S, A>,
-) -> std::io::Result<Option<Line<'static>>> {
-    let Some(pass) = opts.pass.as_ref() else {
-        return Ok(None);
-    };
-    let mut secret = Vec::new();
-    pass.load(&mut secret)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e))?;
-    let pass = Line::from_secret(secret)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-    Ok(Some(pass))
-}
-
-/// For use with [`Register`].
-pub fn default_auth<S, A: Sasl>(opts: &Options<S, A>) -> (SaslQueue, bool) {
-    let require_sasl = !opts.allow_sasl_fail;
-    (opts.sasl.iter().collect(), require_sasl)
+pub fn default_password(
+    pass: Option<&(impl Secret + ?Sized)>,
+) -> Option<std::io::Result<Line<'static>>> {
+    pass.map(|pass| {
+        let mut secret = Vec::new();
+        pass.load(&mut secret)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e))?;
+        Line::from_secret(secret)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
+    })
 }
 
 /// For use with [`Register`].
@@ -226,9 +233,13 @@ static NT_BOT: Suffix = Suffix {
 };
 
 /// For use with [`Register`].
-pub fn default_client_nicks<S, A>(opts: &Options<S, A>) -> Box<dyn NickGen> {
+pub fn default_client_nicks<I>(nicks: I) -> Box<dyn NickGen>
+where
+    I: IntoIterator<Item = Nick<'static>>,
+    I::IntoIter: 'static + Send,
+{
     use crate::client::nick::{from_iter, NickGenExt};
-    if let Some(nicks) = from_iter(opts.nicks.clone()) {
+    if let Some(nicks) = from_iter(nicks) {
         Box::new(nicks).chain_using(&NT_FALLBACK)
     } else {
         Box::new(Nick::from_str("Guest")).chain_using(&NT_GUEST)
@@ -236,8 +247,8 @@ pub fn default_client_nicks<S, A>(opts: &Options<S, A>) -> Box<dyn NickGen> {
 }
 
 /// For use with [`Register`].
-pub fn default_client_username<S, A>(opts: &Options<S, A>) -> User<'static> {
-    if let Some(uname) = opts.username.as_ref() {
+pub fn default_client_username(username: Option<&User<'static>>) -> User<'static> {
+    if let Some(uname) = username {
         return uname.clone();
     }
     #[cfg(feature = "whoami")]
@@ -251,15 +262,19 @@ pub fn default_client_username<S, A>(opts: &Options<S, A>) -> User<'static> {
 }
 
 /// For use with [`Register`].
-pub fn default_client_realname<S, A>(opts: &Options<S, A>) -> Line<'static> {
-    opts.realname.clone().unwrap_or_else(|| unsafe { Line::from_unchecked("???".into()) })
+pub fn default_client_realname(realname: Option<&Line<'static>>) -> Line<'static> {
+    realname.cloned().unwrap_or_else(|| Line::from_str("???".into()))
 }
 
 /// For use with [`Register`].
-pub fn default_bot_nicks<S, A>(opts: &Options<S, A>) -> Box<dyn NickGen> {
+pub fn default_bot_nicks<I>(nicks: I) -> Box<dyn NickGen>
+where
+    I: IntoIterator<Item = Nick<'static>>,
+    I::IntoIter: 'static + Send,
+{
     use crate::client::nick::{from_iter, NickGenExt, NickTransformer};
     let vzbnicks = NT_BOT.transform(Nick::from_str("VNZB"));
-    if let Some(usernicks) = from_iter(opts.nicks.clone()) {
+    if let Some(usernicks) = from_iter(nicks) {
         Box::new(usernicks).chain(vzbnicks)
     } else {
         vzbnicks
@@ -267,14 +282,11 @@ pub fn default_bot_nicks<S, A>(opts: &Options<S, A>) -> Box<dyn NickGen> {
 }
 
 /// For use with [`Register`].
-pub fn default_bot_username<S, A>(opts: &Options<S, A>) -> User<'static> {
-    if let Some(uname) = opts.username.as_ref() {
-        return uname.clone();
-    }
-    User::from_str("vnzb_bot")
+pub fn default_bot_username(username: Option<&User<'static>>) -> User<'static> {
+    username.cloned().unwrap_or_else(|| User::from_str("vnzb_bot"))
 }
 
 /// For use with [`Register`].
-pub fn default_bot_realname<O>(_: &O) -> Line<'static> {
-    Line::from_str("Vinezombie Bot")
+pub fn default_bot_realname(realname: Option<&Line<'static>>) -> Line<'static> {
+    realname.cloned().unwrap_or_else(|| Line::from_str("Vinezombie Bot"))
 }

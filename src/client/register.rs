@@ -23,7 +23,7 @@ use std::collections::BTreeSet;
 #[derive(Clone)]
 pub struct Register<O> {
     /// Returns the server password, if any.
-    pub password: fn(&O) -> std::io::Result<Option<Line<'static>>>,
+    pub password: fn(&O) -> Option<std::io::Result<Line<'static>>>,
     /// Returns the username to use for connection.
     pub username: fn(&O) -> User<'static>,
     /// Returns the value used for the first unused USER parameter.
@@ -45,7 +45,7 @@ pub struct Register<O> {
     /// Returns a set of capabilities to request.
     ///
     /// This does not need to include `sasl` if the authenticator list is non-empty.
-    pub caps: fn(&O) -> &BTreeSet<Key<'static>>,
+    pub caps: fn(&O) -> BTreeSet<Key<'static>>,
     /// Returns a [`SaslQueue`] to attempt
     /// and whether to close the connection on non-authentication.
     pub auth: fn(&O) -> (SaslQueue, bool),
@@ -63,7 +63,8 @@ impl<O> Register<O> {
         mut sink: impl ClientMsgSink<'static>,
     ) -> std::io::Result<(Nick<'static>, Option<Box<dyn NickGen>>)> {
         use crate::names::cmd::{CAP, NICK, PASS, USER};
-        if let Some(pass) = (self.password)(opts)? {
+        if let Some(pass) = (self.password)(opts) {
+            let pass = pass?;
             let mut msg = ClientMsg::new(PASS);
             msg.args.edit().add(pass);
             sink.send(msg);
@@ -102,7 +103,7 @@ impl<O> Register<O> {
     /// or if SASL handlers cannot be created.
     pub fn handler(&self, opts: &O, sink: impl ClientMsgSink<'static>) -> std::io::Result<Handler> {
         let nicks = self.register_msgs(opts, sink)?;
-        let mut caps = (self.caps)(opts).clone();
+        let mut caps = (self.caps)(opts);
         let (auths, mut needs_auth) = (self.auth)(opts);
         if !auths.is_empty() {
             caps.insert(Key::from_str("sasl"));
