@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::{borrow::Borrow, iter::FusedIterator};
 
 use crate::{
     error::ParseError,
@@ -143,6 +143,60 @@ impl<K: NameClass, V: 'static> NameMap<K, V> {
     pub fn edit(&mut self) -> NameMapEditGuard<'_, K, V> {
         NameMapEditGuard(self.map.edit())
     }
+
+    /// Returns an iterator over the keys of this map.
+    ///
+    /// This iterator is sorted.
+    pub fn keys(&self) -> NameMapIter<'_, K, V, true> {
+        NameMapIter { slice: self.map.as_slice() }
+    }
+}
+
+/// Iterator over entries in a [`NameMap`].
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct NameMapIter<
+    'a,
+    K: NameClass,
+    V: 'static,
+    const SORTED: bool,
+    const KEY_ONLY: bool = true,
+    const OMIT_EXTRA: bool = true,
+> {
+    slice: &'a [(K::Union<'static>, V)],
+}
+
+// TODO: More-efficient impls of some iter methods.
+
+impl<'a, const SORTED: bool, K: NameClass, V: 'static> Iterator for NameMapIter<'a, K, V, SORTED> {
+    type Item = &'a K::Raw<'static>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (next, rest) = self.slice.split_first()?;
+        self.slice = rest;
+        Some(K::get_tag(&next.0))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let size = self.slice.len();
+        (size, Some(size))
+    }
+}
+impl<'a, const SORTED: bool, K: NameClass, V: 'static> DoubleEndedIterator
+    for NameMapIter<'a, K, V, SORTED>
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let (next, rest) = self.slice.split_last()?;
+        self.slice = rest;
+        Some(K::get_tag(&next.0))
+    }
+}
+impl<'a, const SORTED: bool, K: NameClass, V: 'static> FusedIterator
+    for NameMapIter<'a, K, V, SORTED>
+{
+}
+impl<'a, const SORTED: bool, K: NameClass, V: 'static> ExactSizeIterator
+    for NameMapIter<'a, K, V, SORTED>
+{
 }
 
 /// Edit guard for a [`NameMap`].
