@@ -189,7 +189,6 @@ impl Handlers {
         }
     }
 
-    #[allow(unused)]
     pub fn cancel(&mut self) {
         self.handlers.clear();
         self.finished.clear();
@@ -198,7 +197,7 @@ impl Handlers {
     }
 
     pub fn has_results(&self, finished_at: usize) -> bool {
-        !self.yielded.is_empty() && self.finished.len() > finished_at
+        !self.yielded.is_empty() || self.finished.len() > finished_at
     }
 
     pub fn last_run_results(&self, finished_at: usize) -> (&[usize], &[usize]) {
