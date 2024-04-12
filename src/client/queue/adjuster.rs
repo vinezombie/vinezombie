@@ -18,6 +18,9 @@ pub trait Adjuster {
     }
     /// Updates a single message, returning `false` if it should be removed from the queue.
     fn update(&mut self, msg: &mut ClientMsg<'_>) -> bool;
+
+    /// Resets the adjuster's state (not configuration) to default.
+    fn reset(&mut self);
 }
 
 impl Adjuster for () {
@@ -27,6 +30,7 @@ impl Adjuster for () {
     fn update(&mut self, _: &mut ClientMsg<'_>) -> bool {
         true
     }
+    fn reset(&mut self) {}
 }
 
 /// A collection of multiple arbitrarily-typed [`Adjuster`]s
@@ -64,12 +68,6 @@ impl MultiAdjuster {
     pub fn len(&self) -> usize {
         self.adjusters.len()
     }
-    /// Disables all adjusters until at least the next call to `should_adjust`.
-    pub fn reset(&mut self) {
-        for (_, should_adjust) in &mut self.adjusters {
-            *should_adjust = false;
-        }
-    }
 }
 
 impl FromIterator<Box<dyn Adjuster>> for MultiAdjuster {
@@ -95,5 +93,11 @@ impl Adjuster for MultiAdjuster {
             }
         }
         retval
+    }
+    fn reset(&mut self) {
+        for (adj, should_adjust) in &mut self.adjusters {
+            adj.reset();
+            *should_adjust = false;
+        }
     }
 }

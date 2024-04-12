@@ -17,6 +17,7 @@ impl<'a> super::ServerAddr<'a> {
     ///
     /// `tls_fn` is called if a TLS client configuration is needed.
     /// If this function may be called multiple times,
+    /// the client configuration should be stored outside of the closure.
     #[cfg(feature = "tls")]
     pub fn connect(
         &self,

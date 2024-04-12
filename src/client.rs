@@ -49,11 +49,12 @@ impl<C, A> Client<C, A> {
     }
     /// Uses the provided connection for `self`.
     ///
-    /// This operation resets `self`'s timeouts,
-    /// as this function has no knowledge of existing timeouts set on the connection.
+    /// This connection does not change any of [`Client`]s state aside from
+    /// requiring an update of the connection's IO timeouts.
+    /// Additionally use [`reset`][Client::reset] if you want to reset the state.
     pub fn with_conn<C2>(self, conn: C2) -> Client<C2, A> {
         let Self { queue, adjuster, buf_i, buf_o, handlers, mut timeout, .. } = self;
-        *timeout = Default::default();
+        timeout.require_update();
         Client { conn, queue, adjuster, buf_i, buf_o, timeout, handlers }
     }
     /// Uses the provided [`Adjuster`][adjuster::Adjuster] for `self`.
@@ -141,6 +142,29 @@ impl<C, A: adjuster::Adjuster> Client<C, A> {
             handlers: Handlers::default(),
             timeout: Box::default(),
         }
+    }
+
+    /// Resets client state to when the connection was just opened.
+    ///
+    /// Cancels all handlers, resets the [queue][Queue]
+    /// including removing the [queue's labeler][Queue::use_labeler],
+    /// and resets the [queue adjuster][adjuster].
+    pub fn reset(&mut self) {
+        self.handlers.cancel();
+        self.queue.reset();
+        self.adjuster.reset();
+    }
+
+    /// Uses the provided connection instead of the current one
+    /// and resets the client state as [`reset`][Client::reset].
+    /// Returns the old connection.
+    ///
+    /// This results in a fresh [`Client`] ready to perform connection registration again.
+    pub fn reset_with_conn(&mut self, conn: C) -> C {
+        let retval = std::mem::replace(&mut self.conn, conn);
+        self.timeout.require_update();
+        self.reset();
+        retval
     }
 }
 

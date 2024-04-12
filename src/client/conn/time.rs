@@ -115,6 +115,9 @@ pub(crate) struct TimeLimits {
 }
 
 impl TimeLimits {
+    pub fn require_update(&mut self) {
+        self.update_write = true;
+    }
     pub fn read_timeout(&self) -> Option<Duration> {
         self.read
     }

@@ -149,6 +149,20 @@ impl Queue {
         let orig_len = self.queue.len();
         QueueEditGuard { queue: self, orig_len }
     }
+
+    /// Discards all messages from the queue.
+    pub fn clear(&mut self) {
+        self.queue.clear();
+    }
+
+    /// Resets the queue's state.
+    ///
+    /// Clears all messages, resets the message delay tracking, and unsets the labeler.
+    pub fn reset(&mut self) {
+        self.clear();
+        self.use_no_labeler();
+        self.timepoint = Instant::now();
+    }
 }
 
 /// Interface to a [`Queue`] that allows adding messages.
@@ -185,7 +199,7 @@ impl QueueEditGuard<'_> {
     }
 
     /// Discard all messages that have been added using `self`.
-    pub fn cancel(&mut self) -> &mut Self {
+    pub fn clear(&mut self) -> &mut Self {
         self.queue.queue.truncate(self.orig_len);
         self
     }
