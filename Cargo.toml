@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 rust-version = "1.70.0"
 
-license = "GPL-3.0-only"
+license = "EUPL-1.2-only"
 description = "A modular IRCv3 framework"
 homepage = "https://github.com/vinezombie/vinezombie"
 repository = "https://github.com/vinezombie/vinezombie"

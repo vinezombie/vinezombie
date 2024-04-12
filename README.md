@@ -47,12 +47,22 @@ and should be built with `--all-features`.
 
 ## License
 
-vinezombie is licensed under the GNU GPL v3 (only).
-Unless otherwise specified, all contributions submitted by you for inclusion
-will be licensed as the rest of the library.
+Licensed under the EUPL-1.2-only,
+[summarized here](https://choosealicense.com/licenses/eupl-1.2/).
+You agree for any contributions submitted by you for inclusion into vinezombie
+to be redistributed under this license.
 
-Disclosing the source code of bots or servers written using vinezombie to
-end users is also strongly encouraged, but not required.
+The EUPL is a copyleft license that covers network usage.
+It requires attribution and that works that incorporate vinezombie
+be made available to users (including users over a network connection) under
+a compatible copyleft license (GPL v2, LGPL/GPL/AGPL v3, MPL v2, EUPL v1.2,
+or refer to the license text for a full list and more information).
+It also requires that changes to vinezombie in distributed works
+be disclosed and made available under the EUPL.
+
+However, the license is not automatically viral over linking or IPC, and
+vinezombie's interfaces may be reproduced for interoperability with software
+that uses it.
 
 ## Discussion
 
