@@ -5,6 +5,8 @@ mod handler;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeSet;
+
 use super::auth::SaslQueue;
 
 pub use {defaults::*, handler::*};
@@ -14,7 +16,6 @@ use crate::{
     ircmsg::ClientMsg,
     string::{Arg, Key, Line, Nick, User},
 };
-use std::collections::BTreeSet;
 
 /// Client logic for the connection registration process.
 ///
@@ -42,10 +43,12 @@ pub struct Register<O> {
     pub realname: fn(&O) -> Line<'static>,
     /// Creates a nick generator.
     pub nicks: fn(&O) -> Box<dyn crate::client::nick::NickGen>,
-    /// Returns a set of capabilities to request.
+    /// Returns a boxed [`CapFn`] that provides a set of capabilities to require,
+    /// given a set of available capabilities.
     ///
-    /// This does not need to include `sasl` if the authenticator list is non-empty.
-    pub caps: fn(&O) -> BTreeSet<Key<'static>>,
+    /// These capabilities will be requested from the server,
+    /// except for `sts` which is special-cased to never be requested, only checked for presence.
+    pub caps: fn(&O) -> Box<dyn CapFn>,
     /// Returns a [`SaslQueue`] to attempt
     /// and whether to close the connection on non-authentication.
     pub auth: fn(&O) -> (SaslQueue, bool),
@@ -103,13 +106,9 @@ impl<O> Register<O> {
     /// or if SASL handlers cannot be created.
     pub fn handler(&self, opts: &O, sink: impl ClientMsgSink<'static>) -> std::io::Result<Handler> {
         let nicks = self.register_msgs(opts, sink)?;
-        let mut caps = (self.caps)(opts);
+        let caps = (self.caps)(opts);
         let (auths, mut needs_auth) = (self.auth)(opts);
-        if !auths.is_empty() {
-            caps.insert(Key::from_str("sasl"));
-        } else {
-            needs_auth &= auths.had_values();
-        };
+        needs_auth &= auths.had_values();
         Ok(Handler::new(nicks, caps, needs_auth, auths))
     }
 }
@@ -135,5 +134,29 @@ impl<'a, O> MakeHandler<&'a O> for &'a Register<O> {
         spec: &Spec,
     ) -> (Box<dyn super::channel::Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>) {
         spec.new_oneshot()
+    }
+}
+
+/// Object-safe [`FnOnce`] for functions that return a set of capability requirements.
+///
+/// This is blanket-implemented for [`Send`] and [`Sized`] implementations of `FnOnce`
+/// that have the correct types, meaning in most cases one can just use a closure.
+/// However, it can also be manually implemented on relevant types if preferred.
+pub trait CapFn: Send {
+    /// Returns a set of capabilities to require.
+    ///
+    /// If the returned set is NOT a subset of the provided capabilities connection registration
+    /// will error immediately with [`HandlerError::MissingCaps`].
+    /// It usually does not need to include the `sasl` capability, as the capability is added to
+    /// the set by the registration handler if the authenticator queue is non-empty.
+    fn require(self: Box<Self>, caps: &BTreeSet<Key<'_>>) -> BTreeSet<Key<'static>>;
+}
+
+impl<F> CapFn for F
+where
+    F: FnOnce(&BTreeSet<Key<'_>>) -> BTreeSet<Key<'static>> + Send,
+{
+    fn require(self: Box<Self>, caps: &BTreeSet<Key<'_>>) -> BTreeSet<Key<'static>> {
+        (*self)(caps)
     }
 }

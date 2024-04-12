@@ -10,6 +10,8 @@ use crate::{
     string::{Arg, Key, Line, Nick, Splitter, Word},
 };
 
+use super::CapFn;
+
 /// The result of successful registration.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Registration {
@@ -87,6 +89,8 @@ pub enum HandlerError {
     ServerError(Box<ServerMsg<'static>>),
     /// The server sent an invalid message.
     Broken(Box<dyn std::error::Error + Send + Sync>),
+    /// The following required capabilities are not present on the server.
+    MissingCaps(BTreeSet<Key<'static>>),
 }
 
 impl HandlerError {
@@ -104,6 +108,18 @@ impl std::fmt::Display for HandlerError {
             HandlerError::ServerError(e) => write!(f, "server error: {e}"),
             HandlerError::Broken(e) => write!(f, "invalid message: {e}"),
             HandlerError::Redirect(s, p, i) => write!(f, "redirected to {s}:{p}: {i}"),
+            HandlerError::MissingCaps(c) => {
+                let caps = c
+                    .iter()
+                    .map(|v| v.to_string())
+                    .reduce(|mut a, b| {
+                        a.push_str(", ");
+                        a.push_str(b.as_str());
+                        a
+                    })
+                    .unwrap_or_default();
+                write!(f, "missing required capabilities: {caps}")
+            }
         }
     }
 }
@@ -131,8 +147,11 @@ impl From<HandlerError> for std::io::Error {
     }
 }
 
+#[derive(Default)]
 pub(super) enum HandlerState {
-    Req(BTreeSet<Key<'static>>),
+    #[default]
+    Broken,
+    Req(Box<dyn CapFn>),
     Ack(VecDeque<Key<'static>>),
     Sasl,
     CapEnd,
@@ -165,7 +184,7 @@ pub struct Handler {
 impl Handler {
     pub(super) fn new(
         nicks: (Nick<'static>, Option<Box<dyn NickGen>>),
-        caps: BTreeSet<Key<'static>>,
+        caps: Box<dyn CapFn>,
         needs_auth: bool,
         auths: SaslQueue,
     ) -> Self {
@@ -385,9 +404,23 @@ impl Handler {
                             caps.try_insert((key, value), false);
                         }
                         std::mem::drop(caps);
-                        if let HandlerState::Req(reqs) = &mut self.state {
-                            let mut reqs = std::mem::take(reqs);
-                            reqs.retain(|key| self.reg.caps.get_extra_raw(key).is_some());
+                        let state = std::mem::take(&mut self.state);
+                        if let HandlerState::Req(reqs) = state {
+                            let avail = self.reg.caps.keys().cloned().collect();
+                            let mut reqs = reqs.require(&avail);
+                            if self.needs_auth {
+                                reqs.insert(crate::names::cap::SASL::NAME);
+                            }
+                            let diff: BTreeSet<_> = reqs.difference(&avail).cloned().collect();
+                            if !diff.is_empty() {
+                                return Err(HandlerError::MissingCaps(diff));
+                            }
+                            // Add "sasl" if we didn't add it earlier but need it.
+                            if !self.needs_auth && !self.auths.is_empty() {
+                                reqs.insert(crate::names::cap::SASL::NAME);
+                            }
+                            // "sts" is purely informative and must never be requested.
+                            reqs.remove(&crate::names::cap::STS::NAME);
                             self.state = if reqs.is_empty() {
                                 HandlerState::CapEnd
                             } else {
@@ -399,6 +432,8 @@ impl Handler {
                                 );
                                 HandlerState::Ack(reqs.into_iter().collect())
                             };
+                        } else {
+                            self.state = state;
                         }
                     }
                     cap::SubCmd::Ls | cap::SubCmd::New => {

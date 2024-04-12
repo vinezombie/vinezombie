@@ -76,6 +76,7 @@ defn_cap!(SASL = "sasl");
 defn_cap!(SERVER_TIME = "server-time");
 defn_cap!(SETNAME = "setname");
 defn_cap!(STANDARD_REPLIES = "standard-replies");
+defn_cap!(STS = "sts");
 defn_cap!(USERHOST_IN_NAMES = "userhost-in-names");
 
 impl NameValued<Cap> for SASL {

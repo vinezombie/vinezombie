@@ -1,4 +1,4 @@
-use super::Register;
+use super::{CapFn, Register};
 use crate::{
     client::{
         auth::{AnySasl, Sasl, SaslQueue, Secret},
@@ -91,7 +91,7 @@ pub fn register_as_custom<O>(
     username: fn(&O) -> User<'static>,
     realname: fn(&O) -> Line<'static>,
     nicks: fn(&O) -> Box<dyn crate::client::nick::NickGen>,
-    caps: fn(&O) -> BTreeSet<Key<'static>>,
+    caps: fn(&O) -> Box<dyn CapFn>,
     auth: fn(&O) -> (SaslQueue, bool),
 ) -> Register<O> {
     Register {
@@ -107,25 +107,31 @@ pub fn register_as_custom<O>(
 }
 
 /// Returns a [`Register`] with sensible functions for human-oriented clients.
+///
+/// The capability set is treated as a set of capabilities to soft-request, on top of an
+/// intersect of the available caps and a reasonable set of defaults (see [`default_caps`]).
 pub fn register_as_client<S: Secret, A: Sasl>() -> Register<Options<S, A>> {
     register_as_custom(
         |opts| default_password(opts.pass.as_ref()),
         |opts| default_client_username(opts.username.as_ref()),
         |opts| default_client_realname(opts.realname.as_ref()),
         |opts| default_client_nicks(opts.nicks.clone()),
-        |opts| default_caps().union(&opts.caps).cloned().collect(),
+        |opts| default_caps(opts.caps.clone(), true, false),
         Options::auths,
     )
 }
 
 /// Returns a [`Register`] with sensible functions for bots.
+///
+/// The capability set is treated as a list of capabilities to request,
+/// or error if not present.
 pub fn register_as_bot<S: Secret, A: Sasl>() -> Register<Options<S, A>> {
     register_as_custom(
         |opts| default_password(opts.pass.as_ref()),
         |opts| default_bot_username(opts.username.as_ref()),
         |opts| default_bot_realname(opts.realname.as_ref()),
         |opts| default_bot_nicks(opts.nicks.clone()),
-        |opts| opts.caps.clone(),
+        |opts| default_caps(opts.caps.clone(), false, true),
         Options::auths,
     )
 }
@@ -143,7 +149,7 @@ macro_rules! make_default_caps {
         #[doc="handle messages from the server (e.g. `batch`, `echo-message`)."]
         #[doc="The specific capabilities included are:"]
         $(#[doc=concat!(" `",$name,"`")])+
-        pub fn default_caps() -> &'static BTreeSet<Key<'static>> {
+        pub fn common_caps() -> &'static BTreeSet<Key<'static>> {
             DEFAULT_CAPS.get_or_init(|| {
                 [$(Key::from_str($name)),+].into_iter().collect()
             })
@@ -169,6 +175,33 @@ make_default_caps! {
     "setname",
     "standard-replies",
     "userhost-in-names",
+}
+
+/// For use with [`Register`].
+///
+/// Returns a [`CapFn`] for use during connection registration.
+/// If `add_common` is true, opportunistically requests a common set of capabilities
+/// (see [`common_caps`]) in addition to `caps`.
+/// If `require` is true, the capabilities in `caps` are considered required, and capability
+/// negotitation will fail if they are not present.
+pub fn default_caps(
+    mut caps: BTreeSet<Key<'static>>,
+    add_common: bool,
+    require: bool,
+) -> Box<dyn CapFn> {
+    Box::new(move |caps_avail: &BTreeSet<Key<'_>>| match (add_common, require) {
+        (false, false) => caps.intersection(caps_avail).map(|k| k.clone().owning()).collect(),
+        (false, true) => caps,
+        (true, false) => {
+            caps = caps.union(common_caps()).cloned().collect();
+            caps.intersection(caps_avail).map(|k| k.clone().owning()).collect()
+        }
+        (true, true) => {
+            let common =
+                caps_avail.intersection(common_caps()).map(|k| k.clone().owning()).collect();
+            caps.union(&common).cloned().collect()
+        }
+    })
 }
 
 /// For use with [`Register`].
@@ -263,7 +296,7 @@ pub fn default_client_username(username: Option<&User<'static>>) -> User<'static
 
 /// For use with [`Register`].
 pub fn default_client_realname(realname: Option<&Line<'static>>) -> Line<'static> {
-    realname.cloned().unwrap_or_else(|| Line::from_str("???".into()))
+    realname.cloned().unwrap_or_else(|| Line::from_str("???"))
 }
 
 /// For use with [`Register`].
