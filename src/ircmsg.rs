@@ -6,6 +6,7 @@ mod common;
 
 mod args;
 mod client;
+mod ctcp;
 mod numeric;
 mod server;
 mod servermsgkind;
@@ -16,6 +17,7 @@ mod targeted;
 mod tests;
 
 pub use self::{
-    args::*, client::*, numeric::*, server::*, servermsgkind::*, source::*, tags::*, targeted::*,
+    args::*, client::*, ctcp::*, numeric::*, server::*, servermsgkind::*, source::*, tags::*,
+    targeted::*,
 };
 use common::*;

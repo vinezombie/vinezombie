@@ -1,7 +1,7 @@
 use super::{Args, Numeric, ServerMsgKindRaw, SharedSource, Source, Tags};
 use crate::{
     error::{InvalidString, ParseError},
-    names::{Name, ServerMsgKind},
+    names::{Name, NameValued, ServerMsgKind},
     string::{Cmd, Line, Nick},
 };
 use std::io::Write;
@@ -71,6 +71,15 @@ impl<'a> ServerMsg<'a> {
             kind: kind.as_raw().clone(),
             args: Args::empty(),
         }
+    }
+    /// Attempts to parse this message further into a higher-level message type.
+    ///
+    /// Does not check if the message kind matches, assuming such a check has been done earlier.
+    pub fn parse_as<N>(&self, _kind: N) -> Result<N::Value<'a>, ParseError>
+    where
+        N: NameValued<ServerMsgKind>,
+    {
+        N::from_union(self)
     }
     /// Reads a server message from `read`.
     /// This function may block.

@@ -1,7 +1,7 @@
 use super::{Args, Source, Tags};
 use crate::{
     error::{InvalidString, ParseError},
-    names::{ClientMsgKind, Name},
+    names::{ClientMsgKind, Name, NameValued},
     string::{Cmd, Line},
 };
 use std::io::Write;
@@ -65,6 +65,15 @@ impl ClientMsg<'static> {
 }
 
 impl<'a> ClientMsg<'a> {
+    /// Attempts to parse this message further into a higher-level message type.
+    ///
+    /// Does not check if the message kind matches, assuming such a check has been done earlier.
+    pub fn parse_as<N>(&self, _kind: N) -> Result<N::Value<'a>, ParseError>
+    where
+        N: NameValued<ClientMsgKind>,
+    {
+        N::from_union(self)
+    }
     /// Reads a client message from `read`.
     /// This function may block.
     ///

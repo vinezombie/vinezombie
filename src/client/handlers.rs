@@ -1,14 +1,14 @@
 //! Useful handler implementations.
 
+mod autoreply;
 mod ping;
 
+pub use autoreply::*;
 pub use ping::*;
 
 use super::{Handler, SelfMadeHandler};
 use crate::{
-    ircmsg::{ServerMsg, ServerMsgKindRaw},
-    names::{NameValued, ServerMsgKind},
-    util::FlatMap,
+    ircmsg::{ServerMsg, ServerMsgKindRaw}, names::{NameValued, ServerMsgKind}, util::FlatMap
 };
 
 /// [`Handler`] that yields every message it receives until the channel closes.

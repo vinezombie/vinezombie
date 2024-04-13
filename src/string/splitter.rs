@@ -151,6 +151,21 @@ impl<T: AsRef<[u8]>> Splitter<T> {
         }
         retval
     }
+    /// Gets the next byte from the end of the string without consuming it.
+    pub fn rpeek_byte(&self) -> Option<u8> {
+        self.as_slice().last().copied()
+    }
+    /// Gets the next byte from the end of the string.
+    pub fn rnext_byte(&mut self) -> Option<u8> {
+        let retval = self.rpeek_byte();
+        if let Some(byte) = retval {
+            self.range.end -= 1;
+            if !byte.is_ascii() {
+                self.range.encoding = Encoding::Unknown;
+            }
+        }
+        retval
+    }
     /// Removes leading bytes that are invalid for `U`.
     pub fn consume_invalid<'a, U: BytesNewtype<'a>>(&mut self) {
         let slice = self.range.constrain(self.as_ref());
