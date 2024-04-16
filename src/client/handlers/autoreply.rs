@@ -1,8 +1,12 @@
 use crate::{
-    client::{channel::ClosedSender, queue::QueueEditGuard, Handler, SelfMadeHandler},
+    client::{
+        channel::{ChannelSpec, ClosedSender, Sender},
+        queue::QueueEditGuard,
+        Handler, SelfMadeHandler,
+    },
     ircmsg::{ClientMsg, MaybeCtcp, ServerMsg},
     names::cmd::{NOTICE, PRIVMSG},
-    string::Line,
+    string::{Line, Word},
 };
 
 /// Handler for static replies to CTCP VERSION and SOURCE.
@@ -44,19 +48,19 @@ impl Handler for CtcpVersion {
             // Wat?
             return false;
         };
-        match msg.value.0.as_bytes() {
+        match msg.value.cmd.as_bytes() {
             b"VERSION" if !self.version.is_empty() => {
                 let mut msg = ClientMsg::new(NOTICE);
                 let mut args = msg.args.edit();
                 args.add_word(source.nick.clone().owning());
-                args.add(self.version.clone());
+                args.add(MaybeCtcp { cmd: Word::from_str("VERSION"), body: self.version.clone() });
                 queue.push(msg);
             }
             b"SOURCE" if !self.source.is_empty() => {
                 let mut msg = ClientMsg::new(NOTICE);
                 let mut args = msg.args.edit();
                 args.add_word(source.nick.clone().owning());
-                args.add(self.source.clone());
+                args.add(MaybeCtcp { cmd: Word::from_str("SOURCE"), body: self.source.clone() });
                 queue.push(msg);
             }
             _ => (),
@@ -66,14 +70,13 @@ impl Handler for CtcpVersion {
 }
 
 impl SelfMadeHandler for CtcpVersion {
-    type Receiver<Spec: crate::client::channel::ChannelSpec> = ();
+    type Receiver<Spec: ChannelSpec> = ();
 
     fn queue_msgs(&self, _: QueueEditGuard<'_>) {}
 
-    fn make_channel<Spec: crate::client::channel::ChannelSpec>(
+    fn make_channel<Spec: ChannelSpec>(
         _: &Spec,
-    ) -> (Box<dyn crate::client::channel::Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>)
-    {
-        (Box::new(ClosedSender::default()), ())
+    ) -> (Box<dyn Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>) {
+        (Box::<ClosedSender<_>>::default(), ())
     }
 }

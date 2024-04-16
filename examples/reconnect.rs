@@ -10,6 +10,7 @@ use vinezombie::{
         tls::TlsConfig,
         Client,
     },
+    ctcp_version_handler,
     names::cmd::PRIVMSG,
     string::Line,
 };
@@ -50,6 +51,9 @@ fn main() -> std::io::Result<()> {
         client.run()?;
         let nick = reg_result.0.recv_now().unwrap()?.nick;
         let _ = client.add((), AutoPong);
+        // As we can interact with this bot, let's add a handler to auto-reply to
+        // CTCP VERSION and CTCP SOURCE.
+        let _ = client.add((), ctcp_version_handler!());
         // For the purposes of this example, let's quit and reconnect
         // if literally anyone sends us a message containing the letter "q".
         // In previous examples, we've been ignoring that the client's `run` methods

@@ -1,4 +1,4 @@
-use super::ServerMsg;
+use super::{MaybeCtcp, ServerMsg};
 use crate::string::Line;
 
 macro_rules! irc_msg {
@@ -130,5 +130,20 @@ pub fn bytes_left() {
         let testlen = 510 - irc_msg!(case).bytes_left();
         let caselen = case.as_bytes().len() as isize;
         assert_eq!(testlen, caselen, "wrong length calculation for: {}", case);
+    }
+}
+
+#[test]
+pub fn ctcp() {
+    let cases = [
+        ("\x01ACTION tap-dances\x01", "ACTION"),
+        ("\x01ACTION beeps.", "ACTION"),
+        ("ACTION beeps.\x01", ""),
+        ("\x01FOO\x01BAR baz", "FOO"),
+    ];
+    for (case, expected) in cases {
+        let line = Line::from_str(case);
+        let ctcp = MaybeCtcp::from(line);
+        assert_eq!(ctcp.cmd, expected);
     }
 }
