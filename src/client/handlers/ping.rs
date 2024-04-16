@@ -3,7 +3,7 @@ use crate::names::cmd::{PING, PONG};
 use crate::{
     client::{
         channel::{ChannelSpec, Sender, SenderRef},
-        QueueEditGuard,
+        queue::QueueEditGuard,
     },
     ircmsg::{ClientMsg, ServerMsg},
     string::Arg,

@@ -1,23 +1,27 @@
-pub mod adjuster;
+//! The rate-limited queue and supporting definitions.
+//!
+//!
+//! RFC 1459 recommends sending messages as a client in bursts of up to 5 messages,
+//! followed by one message every 2 seconds.
+//! The contents of this module enforce that recommendation by resticting how frequently
+//! messages can be removed from it.
 
 use crate::ircmsg::{ClientMsg, ServerMsg};
-use crate::string::{Key, NoNul};
+use crate::string::{Key, NoNul, User};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 /// A rate-limited queue for client messages.
 ///
-/// RFC 1459 recommends sending messages as a client in bursts of up to 5 messages,
-/// followed by one message every 2 seconds.
-/// This type enforces that recommendation by resticting how frequently
-/// messages can be removed from it.
+/// See [module-level documentation][self] for more info.
 pub struct Queue {
     queue: VecDeque<ClientMsg<'static>>,
     delay: Duration,
     sub: Duration,
     timepoint: Instant,
-    // TODO: Bespoke trait for this. We want Clone back.
+    // TODO: Bespoke trait for this.
     labeler: Option<Box<dyn FnMut() -> NoNul<'static> + Send>>,
+    adjuster: Option<Box<dyn Adjuster>>,
 }
 
 impl std::fmt::Debug for Queue {
@@ -65,6 +69,7 @@ impl Queue {
             sub: Duration::from_secs(8),
             timepoint: Instant::now(),
             labeler: None,
+            adjuster: None,
         }
     }
 
@@ -114,34 +119,62 @@ impl Queue {
             None
         }
     }
+
     /// Updates messages in the queue based on an incoming message.
-    pub fn adjust<F: adjuster::Adjuster + ?Sized>(
-        &mut self,
-        msg: &ServerMsg<'_>,
-        adjuster: &mut F,
-    ) {
-        if adjuster.should_adjust(msg) {
-            self.queue.retain_mut(|cmsg| adjuster.update(cmsg));
+    pub fn adjust(&mut self, msg: &ServerMsg<'_>) {
+        if let Some(adj) = self.adjuster.as_mut() {
+            if adj.should_adjust(msg) {
+                self.queue.retain_mut(|cmsg| adj.update(cmsg));
+            }
         }
     }
-
-    /// Adds `label` tags to outgoing messages for `labeled-response`.
-    ///
-    /// Returns `None` is no labeler is configured for the underlying queue.
-    pub fn use_labeler(&mut self, f: impl FnMut() -> NoNul<'static> + 'static + Send) -> &mut Self {
-        self.labeler = Some(Box::new(f));
+    /// Uses the provided [`Adjuster`] to update the queue on incoming messages.
+    pub fn use_adjuster(&mut self, adjuster: impl Adjuster + 'static) -> &mut Self {
+        self.adjuster = Some(Box::new(adjuster));
+        self
+    }
+    /// Removes the [`Adjuster`] for this queue.
+    pub fn use_no_adjuster(&mut self) -> &mut Self {
+        self.adjuster = None;
         self
     }
 
-    /// Returns `true` if a `label` tag will be attached to outgoing messages.
-    pub fn is_using_labeler(&self) -> bool {
-        self.labeler.is_some()
+    /// Sets the provided function as the labeler for this queue,
+    /// allowing users of [`QueueEditGuard`] to attach `label` tags to outgoing messages without
+    /// having to edit the messages themselves.
+    ///
+    /// A labeler implies that `labeled-response` is in effect for whatever pops from this queue.
+    /// Anything that pushes to this queue (some handlers) can test for the labeler's presence
+    /// and may radically change its behavior (e.g. PRIVMSG handlers additionally waiting for
+    /// a response if `echo-message` is also in effect).
+    pub fn use_labeler(
+        &mut self,
+        labeler: impl FnMut() -> NoNul<'static> + 'static + Send,
+    ) -> &mut Self {
+        self.labeler = Some(Box::new(labeler));
+        self
     }
-
-    /// Stops `label` tags from being added to outgoing messages.
+    /// Uses a reasonable default labeler for this queue.
+    ///
+    /// See [`use_labeler`][Queue::use_labeler] for IMPORTANT caveats.
+    pub fn use_labeler_default(&mut self) -> &mut Self {
+        let mut id = 0u32;
+        self.use_labeler(move || {
+            id = id.overflowing_add(1).0;
+            // TODO: Nope. Base64-encode.
+            User::new_id(id).into()
+        })
+    }
+    /// Removes the labeler for this queue.
+    ///
+    /// See [`use_labeler`][Queue::use_labeler] for IMPORTANT caveats.
     pub fn use_no_labeler(&mut self) -> &mut Self {
         self.labeler = None;
         self
+    }
+    /// Returns `true` if a labeler is present.
+    pub fn is_using_labeler(&self) -> bool {
+        self.labeler.is_some()
     }
 
     /// Create an interface for adding messages to the queue.
@@ -162,6 +195,9 @@ impl Queue {
         self.clear();
         self.use_no_labeler();
         self.timepoint = Instant::now();
+        if let Some(adjuster) = self.adjuster.as_mut() {
+            adjuster.reset();
+        }
     }
 }
 
@@ -188,6 +224,11 @@ impl QueueEditGuard<'_> {
         label
     }
 
+    /// Returns `true` if a labeler is present.
+    pub fn is_using_labeler(&self) -> bool {
+        self.queue.labeler.is_some()
+    }
+
     /// Returns `true` if no messages have been added using `self`.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -202,5 +243,107 @@ impl QueueEditGuard<'_> {
     pub fn clear(&mut self) -> &mut Self {
         self.queue.queue.truncate(self.orig_len);
         self
+    }
+
+    /// Returns a new [`QueueEditGuard`] borrowing from `self`.
+    ///
+    /// After the guard is dropped, `Self`
+    pub fn edit(&mut self) -> QueueEditGuard<'_> {
+        let orig_len = self.queue.len();
+        QueueEditGuard { queue: self.queue, orig_len }
+    }
+}
+
+impl Extend<ClientMsg<'static>> for Queue {
+    fn extend<T: IntoIterator<Item = ClientMsg<'static>>>(&mut self, iter: T) {
+        self.queue.extend(iter);
+    }
+}
+
+/// Logic for adjusting a [`Queue`] based on incoming messages.
+//
+// This exists to allow queued messages to be updated or removed based on nick changes,
+// departure from channels, and other similar events.
+// It is not meant to provide a means of sending responses to events;
+// consider using [`Handler`][crate::client::Handler]s for that.
+pub trait Adjuster: Send {
+    /// Returns `true` if the queue should be adjusted based on this message.
+    #[allow(unused_variables)]
+    fn should_adjust(&mut self, msg: &ServerMsg<'_>) -> bool {
+        true
+    }
+    /// Updates a single message, returning `false` if it should be removed from the queue.
+    fn update(&mut self, msg: &mut ClientMsg<'_>) -> bool;
+
+    /// Resets the adjuster's state (not configuration) to default.
+    fn reset(&mut self);
+}
+
+/// A collection of multiple arbitrarily-typed [`Adjuster`]s
+/// that can be used as a single `Adjuster`.
+///
+/// The `should_adjust` implementation calls every member's `should_adjust`,
+/// and returns `true` if any of them return `true`.
+/// The `update` implementation calls `update` for every member that returned `true`
+/// during the previous `should_adjust` call, and returns `false` if any of them return `false`.
+#[derive(Default)]
+pub struct MultiAdjuster {
+    adjusters: Vec<(Box<dyn Adjuster>, bool)>,
+}
+
+impl MultiAdjuster {
+    /// Creates a new, empty `MultiAdjuster`.
+    pub fn new() -> MultiAdjuster {
+        MultiAdjuster { adjusters: Vec::new() }
+    }
+    /// Adds an adjuster to the collection.
+    ///
+    /// Added adjusters will not update messages until at least the next call of `should_adjust`.
+    pub fn add<T: Adjuster + 'static>(&mut self, adjuster: T) {
+        self.adjusters.push((Box::new(adjuster), false));
+    }
+    /// Removes all adjusters from `self`.
+    pub fn clear(&mut self) {
+        self.adjusters.clear();
+    }
+    /// Returns true if there are no adjusters.
+    pub fn is_empty(&self) -> bool {
+        self.adjusters.is_empty()
+    }
+    /// Returns the number of adjusters contained by `self`.
+    pub fn len(&self) -> usize {
+        self.adjusters.len()
+    }
+}
+
+impl FromIterator<Box<dyn Adjuster>> for MultiAdjuster {
+    fn from_iter<I: IntoIterator<Item = Box<dyn Adjuster>>>(iter: I) -> Self {
+        MultiAdjuster { adjusters: iter.into_iter().map(|b| (b, false)).collect() }
+    }
+}
+
+impl Adjuster for MultiAdjuster {
+    fn should_adjust(&mut self, msg: &ServerMsg<'_>) -> bool {
+        let mut retval = false;
+        for (adj, should_adjust) in &mut self.adjusters {
+            *should_adjust = adj.should_adjust(msg);
+            retval |= *should_adjust;
+        }
+        retval
+    }
+    fn update(&mut self, msg: &mut ClientMsg<'_>) -> bool {
+        let mut retval = true;
+        for (adj, should_adjust) in &mut self.adjusters {
+            if *should_adjust {
+                retval &= adj.update(msg);
+            }
+        }
+        retval
+    }
+    fn reset(&mut self) {
+        for (adj, should_adjust) in &mut self.adjusters {
+            adj.reset();
+            *should_adjust = false;
+        }
     }
 }

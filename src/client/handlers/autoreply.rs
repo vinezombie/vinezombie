@@ -1,4 +1,9 @@
-use crate::{client::Handler, ircmsg::{ClientMsg, MaybeCtcp, ServerMsg}, names::{cmd::{NOTICE, PRIVMSG}, NameValued, ServerMsgKind}, string::{tf::AsciiCasemap, Line}};
+use crate::{
+    client::{channel::ClosedSender, queue::QueueEditGuard, Handler, SelfMadeHandler},
+    ircmsg::{ClientMsg, MaybeCtcp, ServerMsg},
+    names::cmd::{NOTICE, PRIVMSG},
+    string::Line,
+};
 
 /// Handler for static replies to CTCP VERSION and SOURCE.
 #[derive(Clone, Debug)]
@@ -13,14 +18,12 @@ pub struct CtcpVersion {
 #[macro_export]
 macro_rules! ctcp_version_handler {
     () => {{
-        use crate::string::Line;
-        let version = Line::from_bytes(concat!(
-            env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION")
-        )).unwrap_or_default();
+        use ::vinezombie::string::Line;
+        let version =
+            Line::from_bytes(concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION")))
+                .unwrap_or_default();
         let source = Line::from_bytes(env!("CARGO_PKG_REPOSITORY")).unwrap_or_default();
-        CtcpVersion {
-            version, source
-        }
+        ::vinezombie::client::handlers::CtcpVersion { version, source }
     }};
 }
 
@@ -30,7 +33,7 @@ impl Handler for CtcpVersion {
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
-        mut queue: crate::client::QueueEditGuard<'_>,
+        mut queue: QueueEditGuard<'_>,
         _: crate::client::channel::SenderRef<'_, Self::Value>,
     ) -> bool {
         let Ok(msg) = msg.parse_as(PRIVMSG) else {
@@ -56,8 +59,21 @@ impl Handler for CtcpVersion {
                 args.add(self.source.clone());
                 queue.push(msg);
             }
-            _ => ()
+            _ => (),
         }
         false
+    }
+}
+
+impl SelfMadeHandler for CtcpVersion {
+    type Receiver<Spec: crate::client::channel::ChannelSpec> = ();
+
+    fn queue_msgs(&self, _: QueueEditGuard<'_>) {}
+
+    fn make_channel<Spec: crate::client::channel::ChannelSpec>(
+        _: &Spec,
+    ) -> (Box<dyn crate::client::channel::Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>)
+    {
+        (Box::new(ClosedSender::default()), ())
     }
 }

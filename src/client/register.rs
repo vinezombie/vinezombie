@@ -124,7 +124,7 @@ impl<'a, O> MakeHandler<&'a O> for &'a Register<O> {
 
     fn make_handler(
         self,
-        mut queue: super::QueueEditGuard<'_>,
+        mut queue: super::queue::QueueEditGuard<'_>,
         opts: &'a O,
     ) -> Result<Handler, Self::Error> {
         self.handler(opts, &mut queue)

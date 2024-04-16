@@ -72,7 +72,7 @@ impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for &'a Authenticate {
 
     fn make_handler(
         self,
-        mut queue: crate::client::QueueEditGuard<'_>,
+        mut queue: crate::client::queue::QueueEditGuard<'_>,
         sasl: &'a T,
     ) -> Result<Handler, Self::Error> {
         let (msg, handler) = Handler::from_sasl(sasl)?;
@@ -155,7 +155,7 @@ impl crate::client::Handler for Handler {
     fn handle(
         &mut self,
         msg: &crate::ircmsg::ServerMsg<'_>,
-        mut queue: crate::client::QueueEditGuard<'_>,
+        mut queue: crate::client::queue::QueueEditGuard<'_>,
         mut channel: crate::client::channel::SenderRef<'_, Self::Value>,
     ) -> bool {
         match self.handle(msg, &mut queue) {

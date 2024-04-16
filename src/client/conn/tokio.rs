@@ -153,7 +153,7 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> ConnectionTokio fo
     }
 }
 
-impl<C: ConnectionTokio, A: crate::client::adjuster::Adjuster> crate::client::Client<C, A> {
+impl<C: ConnectionTokio> crate::client::Client<C> {
     /// Runs handlers off of the connection until any of them yield or finish.
     ///
     /// Returns the IDs of the handlers that yielded or finished, respectively.
@@ -185,7 +185,7 @@ impl<C: ConnectionTokio, A: crate::client::adjuster::Adjuster> crate::client::Cl
                 };
                 #[cfg(feature = "tracing")]
                 tracing::debug!(target: "vinezombie::recv", "{}", msg);
-                self.queue.adjust(&msg, &mut self.adjuster);
+                self.queue.adjust(&msg);
                 self.handlers.handle(&msg, &mut self.queue)
             } else {
                 let fut = ServerMsg::read_borrowing_from_tokio(&mut conn, &mut self.buf_i);
@@ -196,7 +196,7 @@ impl<C: ConnectionTokio, A: crate::client::adjuster::Adjuster> crate::client::Cl
                 };
                 #[cfg(feature = "tracing")]
                 tracing::debug!(target: "vinezombie::recv", "{}", msg);
-                self.queue.adjust(&msg, &mut self.adjuster);
+                self.queue.adjust(&msg);
                 let fa = self.handlers.handle(&msg, &mut self.queue);
                 self.buf_i.clear();
                 fa

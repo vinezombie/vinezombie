@@ -6,25 +6,23 @@ pub mod conn;
 mod handler;
 pub mod handlers;
 pub mod nick;
-mod queue;
+pub mod queue;
 pub mod register;
 mod sink;
 #[cfg(feature = "tls")]
 pub mod tls;
 
-pub use {handler::*, queue::*, sink::*};
+pub use {handler::*, sink::*};
 
-use self::channel::ChannelSpec;
+use self::{channel::ChannelSpec, queue::Queue};
 
 /// A client connection.
 #[derive(Default)]
-pub struct Client<C, A = ()> {
+pub struct Client<C> {
     /// The connection to the IRC server.
     conn: C,
-    /// A strategy for updating the queue from incoming messages.
-    adjuster: A,
     /// A message queue for rate-limiting.
-    queue: Box<queue::Queue>,
+    queue: Box<Queue>,
     /// A buffer that is used internally for inbound message I/O.
     buf_i: Vec<u8>,
     /// A buffer that is used internally for outbound message I/O.
@@ -38,11 +36,26 @@ pub struct Client<C, A = ()> {
 /// Creates a new [`Client`] out of a connection with sensible default types.
 ///
 /// Note that connection registration will still likely need to happen after this.
-pub fn new_client<C>(conn: C) -> Client<C, impl adjuster::Adjuster> {
-    Client::new_with_adjuster(conn, ())
+pub fn new_client<C>(conn: C) -> Client<C> {
+    Client::new(conn)
 }
 
-impl<C, A> Client<C, A> {
+impl<C> Client<C> {
+    /// Creates a new `Client` from the provided connection.
+    pub fn new(conn: C) -> Self {
+        Self::new_with_queue(conn, Queue::new())
+    }
+    /// Creates a new `Client` from the provided connection and [`Queue`].
+    pub fn new_with_queue(conn: C, queue: Queue) -> Self {
+        Client {
+            conn,
+            queue: Box::new(queue),
+            buf_i: Vec::new(),
+            buf_o: Vec::new(),
+            handlers: Handlers::default(),
+            timeout: Box::default(),
+        }
+    }
     /// Extracts the connection from `self`, allowing it to be used elsewhere.
     pub fn take_conn(self) -> C {
         self.conn
@@ -52,23 +65,10 @@ impl<C, A> Client<C, A> {
     /// This connection does not change any of [`Client`]s state aside from
     /// requiring an update of the connection's IO timeouts.
     /// Additionally use [`reset`][Client::reset] if you want to reset the state.
-    pub fn with_conn<C2>(self, conn: C2) -> Client<C2, A> {
-        let Self { queue, adjuster, buf_i, buf_o, handlers, mut timeout, .. } = self;
+    pub fn with_conn<C2>(self, conn: C2) -> Client<C2> {
+        let Self { queue, buf_i, buf_o, handlers, mut timeout, .. } = self;
         timeout.require_update();
-        Client { conn, queue, adjuster, buf_i, buf_o, timeout, handlers }
-    }
-    /// Uses the provided [`Adjuster`][adjuster::Adjuster] for `self`.
-    pub fn with_adjuster<A2: adjuster::Adjuster>(self, adjuster: A2) -> Client<C, A2> {
-        let Self { conn, queue, buf_i, buf_o, handlers, timeout, .. } = self;
-        Client { conn, queue, adjuster, buf_i, buf_o, handlers, timeout }
-    }
-    /// Returns a shared reference to the internal [`Adjuster`][adjuster::Adjuster].
-    pub fn adjuster(&self) -> &A {
-        &self.adjuster
-    }
-    /// Returns a mutable reference to the internal [`Adjuster`][adjuster::Adjuster]>
-    pub fn adjuster_mut(&mut self) -> &mut A {
-        &mut self.adjuster
+        Client { conn, queue, buf_i, buf_o, timeout, handlers }
     }
     /// Returns a shared reference to the internal [`Queue`].
     pub fn queue(&self) -> &Queue {
@@ -122,37 +122,16 @@ impl<C, A> Client<C, A> {
         let handler = make_handler.make_handler(self.queue.edit(), value)?;
         Ok(self.handlers.add(handler, sender))
     }
-}
-
-impl<C, A: adjuster::Adjuster> Client<C, A> {
-    /// Creates a new `Client` from the provided
-    /// connection and [queue adjustment strategy][adjuster::Adjuster].
-    pub fn new_with_adjuster(conn: C, adjuster: A) -> Self {
-        Self::new_with_adjuster_and_queue(conn, adjuster, Queue::new())
-    }
-    /// Creates a new `Client` from the provided
-    /// connection, [queue adjustment strategy][adjuster::Adjuster], and [`Queue`].
-    pub fn new_with_adjuster_and_queue(conn: C, adjuster: A, queue: Queue) -> Self {
-        Client {
-            conn,
-            queue: Box::new(queue),
-            adjuster,
-            buf_i: Vec::new(),
-            buf_o: Vec::new(),
-            handlers: Handlers::default(),
-            timeout: Box::default(),
-        }
-    }
 
     /// Resets client state to when the connection was just opened.
     ///
-    /// Cancels all handlers, resets the [queue][Queue]
-    /// including removing the [queue's labeler][Queue::use_labeler],
-    /// and resets the [queue adjuster][adjuster].
+    /// Cancels all handlers and resets the [queue][Queue]
+    /// including removing the [queue's labeler][Queue::use_labeler].
+    /// Does not reset any state that is considered configuration,
+    /// such as what the queue's rate limits are.
     pub fn reset(&mut self) {
         self.handlers.cancel();
         self.queue.reset();
-        self.adjuster.reset();
     }
 
     /// Uses the provided connection instead of the current one
@@ -168,18 +147,7 @@ impl<C, A: adjuster::Adjuster> Client<C, A> {
     }
 }
 
-impl<C, A: adjuster::Adjuster + Default> Client<C, A> {
-    /// Creates a new `Client` from the provided connection.
-    pub fn new(conn: C) -> Self {
-        Self::new_with_adjuster(conn, A::default())
-    }
-    /// Creates a new `Client` from the provided connection and [`Queue`].
-    pub fn new_with_queue(conn: C, queue: Queue) -> Self {
-        Self::new_with_adjuster_and_queue(conn, A::default(), queue)
-    }
-}
-
-impl<C: Default, A: adjuster::Adjuster + Default> From<Queue> for Client<C, A> {
+impl<C: Default> From<Queue> for Client<C> {
     fn from(queue: Queue) -> Self {
         Self::new_with_queue(C::default(), queue)
     }

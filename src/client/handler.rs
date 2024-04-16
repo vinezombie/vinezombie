@@ -1,6 +1,6 @@
 pub mod channel;
 
-use super::{Queue, QueueEditGuard};
+use super::queue::{Queue, QueueEditGuard};
 use crate::ircmsg::ServerMsg;
 
 use channel::*;

@@ -1,4 +1,4 @@
-use super::QueueEditGuard;
+use super::queue::QueueEditGuard;
 use crate::ircmsg::ClientMsg;
 
 /// Final destinations for [`ClientMsg`]s.
