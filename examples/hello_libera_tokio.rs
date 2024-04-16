@@ -3,8 +3,8 @@ use vinezombie::{
         self,
         auth::Clear,
         channel::TokioChannels,
-        new_client,
         register::{register_as_bot, Options},
+        Client,
     },
     ircmsg::ClientMsg,
     string::{Line, Word},
@@ -20,12 +20,12 @@ async fn main() -> std::io::Result<()> {
     // First difference! We use a different function here to connect asynchronously.
     // Many of the synchronous functions have `_tokio` variants for Tokio-flavored async.
     let sock = address.connect_tokio(|| client::tls::TlsConfigOptions::default().build()).await?;
-    let mut client = new_client(sock);
+    // We also use TokioChannels instead of SyncChannels, which changes the flavor
+    // of channel used by our handler later on.
+    let mut client = Client::new(sock, TokioChannels);
     // We still use the same handler for connection registration,
     // but instead we run it using a run_tokio function.
-    // We also use TokioChannels instead of SyncChannels, which changes the flavor
-    // of channel used by our handler.
-    let (_id, reg_result) = client.add(&TokioChannels, &register_as_bot(), &options)?;
+    let (_id, reg_result) = client.add(&register_as_bot(), &options)?;
     client.run_tokio().await?;
     let reg = reg_result.await.unwrap()?;
     let network_name = reg.isupport.get_parsed(vinezombie::names::isupport::NETWORK).transpose()?;

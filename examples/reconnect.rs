@@ -3,12 +3,12 @@ use vinezombie::{
     client::{
         self,
         auth::Clear,
-        channel::{SyncChannels, TokioChannels},
+        channel::SyncChannels,
         conn::{ServerAddr, Stream},
         handlers::{AutoPong, YieldParsed},
-        new_client,
         register::{register_as_bot, Options},
         tls::TlsConfig,
+        Client,
     },
     names::cmd::PRIVMSG,
     string::Line,
@@ -44,19 +44,19 @@ fn main() -> std::io::Result<()> {
     options.realname = Some(Line::from_str("Vinezombie Example: reconnect"));
     let address = ServerAddr::from_host_str("irc.libera.chat");
     let mut tls_config: Option<TlsConfig> = None;
-    let mut client = new_client(make_sock(&mut tls_config, &address)?);
+    let mut client = Client::new(make_sock(&mut tls_config, &address)?, SyncChannels);
     loop {
-        let (_, reg_result) = client.add(&SyncChannels, &register_as_bot(), &options)?;
+        let (_, reg_result) = client.add(&register_as_bot(), &options)?;
         client.run()?;
         let nick = reg_result.0.recv_now().unwrap()?.nick;
-        let _ = client.add(&TokioChannels, (), AutoPong);
+        let _ = client.add((), AutoPong);
         // For the purposes of this example, let's quit and reconnect
         // if literally anyone sends us a message containing the letter "q".
         // In previous examples, we've been ignoring that the client's `run` methods
         // actually disclose which handlers produced values and/or finished.
         // This time we're actually going to use that information,
         // starting by saving the id of the message handler.
-        let (id, msgs) = client.add(&SyncChannels, (), YieldParsed::just(PRIVMSG)).unwrap();
+        let (id, msgs) = client.add((), YieldParsed::just(PRIVMSG)).unwrap();
         tracing::info!("bot {nick} ready for 'q'~");
         loop {
             let Ok(result) = client.run() else {

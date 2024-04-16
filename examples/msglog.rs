@@ -5,8 +5,8 @@ use vinezombie::{
         channel::TokioChannels,
         conn::ServerAddr,
         handlers::{AutoPong, YieldParsed},
-        new_client,
         register::{register_as_bot, Options},
+        Client,
     },
     ircmsg::ClientMsg,
     names::cmd::{JOIN, PRIVMSG},
@@ -27,15 +27,15 @@ async fn main() -> std::io::Result<()> {
     options.realname = Some(Line::from_str("Vinezombie Example: msglog"));
     let address = ServerAddr::from_host_str("irc.libera.chat");
     let sock = address.connect_tokio(|| client::tls::TlsConfigOptions::default().build()).await?;
-    let mut client = new_client(sock);
-    let (_id, reg_result) = client.add(&TokioChannels, &register_as_bot(), &options)?;
+    let mut client = Client::new(sock, TokioChannels);
+    let (_id, reg_result) = client.add(&register_as_bot(), &options)?;
     client.run_tokio().await?;
     // The only piece of reg info we care about for this example is our nick.
     let nick = reg_result.await.unwrap()?.nick;
     tracing::info!("nick: {}", nick);
     // Let's add a handler to auto-reply to PING messages for us. Most IRC networks need this.
     // Do this before anything else.
-    let _ = client.add(&TokioChannels, (), AutoPong);
+    let _ = client.add((), AutoPong);
     // Let's join all the channels provided as command-line arguments.
     // This is a VERY crude way of joining multiple channels, but works for illustration
     // of how to construct messages that are less-trivial than a no-argument QUIT message.
@@ -58,7 +58,7 @@ async fn main() -> std::io::Result<()> {
     }
     // We now need to receive PRIVMSGs and send them somewhere for further processing.
     // `YieldParsed` exists exactly for this purpose.
-    let (_, mut msgs) = client.add(&TokioChannels, (), YieldParsed::just(PRIVMSG)).unwrap();
+    let (_, mut msgs) = client.add((), YieldParsed::just(PRIVMSG)).unwrap();
     // Since we are async, let's do the actual printing in another task, because we can.
     tokio::spawn(async move {
         while let Some(msg) = msgs.recv().await {

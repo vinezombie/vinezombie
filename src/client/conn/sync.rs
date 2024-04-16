@@ -281,7 +281,7 @@ impl<T: ReadTimeout + WriteTimeout + Read + Write> Connection for BufReader<T> {
     }
 }
 
-impl<C: Connection> crate::client::Client<C> {
+impl<C: Connection, S> crate::client::Client<C, S> {
     /// Runs handlers off of the connection until any of them yield or finish.
     ///
     /// Returns the IDs of the handlers that yielded or finished, respectively.

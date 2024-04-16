@@ -3,8 +3,8 @@ use vinezombie::{
         self,
         auth::Clear,
         channel::SyncChannels,
-        new_client,
         register::{register_as_bot, Options},
+        Client,
     },
     ircmsg::ClientMsg,
     string::{Line, Word},
@@ -33,13 +33,13 @@ fn main() -> std::io::Result<()> {
     // `Client` bundles the connection and serves as a host for Handlers
     // that process IRC messages. It also rate-limits outgoing messages to avoid
     // disconnections for flooding, and can adjust the message queue based in incoming messages.
-    let mut client = new_client(sock);
+    // For convenience, we use SyncChannels as a way to build an appropriate channel type for
+    // the registration handler.
+    let mut client = Client::new(sock, SyncChannels);
     // We're not ready to go just yet.
     // The initial connection registration handshake needs to happen.
     // Handlers return values through channels, one channel per handler.
-    // For convenience, we use SyncChannels as a way to build an appropriate channel type for
-    // the registration handler.
-    let (_id, reg_result) = client.add(&SyncChannels, &register_as_bot(), &options)?;
+    let (_id, reg_result) = client.add(&register_as_bot(), &options)?;
     // Let's actually run the handler now!
     // Normally `run` returns the ids of handlers that have yielded values and finished,
     // but we're only running one handler that always yields one value on completion,

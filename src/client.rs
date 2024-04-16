@@ -18,9 +18,11 @@ use self::{channel::ChannelSpec, queue::Queue};
 
 /// A client connection.
 #[derive(Default)]
-pub struct Client<C> {
+pub struct Client<C, S> {
     /// The connection to the IRC server.
     conn: C,
+    /// The [`ChannelSpec`] for creating now channels.
+    spec: S,
     /// A message queue for rate-limiting.
     queue: Box<Queue>,
     /// A buffer that is used internally for inbound message I/O.
@@ -33,22 +35,16 @@ pub struct Client<C> {
     timeout: Box<conn::TimeLimits>,
 }
 
-/// Creates a new [`Client`] out of a connection with sensible default types.
-///
-/// Note that connection registration will still likely need to happen after this.
-pub fn new_client<C>(conn: C) -> Client<C> {
-    Client::new(conn)
-}
-
-impl<C> Client<C> {
+impl<C, S: ChannelSpec> Client<C, S> {
     /// Creates a new `Client` from the provided connection.
-    pub fn new(conn: C) -> Self {
-        Self::new_with_queue(conn, Queue::new())
+    pub fn new(conn: C, spec: S) -> Self {
+        Self::new_with_queue(conn, spec, Queue::new())
     }
     /// Creates a new `Client` from the provided connection and [`Queue`].
-    pub fn new_with_queue(conn: C, queue: Queue) -> Self {
+    pub fn new_with_queue(conn: C, spec: S, queue: Queue) -> Self {
         Client {
             conn,
+            spec,
             queue: Box::new(queue),
             buf_i: Vec::new(),
             buf_o: Vec::new(),
@@ -56,6 +52,20 @@ impl<C> Client<C> {
             timeout: Box::default(),
         }
     }
+    /// Adds a handler. Creates a new channel using the internal [`ChannelSpec`].
+    ///
+    /// Returns the handler id and the receiver half of the channel.
+    pub fn add<T, M: MakeHandler<T>>(
+        &mut self,
+        make_handler: M,
+        value: T,
+    ) -> Result<(usize, M::Receiver<S>), M::Error> {
+        let (send, recv) = M::make_channel(&self.spec);
+        Ok((self.add_with_sender(send, make_handler, value)?, recv))
+    }
+}
+
+impl<C, S> Client<C, S> {
     /// Extracts the connection from `self`, allowing it to be used elsewhere.
     pub fn take_conn(self) -> C {
         self.conn
@@ -65,10 +75,16 @@ impl<C> Client<C> {
     /// This connection does not change any of [`Client`]s state aside from
     /// requiring an update of the connection's IO timeouts.
     /// Additionally use [`reset`][Client::reset] if you want to reset the state.
-    pub fn with_conn<C2>(self, conn: C2) -> Client<C2> {
-        let Self { queue, buf_i, buf_o, handlers, mut timeout, .. } = self;
+    pub fn with_conn<C2>(self, conn: C2) -> Client<C2, S> {
+        let Self { spec, queue, buf_i, buf_o, handlers, mut timeout, .. } = self;
         timeout.require_update();
-        Client { conn, queue, buf_i, buf_o, timeout, handlers }
+        Client { conn, spec, queue, buf_i, buf_o, timeout, handlers }
+    }
+    /// Uses the provided [`ChannelSpec`] for `self`.
+    /// This changes the type of channels returned by [`add`][Client::add].
+    pub fn with_spec<S2: ChannelSpec>(self, spec: S2) -> Client<C, S2> {
+        let Self { conn, queue, buf_i, buf_o, handlers, timeout, .. } = self;
+        Client { conn, spec, queue, buf_i, buf_o, timeout, handlers }
     }
     /// Returns a shared reference to the internal [`Queue`].
     pub fn queue(&self) -> &Queue {
@@ -100,12 +116,12 @@ impl<C> Client<C> {
     /// Adds a handler. Creates a new channel using the provided [`ChannelSpec`].
     ///
     /// Returns the handler id and the receiver half of the channel.
-    pub fn add<T, M: MakeHandler<T>, S: ChannelSpec>(
+    pub fn add_with_spec<T, M: MakeHandler<T>, S2: ChannelSpec>(
         &mut self,
-        chanspec: &S,
+        chanspec: &S2,
         make_handler: M,
         value: T,
-    ) -> Result<(usize, M::Receiver<S>), M::Error> {
+    ) -> Result<(usize, M::Receiver<S2>), M::Error> {
         let (send, recv) = M::make_channel(chanspec);
         Ok((self.add_with_sender(send, make_handler, value)?, recv))
     }
@@ -144,12 +160,6 @@ impl<C> Client<C> {
         self.timeout.require_update();
         self.reset();
         retval
-    }
-}
-
-impl<C: Default> From<Queue> for Client<C> {
-    fn from(queue: Queue) -> Self {
-        Self::new_with_queue(C::default(), queue)
     }
 }
 
