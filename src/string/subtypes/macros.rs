@@ -104,6 +104,12 @@ macro_rules! impl_subtype {
                 }
             }
             /// Tries to convert the provided [`str`] into an instance of this type.
+            ///
+            /// This is generally intended to be used for string literals,
+            /// as in addition to being `const` it panics.
+            /// However, it can be used for any string reference.
+            ///
+            /// # Panics
             /// Panics if `string` does not uphold this type's gurarantees.
             pub const fn from_str(string: &'a str) -> Self {
                 if Self::find_invalid(string.as_bytes()).is_some() {

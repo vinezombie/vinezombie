@@ -162,7 +162,7 @@ impl Queue {
         self.use_labeler(move || {
             id = id.overflowing_add(1).0;
             // TODO: Nope. Base64-encode.
-            User::new_id(id).into()
+            User::from_id(id).into()
         })
     }
     /// Removes the labeler for this queue.

@@ -288,7 +288,7 @@ pub fn default_client_username(username: Option<&User<'static>>) -> User<'static
     {
         let mut id = crate::util::mangle(&(whoami::username(), whoami::realname()));
         id = (id >> 16) ^ (id & 0xFFFF);
-        return User::new_id_short(id as u16);
+        return User::from_id_short(id as u16);
     }
     #[allow(unreachable_code)]
     User::from_str("user")
