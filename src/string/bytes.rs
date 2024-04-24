@@ -94,7 +94,7 @@ impl<'a> Bytes<'a> {
     /// whether using `Display` or `Debug`.
     /// Clones of secret strings are also secret.
     ///
-    /// If the `zeroize` feature is enabled, these strings' buffers are zeroed out
+    /// Owning versions of these strings' buffers are zeroed out
     /// when the last reference to them is lost.
     pub fn secret(mut self) -> Self {
         if !self.secret && self.is_owning() {
@@ -486,22 +486,27 @@ impl OwnedBytes {
     /// Returns `None` and an empty slice if `value` is empty.
     ///
     /// # Safety
-    /// Unbound lifetimes are the devil, and this returns a reference with one.
+    /// This returns a reference with an unbound lifetime.
+    /// Make sure this lifetime doesn't leak anywhere that might outlive
+    /// the `Self`.
     pub unsafe fn from_vec<'a>(value: Vec<u8>) -> (Option<Self>, &'a [u8]) {
-        let (os, slice) = crate::util::OwnedSlice::from_vec(value);
-        (os.map(|os| OwnedBytes(crate::util::ThinArc::new(os))), slice)
+        if value.is_empty() {
+            return (None, &[]);
+        }
+        let (os, len) = crate::util::OwnedSlice::from_vec(value);
+        let slice = unsafe { os.as_slice(len) };
+        (Some(OwnedBytes(crate::util::ThinArc::new(os))), slice)
     }
     /// Attempts to re-use the buffer for constructing a `Vec` from `slice`.
     ///
     /// # Safety
     /// `slice` is assumed to be a slice of the data owned by self.
-    pub unsafe fn into_vec(self, slice: &[u8], _secret: bool) -> Vec<u8> {
+    pub unsafe fn into_vec(self, slice: &[u8], secret: bool) -> Vec<u8> {
         if let Ok(os) = self.0.try_unwrap() {
-            let (retval, _destroy) = os.into_vec(slice);
-            #[cfg(feature = "zeroize")]
-            if _secret {
-                if let Some(destroy) = _destroy {
-                    destroy.zeroize_drop();
+            let (retval, destroy) = os.into_vec_with_slice(slice);
+            if secret {
+                if let Some(mut destroy) = destroy {
+                    destroy.reinit_all();
                 }
             }
             retval

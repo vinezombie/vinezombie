@@ -24,7 +24,7 @@ use crate::{
 #[derive(Clone)]
 pub struct Register<O> {
     /// Returns the server password, if any.
-    pub password: fn(&O) -> Option<std::io::Result<Line<'static>>>,
+    pub password: fn(&O) -> Option<Line<'static>>,
     /// Returns the username to use for connection.
     pub username: fn(&O) -> User<'static>,
     /// Returns the value used for the first unused USER parameter.
@@ -64,10 +64,10 @@ impl<O> Register<O> {
         &self,
         opts: &O,
         mut sink: impl ClientMsgSink<'static>,
-    ) -> std::io::Result<(Nick<'static>, Option<Box<dyn NickGen>>)> {
+    ) -> (Nick<'static>, Option<Box<dyn NickGen>>) {
         use crate::names::cmd::{CAP, NICK, PASS, USER};
         if let Some(pass) = (self.password)(opts) {
-            let pass = pass?;
+            let pass = pass;
             let mut msg = ClientMsg::new(PASS);
             msg.args.edit().add(pass);
             sink.send(msg);
@@ -93,30 +93,26 @@ impl<O> Register<O> {
         let (nick, nickgen) = nicks.next_nick();
         msg.args.edit().add_word(nick.clone());
         sink.send(msg);
-        Ok((nick, nickgen))
+        (nick, nickgen)
     }
 }
 
 impl<O> Register<O> {
     /// Sends the initial burst of messages for connection registration.
     /// Also returns a [`Handler`] to perform the rest of the connection registration.
-    ///
-    /// # Errors
-    /// Errors if registration messages cannot be created,
-    /// or if SASL handlers cannot be created.
-    pub fn handler(&self, opts: &O, sink: impl ClientMsgSink<'static>) -> std::io::Result<Handler> {
-        let nicks = self.register_msgs(opts, sink)?;
+    pub fn handler(&self, opts: &O, sink: impl ClientMsgSink<'static>) -> Handler {
+        let nicks = self.register_msgs(opts, sink);
         let caps = (self.caps)(opts);
         let (auths, mut needs_auth) = (self.auth)(opts);
         needs_auth &= auths.had_values();
-        Ok(Handler::new(nicks, caps, needs_auth, auths))
+        Handler::new(nicks, caps, needs_auth, auths)
     }
 }
 
 impl<'a, O> MakeHandler<&'a O> for &'a Register<O> {
     type Value = Result<Registration, HandlerError>;
 
-    type Error = std::io::Error;
+    type Error = std::convert::Infallible;
 
     type Receiver<Spec: super::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
 
@@ -127,7 +123,7 @@ impl<'a, O> MakeHandler<&'a O> for &'a Register<O> {
         mut queue: super::queue::QueueEditGuard<'_>,
         opts: &'a O,
     ) -> Result<Handler, Self::Error> {
-        self.handler(opts, &mut queue)
+        Ok(self.handler(opts, &mut queue))
     }
 
     fn make_channel<Spec: super::channel::ChannelSpec>(

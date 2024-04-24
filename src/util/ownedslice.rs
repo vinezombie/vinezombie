@@ -3,39 +3,49 @@ use std::ptr::NonNull;
 /// Type that holds ownership of a slice.
 ///
 /// # Safety
-/// THIS TYPE DOESN'T RUN DESTRUCTORS,
+/// This type doesn't run destructors. It creates unbound lifetimes.
 pub struct OwnedSlice<T>(NonNull<T>, usize);
+
+unsafe impl<T: Send> Send for OwnedSlice<T> {}
+unsafe impl<T: Sync> Sync for OwnedSlice<T> {}
 
 impl<T> OwnedSlice<T> {
     /// Converts a Vec into Self (which owns the data)
-    /// and a slice with an unbound lifetime (which does not).
-    ///
-    /// Returns `None` and an empty slice if `value` is empty.
-    ///
-    /// # Safety
-    /// Unbound lifetimes are the devil, and this returns a reference with one.
-    pub unsafe fn from_vec<'a>(mut value: Vec<T>) -> (Option<Self>, &'a [T]) {
-        if value.is_empty() {
-            return (None, &[]);
-        }
+    /// and the length of the contents.
+    pub fn from_vec(mut value: Vec<T>) -> (Self, usize) {
         // as_mut_ptr returns a dangling pointer if capacity is 0.
         // https://doc.rust-lang.org/std/vec/struct.Vec.html#method.as_mut_ptr
-        let data = NonNull::new_unchecked(value.as_mut_ptr());
+        let data = unsafe { NonNull::new_unchecked(value.as_mut_ptr()) };
         let len = value.len();
         let cap = value.capacity();
         // Don't run the Vec's destructor as we're stealing ownership of its data.
         std::mem::forget(value);
-        let retval = OwnedSlice(data, cap);
-        (Some(retval), std::slice::from_raw_parts(data.as_ptr().cast_const(), len))
+        (OwnedSlice(data, cap), len)
     }
-}
-
-impl<T: Clone> OwnedSlice<T> {
+    /// Returns a reference to a slice of the contents.
+    ///
+    /// # Safety
+    /// The length must be no greater than the number of initialized elements at the front
+    /// of this owned slice.
+    ///
+    /// The included reference uses an unbound lifetime.
+    /// You must either constrain this limetime or prevent safe access to it.
+    pub unsafe fn as_slice<'a>(&self, len: usize) -> &'a [T] {
+        std::slice::from_raw_parts(self.0.as_ptr().cast_const(), len)
+    }
+    pub unsafe fn into_vec_with_len(self, len: usize) -> Vec<T> {
+        let ptr = self.0.as_ptr();
+        let cap = self.1;
+        std::mem::forget(self);
+        Vec::from_raw_parts(ptr, len, cap)
+    }
     /// Reconstructs a `Vec` from self using `slice`.
+    ///
+    /// If an OwnedSlice is returned, the elements should be considered to be uninitialized.
     ///
     /// # Safety
     /// `slice` is assumed to be a slice of the data owned by self.
-    pub unsafe fn into_vec(self, slice: &[T]) -> (Vec<T>, Option<Self>) {
+    pub unsafe fn into_vec_with_slice(self, slice: &[T]) -> (Vec<T>, Option<Self>) {
         let slice_start = slice.as_ptr();
         let data_start = self.0.as_ptr();
         let capacity = self.1;
@@ -44,20 +54,54 @@ impl<T: Clone> OwnedSlice<T> {
             std::mem::forget(self);
             (Vec::from_raw_parts(data_start, slice.len(), capacity), None)
         } else {
-            let retval = slice.to_vec();
+            let mut retval = Vec::with_capacity(slice.len());
+            for (src, dest) in std::iter::zip(slice, retval.spare_capacity_mut()) {
+                dest.write((src as *const T).read());
+            }
+            retval.set_len(slice.len());
             (retval, Some(self))
         }
     }
+    pub fn write_capacity(&self, len: usize) -> usize {
+        self.1 - len
+    }
+    /// Retrieves a mutable reference to the elements AFTER `len`, as in with an index
+    /// greater than or equal to `len`.
+    ///
+    /// # Safety
+    /// It is undefined behavior to call this if any of the referenced elements are uninitialized.
+    pub unsafe fn as_write_slice(&mut self, len: usize) -> &mut [T] {
+        let cur = unsafe { self.0.as_ptr().add(len) };
+        let len = self.1 - len;
+        unsafe { std::slice::from_raw_parts_mut(cur, len) }
+    }
 }
 
-#[cfg(feature = "zeroize")]
-impl<T: zeroize::DefaultIsZeroes> OwnedSlice<T> {
-    pub unsafe fn zeroize_drop(self) {
-        let mut cur = self.0.as_ptr();
-        let end = cur.add(self.1);
+impl<T: Default + Copy> OwnedSlice<T> {
+    /// Sets all uninitialized values of buffer to the default value.
+    pub fn init_capacity(&mut self, len: usize) {
+        let mut cur = unsafe { self.0.as_ptr().add(len) };
+        let end = unsafe { cur.add(self.1) };
+        let default = T::default();
         while cur < end {
-            cur.write_volatile(T::default());
-            cur = cur.add(1);
+            unsafe {
+                cur.write_volatile(default);
+                cur = cur.add(1);
+            }
+        }
+    }
+    /// Overwrites the entirety of `self`'s buffer with default values.
+    ///
+    /// This uses `write_volatile` to keep the write from being optimized out.
+    pub fn reinit_all(&mut self) {
+        let mut cur = self.0.as_ptr();
+        let end = unsafe { cur.add(self.1) };
+        let default = T::default();
+        while cur < end {
+            unsafe {
+                cur.write_volatile(default);
+                cur = cur.add(1);
+            }
         }
     }
 }

@@ -28,7 +28,7 @@ async fn main() -> std::io::Result<()> {
     let address = ServerAddr::from_host_str("irc.libera.chat");
     let sock = address.connect_tokio(|| client::tls::TlsConfigOptions::default().build()).await?;
     let mut client = Client::new(sock, TokioChannels);
-    let (_id, reg_result) = client.add(&register_as_bot(), &options)?;
+    let (_id, reg_result) = client.add(&register_as_bot(), &options).unwrap();
     client.run_tokio().await?;
     // The only piece of reg info we care about for this example is our nick.
     let nick = reg_result.await.unwrap()?.nick;

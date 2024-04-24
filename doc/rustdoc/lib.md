@@ -37,8 +37,6 @@ If your application uses `log`,
 explains how to get `log` events from this library.
 * `whoami`:
 Enables functions for creating strings from local user info.
-* `zeroize`:
-Zeroes-out certain byte buffers containing potentially-sensitive data.
 
 ## Features
 

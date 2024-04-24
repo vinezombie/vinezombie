@@ -39,7 +39,8 @@ fn main() -> std::io::Result<()> {
     // We're not ready to go just yet.
     // The initial connection registration handshake needs to happen.
     // Handlers return values through channels, one channel per handler.
-    let (_id, reg_result) = client.add(&register_as_bot(), &options)?;
+    // Handlers are allowed to fail on construction, but most do not.
+    let (_id, reg_result) = client.add(&register_as_bot(), &options).unwrap();
     // Let's actually run the handler now!
     // Normally `run` returns the ids of handlers that have yielded values and finished,
     // but we're only running one handler that always yields one value on completion,

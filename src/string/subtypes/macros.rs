@@ -130,8 +130,7 @@ macro_rules! impl_subtype {
             /// Errors if `value` does not uphold this type's guarantees.
             pub fn from_secret(value: Vec<u8>) -> Result<Self, InvalidString> {
                 if let Some(e) = Self::find_invalid(value.as_ref()) {
-                    #[cfg(feature = "zeroize")]
-                    std::mem::drop(zeroize::Zeroizing::new(value));
+                    std::mem::drop(crate::string::SecretBuf::from(value));
                     Err(e)
                 } else {
                     Ok(Self(Bytes::from_secret(value)))
@@ -174,6 +173,21 @@ macro_rules! impl_subtype {
             /// Returns the length of this byte string.
             pub const fn len(&self) -> usize {
                 self.0.len()
+            }
+            /// Converts `self` into a [CString][std::ffi::CString].
+            ///
+            /// This is safe and infallible due to the invariant of [`NoNul`],
+            /// which is inherited by every other [`Bytes`] pseudosubtype in this crate.
+            pub fn into_cstring(self) -> std::ffi::CString {
+                let vec = self.into();
+                unsafe { std::ffi::CString::from_vec_unchecked(vec) }
+            }
+            /// Borrows `self` as a slice of [`NonZeroU8`][std::num::NonZeroU8]s.
+            ///
+            /// This is safe and infallible due to the invariant of [`NoNul`],
+            /// which is inherited by every other [`Bytes`] pseudosubtype in this crate.
+            pub fn as_bytes_nonzero(&self) -> &[std::num::NonZeroU8] {
+                unsafe { std::mem::transmute(self.as_bytes()) }
             }
         }
         unsafe impl<'a> BytesNewtype<'a> for $sname<'a> {
@@ -332,6 +346,22 @@ macro_rules! conversions {
             type Error = InvalidString;
             fn try_from(value: $ssuper<'a>) -> Result<$sname<'a>, InvalidString> {
                 $sname::from_bytes(value.into_bytes())
+            }
+        }
+    };
+}
+
+macro_rules! maybe_empty {
+    ($sname:ident) => {
+        impl<'a> Default for $sname<'a> {
+            fn default() -> Self {
+                $sname(Bytes::default())
+            }
+        }
+        impl<'a> $sname<'a> {
+            #[doc = concat!("Returns a new empty `", stringify!($sname), "`.")]
+            pub const fn empty() -> Self {
+                $sname(Bytes::empty())
             }
         }
     };

@@ -6,6 +6,8 @@
 mod handler;
 pub mod sasl;
 mod secret;
+#[cfg(test)]
+mod tests;
 
 use std::borrow::Borrow;
 
@@ -36,8 +38,8 @@ pub trait SaslLogic: Send {
 pub trait Sasl {
     /// The name of this mechanism, as the client requests it.
     fn name(&self) -> Arg<'static>;
-    /// Returns the logic for this mechanism as a [`SaslLogic]`.
-    fn logic(&self) -> std::io::Result<Box<dyn SaslLogic>>;
+    /// Returns the logic for this mechanism as a [`SaslLogic`].
+    fn logic(&self) -> Box<dyn SaslLogic>;
 }
 
 /// A queue of SASL authenticators to try in order.
@@ -71,12 +73,11 @@ impl SaslQueue {
     }
 
     /// Adds a SASL authenticator to the end of the list.
-    pub fn push(&mut self, sasl: &(impl Sasl + ?Sized)) -> std::io::Result<()> {
-        let logic = sasl.logic()?;
+    pub fn push(&mut self, sasl: &(impl Sasl + ?Sized)) {
+        let logic = sasl.logic();
         let name = sasl.name();
         self.seq.push_back((name, logic));
         self.had_values = true;
-        Ok(())
     }
 
     /// Returns a pair containing the name and logic of a SASL authenticator.
@@ -107,9 +108,7 @@ impl<'a, S: Sasl + ?Sized> std::iter::FromIterator<&'a S> for SaslQueue {
         let mut had_values = false;
         for sasl in iter {
             had_values = true;
-            let Ok(logic) = sasl.logic() else {
-                continue;
-            };
+            let logic = sasl.logic();
             let name = sasl.name();
             seq.push_back((name, logic));
         }
@@ -129,15 +128,19 @@ impl std::fmt::Debug for SaslQueue {
 
 /// Enum of included SASL mechanisms and options for them.
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(bound(deserialize = "'de: 'static, S: LoadSecret + serde::Deserialize<'de>"))
+)]
 #[allow(missing_docs)]
 #[non_exhaustive]
-pub enum AnySasl<S: Secret> {
+pub enum AnySasl<S: LoadSecret> {
     External(sasl::External),
     Plain(sasl::Plain<S>),
 }
 
-impl<S: Secret + std::fmt::Debug> std::fmt::Debug for AnySasl<S> {
+impl<S: LoadSecret + std::fmt::Debug> std::fmt::Debug for AnySasl<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AnySasl::External(s) => s.fmt(f),
@@ -146,7 +149,7 @@ impl<S: Secret + std::fmt::Debug> std::fmt::Debug for AnySasl<S> {
     }
 }
 
-impl<S: Secret + 'static> Sasl for AnySasl<S> {
+impl<S: LoadSecret + 'static> Sasl for AnySasl<S> {
     fn name(&self) -> Arg<'static> {
         match self {
             AnySasl::External(s) => s.name(),
@@ -154,7 +157,7 @@ impl<S: Secret + 'static> Sasl for AnySasl<S> {
         }
     }
 
-    fn logic(&self) -> std::io::Result<Box<dyn SaslLogic>> {
+    fn logic(&self) -> Box<dyn SaslLogic> {
         match self {
             AnySasl::External(s) => s.logic(),
             AnySasl::Plain(s) => s.logic(),
@@ -162,13 +165,13 @@ impl<S: Secret + 'static> Sasl for AnySasl<S> {
     }
 }
 
-impl<S: Secret> From<sasl::External> for AnySasl<S> {
+impl<S: LoadSecret> From<sasl::External> for AnySasl<S> {
     fn from(value: sasl::External) -> Self {
         AnySasl::External(value)
     }
 }
 
-impl<S: Secret> From<sasl::Plain<S>> for AnySasl<S> {
+impl<S: LoadSecret> From<sasl::Plain<S>> for AnySasl<S> {
     fn from(value: sasl::Plain<S>) -> Self {
         AnySasl::Plain(value)
     }

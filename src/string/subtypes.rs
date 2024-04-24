@@ -90,6 +90,7 @@ impl_subtype! {
     is_invalid_for_nonul;
     return_none;
 }
+maybe_empty!(NoNul);
 
 #[inline(always)]
 const fn is_invalid_for_line<const CHAIN: bool>(byte: &u8) -> bool {
@@ -106,6 +107,7 @@ impl_subtype! {
         check_bytes!(bytes, is_invalid_for_line::<false>)
     }
 }
+maybe_empty!(Line);
 conversions!(Line: NoNul);
 
 #[inline(always)]
@@ -123,6 +125,7 @@ impl_subtype! {
         check_bytes!(bytes, is_invalid_for_word::<false>)
     }
 }
+maybe_empty!(Word);
 conversions!(Word: NoNul);
 conversions!(Word: Line);
 

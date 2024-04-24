@@ -47,7 +47,7 @@ fn main() -> std::io::Result<()> {
     let mut tls_config: Option<TlsConfig> = None;
     let mut client = Client::new(make_sock(&mut tls_config, &address)?, SyncChannels);
     loop {
-        let (_, reg_result) = client.add(&register_as_bot(), &options)?;
+        let (_, reg_result) = client.add(&register_as_bot(), &options).unwrap();
         client.run()?;
         let nick = reg_result.0.recv_now().unwrap()?.nick;
         let _ = client.add((), AutoPong);

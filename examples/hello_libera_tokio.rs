@@ -25,7 +25,7 @@ async fn main() -> std::io::Result<()> {
     let mut client = Client::new(sock, TokioChannels);
     // We still use the same handler for connection registration,
     // but instead we run it using a run_tokio function.
-    let (_id, reg_result) = client.add(&register_as_bot(), &options)?;
+    let (_id, reg_result) = client.add(&register_as_bot(), &options).unwrap();
     client.run_tokio().await?;
     let reg = reg_result.await.unwrap()?;
     let network_name = reg.isupport.get_parsed(vinezombie::names::isupport::NETWORK).transpose()?;

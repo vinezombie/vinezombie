@@ -1,11 +1,5 @@
 use super::*;
 
-impl<'a> Default for NoNul<'a> {
-    fn default() -> Self {
-        NoNul(Bytes::default())
-    }
-}
-
 impl Line<'static> {
     /// Returns the realname of the local user running this program.
     ///
@@ -17,18 +11,6 @@ impl Line<'static> {
             return Some(val);
         }
         None
-    }
-}
-
-impl<'a> Default for Line<'a> {
-    fn default() -> Self {
-        Line(Bytes::default())
-    }
-}
-
-impl<'a> Default for Word<'a> {
-    fn default() -> Self {
-        Word(Bytes::default())
     }
 }
 

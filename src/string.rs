@@ -8,6 +8,7 @@
 pub mod base64;
 mod builder;
 mod bytes;
+mod secretbuf;
 #[cfg(feature = "serde")]
 mod serde;
 mod splitter;
@@ -18,6 +19,7 @@ pub mod tf;
 
 pub use builder::*;
 pub use bytes::*;
+pub use secretbuf::*;
 pub use splitter::*;
 pub use subtypes::*;
 

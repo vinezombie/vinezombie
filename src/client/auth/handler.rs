@@ -97,10 +97,8 @@ impl Handler {
     ///
     /// For convenience, also returns the message to send to initiate authentication.
     pub fn from_sasl(sasl: &(impl Sasl + ?Sized)) -> std::io::Result<(ClientMsg<'static>, Self)> {
-        let auth = Handler {
-            logic: sasl.logic()?,
-            decoder: crate::string::base64::ChunkDecoder::new(400),
-        };
+        let auth =
+            Handler { logic: sasl.logic(), decoder: crate::string::base64::ChunkDecoder::new(400) };
         let mut msg = ClientMsg::new(crate::names::cmd::AUTHENTICATE);
         msg.args.edit().add_word(sasl.name());
         Ok((msg, auth))

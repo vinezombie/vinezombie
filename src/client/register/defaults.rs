@@ -1,7 +1,7 @@
 use super::{CapFn, Register};
 use crate::{
     client::{
-        auth::{AnySasl, Sasl, SaslQueue, Secret},
+        auth::{AnySasl, LoadSecret, Sasl, SaslQueue, Secret},
         nick::{NickGen, Suffix, SuffixStrategy, SuffixType},
     },
     error::InvalidString,
@@ -12,13 +12,21 @@ use std::collections::BTreeSet;
 /// Connection registration options.
 ///
 /// These cover the options the majority of users will find useful for connection registration.
-/// It is (de)serializable if the chosen [`Secret`] and [`Sasl`] implementations are.
+/// It is (de)serializable if the chosen [`LoadSecret`] and [`Sasl`] implementations are.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
-#[cfg_attr(feature = "serde", serde(default))]
+#[cfg_attr(feature = "serde", derive(serde_derive::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(
+        default,
+        bound(
+            deserialize = "'de: 'static, S: LoadSecret + serde::Deserialize<'de>, A: serde::Deserialize<'de>"
+        )
+    )
+)]
 pub struct Options<S, A = AnySasl<S>> {
     /// The server password.
-    pub pass: Option<S>,
+    pub pass: Option<Secret<Line<'static>, S>>,
     /// The list of nicknames to attempt before fallbacks.
     pub nicks: Vec<Nick<'static>>,
     /// The username, historically one's local account name.
@@ -65,14 +73,14 @@ impl<S, A> Options<S, A> {
     }
 }
 
-impl<S: Secret, A> Options<S, A> {
+impl<S, A> Options<S, A> {
     /// Uses the provided password.
-    pub fn set_pass<'a>(
+    pub fn set_pass(
         &mut self,
-        pass: impl TryInto<Line<'a>, Error = impl Into<InvalidString>>,
+        pass: impl TryInto<Line<'static>, Error = impl Into<InvalidString>>,
     ) -> std::io::Result<()> {
         let pass = pass.try_into().map_err(|e| e.into())?.secret();
-        let secret = S::new(pass.into())?;
+        let secret = Secret::new(pass);
         self.pass = Some(secret);
         Ok(())
     }
@@ -87,7 +95,7 @@ impl<S, A: Sasl> Options<S, A> {
 
 /// Returns a [`Register`] with sensible functions.
 pub fn register_as_custom<O>(
-    password: fn(&O) -> Option<std::io::Result<Line<'static>>>,
+    password: fn(&O) -> Option<Line<'static>>,
     username: fn(&O) -> User<'static>,
     realname: fn(&O) -> Line<'static>,
     nicks: fn(&O) -> Box<dyn crate::client::nick::NickGen>,
@@ -110,9 +118,9 @@ pub fn register_as_custom<O>(
 ///
 /// The capability set is treated as a set of capabilities to soft-request, on top of an
 /// intersect of the available caps and a reasonable set of defaults (see [`default_caps`]).
-pub fn register_as_client<S: Secret, A: Sasl>() -> Register<Options<S, A>> {
+pub fn register_as_client<S: LoadSecret, A: Sasl>() -> Register<Options<S, A>> {
     register_as_custom(
-        |opts| default_password(opts.pass.as_ref()),
+        |opts| opts.pass.clone().map(Secret::into_inner),
         |opts| default_client_username(opts.username.as_ref()),
         |opts| default_client_realname(opts.realname.as_ref()),
         |opts| default_client_nicks(opts.nicks.clone()),
@@ -125,9 +133,9 @@ pub fn register_as_client<S: Secret, A: Sasl>() -> Register<Options<S, A>> {
 ///
 /// The capability set is treated as a list of capabilities to request,
 /// or error if not present.
-pub fn register_as_bot<S: Secret, A: Sasl>() -> Register<Options<S, A>> {
+pub fn register_as_bot<S: LoadSecret, A: Sasl>() -> Register<Options<S, A>> {
     register_as_custom(
-        |opts| default_password(opts.pass.as_ref()),
+        |opts| opts.pass.clone().map(Secret::into_inner),
         |opts| default_bot_username(opts.username.as_ref()),
         |opts| default_bot_realname(opts.realname.as_ref()),
         |opts| default_bot_nicks(opts.nicks.clone()),
@@ -201,19 +209,6 @@ pub fn default_caps(
                 caps_avail.intersection(common_caps()).map(|k| k.clone().owning()).collect();
             caps.union(&common).cloned().collect()
         }
-    })
-}
-
-/// For use with [`Register`].
-pub fn default_password(
-    pass: Option<&(impl Secret + ?Sized)>,
-) -> Option<std::io::Result<Line<'static>>> {
-    pass.map(|pass| {
-        let mut secret = Vec::new();
-        pass.load(&mut secret)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e))?;
-        Line::from_secret(secret)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
     })
 }
 
