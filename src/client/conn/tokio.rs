@@ -1,5 +1,5 @@
 use super::{timed_io, Bidir, TimeLimitedTokio};
-use crate::{client::tls::TlsConfig, ircmsg::ServerMsg};
+use crate::ircmsg::ServerMsg;
 use std::{pin::Pin, time::Duration};
 use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader},
@@ -21,17 +21,17 @@ impl<'a> super::ServerAddr<'a> {
     #[cfg(feature = "tls-tokio")]
     pub async fn connect_tokio(
         &self,
-        tls_fn: impl FnOnce() -> std::io::Result<TlsConfig>,
+        tls_fn: impl FnOnce() -> std::io::Result<crate::client::tls::TlsConfig>,
     ) -> std::io::Result<BufReader<StreamTokio>> {
         use std::io::{Error, ErrorKind};
         let string = self.utf8_address()?;
         let stream = if self.tls {
-            let name = rustls::ServerName::try_from(string)
+            let name = rustls::pki_types::ServerName::try_from(string)
                 .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
             let config = tls_fn()?;
             let conn: tokio_rustls::TlsConnector = config.into();
             let sock = tokio::net::TcpStream::connect((string, self.port_num())).await?;
-            let tls = conn.connect(name, sock).await?;
+            let tls = conn.connect(name.to_owned(), sock).await?;
             StreamInner::Tls(tls)
         } else {
             let sock = tokio::net::TcpStream::connect((string, self.port_num())).await?;

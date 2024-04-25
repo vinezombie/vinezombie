@@ -26,10 +26,10 @@ impl<'a> super::ServerAddr<'a> {
         use std::io::{Error, ErrorKind};
         let string = self.utf8_address()?;
         let stream = if self.tls {
-            let name = rustls::ServerName::try_from(string)
+            let name = rustls::pki_types::ServerName::try_from(string)
                 .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
             let config = tls_fn()?;
-            let conn = rustls::ClientConnection::new(config, name)
+            let conn = rustls::ClientConnection::new(config, name.to_owned())
                 .map_err(|e| Error::new(ErrorKind::Other, e))?;
             let sock = std::net::TcpStream::connect((string, self.port_num()))?;
             let mut tls = rustls::StreamOwned { conn, sock };

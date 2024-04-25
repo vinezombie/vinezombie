@@ -19,8 +19,12 @@ and includes the following:
 Adds base64 encoding/decoding.
 * `client`:
 Adds utilities for building client-side IRC software.
+* `crypto`:
+Adds `ring`-based cryptography, required for some SASL authenticators.
+Also adds `ring` as a crypto provider to rustls if `tls` is enabled.
 * `tls`:
 Adds utilities for working with rustls.
+Does NOT pull in any crypto providers.
 * `tls-tokio`: Implies `tls` and `tokio`.
 Adds support for asynchronous TLS connections.
 * `tokio`:

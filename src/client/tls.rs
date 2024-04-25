@@ -1,6 +1,9 @@
 //! Helpers for creating TLS connections.
 
-use rustls::{Certificate, ClientConfig, RootCertStore};
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer},
+    ClientConfig, RootCertStore,
+};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -24,22 +27,62 @@ pub enum Trust {
     NoVerify,
 }
 
-/// `ServerCertVerifier` that verifies literally everything.
-#[derive(Clone, Copy, Debug, Default)]
-struct NoVerifier;
+/// `ServerCertVerifier` that doesn't care at all about the server cert.
+#[derive(Clone, Copy, Debug)]
+struct NoVerifier(&'static Arc<rustls::crypto::CryptoProvider>);
 
-impl rustls::client::ServerCertVerifier for NoVerifier {
+impl Default for NoVerifier {
+    fn default() -> Self {
+        NoVerifier(
+            rustls::crypto::CryptoProvider::get_default()
+                .expect("no default rustls crypto prodiver"),
+        )
+    }
+}
+
+impl rustls::client::danger::ServerCertVerifier for NoVerifier {
     fn verify_server_cert(
         &self,
-        _: &rustls::Certificate,
-        _: &[rustls::Certificate],
-        _: &rustls::ServerName,
-        _: &mut dyn Iterator<Item = &[u8]>,
+        _: &CertificateDer<'_>,
+        _: &[CertificateDer<'_>],
+        _: &rustls::pki_types::ServerName<'_>,
         _: &[u8],
-        _: std::time::SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        _: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
         // :)
-        Ok(rustls::client::ServerCertVerified::assertion())
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
     }
 }
 
@@ -61,25 +104,28 @@ pub struct TlsConfigOptions {
 
 fn load_pem(path: &Path, certs: &mut RootCertStore) -> std::io::Result<()> {
     let mut file = std::io::BufReader::new(std::fs::File::open(path)?);
-    for cert in rustls_pemfile::certs(&mut file)? {
+    for cert in rustls_pemfile::certs(&mut file) {
+        let cert = cert?;
         certs
-            .add(&rustls::Certificate(cert))
+            .add(CertificateDer::from(cert))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     }
     Ok(())
 }
 
-fn load_client_cert(path: &Path) -> std::io::Result<(Vec<Certificate>, rustls::PrivateKey)> {
-    let mut key = Option::<rustls::PrivateKey>::None;
-    let mut certs = Vec::<Certificate>::new();
+fn load_client_cert(
+    path: &Path,
+) -> std::io::Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
+    let mut key = Option::<PrivateKeyDer>::None;
+    let mut certs = Vec::<CertificateDer>::new();
     let mut file = std::io::BufReader::new(std::fs::File::open(path)?);
     while let Some(item) = rustls_pemfile::read_one(&mut file)? {
         match item {
             rustls_pemfile::Item::X509Certificate(c) => {
-                certs.push(Certificate(c));
+                certs.push(CertificateDer::from(c));
             }
-            rustls_pemfile::Item::PKCS8Key(k) => {
-                key = Some(rustls::PrivateKey(k));
+            rustls_pemfile::Item::Pkcs8Key(k) => {
+                key = Some(PrivateKeyDer::from(k));
             }
             _ => (),
         }
@@ -94,10 +140,12 @@ impl TlsConfigOptions {
     /// This is an expensive operation. It should ideally be done only once per network.
     pub fn build(&self) -> std::io::Result<TlsConfig> {
         let cli_auth =
-            if let Some(path) = &self.cert { Some(load_client_cert(path)?) } else { None };
-        let builder = ClientConfig::builder().with_safe_defaults();
+            if let Some(path) = self.cert.as_ref() { Some(load_client_cert(path)?) } else { None };
+        let builder = ClientConfig::builder();
         let config = if matches!(&self.trust, Trust::NoVerify) {
-            let builder = builder.with_custom_certificate_verifier(Arc::new(NoVerifier));
+            let builder = builder
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(NoVerifier::default()));
             if let Some((certs, key)) = cli_auth {
                 builder
                     .with_client_auth_cert(certs, key)
@@ -109,7 +157,7 @@ impl TlsConfigOptions {
             let mut certs = RootCertStore { roots: Vec::new() };
             if matches!(&self.trust, Trust::Default | Trust::Also(_)) {
                 let natives = rustls_native_certs::load_native_certs()?;
-                certs.add_parsable_certificates(&natives);
+                certs.add_parsable_certificates(natives);
             }
             if let Trust::Only(paths) | Trust::Also(paths) = &self.trust {
                 certs.roots.reserve_exact(paths.len());
