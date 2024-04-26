@@ -8,8 +8,12 @@ pub struct SecretBuf {
 }
 
 impl SecretBuf {
+    /// Returns `true` if this buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
     /// Creates a new `SecretBuf` with space for at least `count` bytes.
-    pub fn with_capacity(count: usize) -> SecretBuf {
+    pub fn with_capacity(count: usize) -> Self {
         let vec = Vec::with_capacity(count);
         let (mut data, len) = OwnedSlice::from_vec(vec);
         data.init_capacity(len);
@@ -18,7 +22,7 @@ impl SecretBuf {
     }
     /// Allows read-only access to the contents of this buffer through a [`Bytes`].
     pub fn as_bytes(&self) -> Bytes<'_> {
-        Bytes::from(unsafe { self.data.as_slice(self.len) }).secret()
+        Bytes::from(self.as_ref()).secret()
     }
     /// Effeciently converts `self` into a secret [`Bytes`].
     pub fn into_bytes<'a>(mut self) -> Bytes<'a> {
@@ -40,6 +44,16 @@ impl SecretBuf {
             resized.reinit_all();
             std::mem::ManuallyDrop::into_inner(resized);
         }
+    }
+    /// Appends the provided byte.
+    /// If this buffer needs to reallocate, allocates `extra` additional bytes.
+    pub fn push(&mut self, byte: u8, extra: usize) {
+        if self.len == self.data.capacity() {
+            self.reserve(1 + extra);
+        }
+        let wref = unsafe { self.data.as_write_slice(self.len).first_mut().unwrap_unchecked() };
+        *wref = byte;
+        self.len += 1;
     }
     /// Push the provided bytes and an additional null byte.
     ///
@@ -82,6 +96,21 @@ impl SecretBuf {
         self.len += bytes_read;
         Ok(bytes_read)
     }
+    /// Clears the contents of `self`.
+    ///
+    /// Does not zero out the buffer.
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+}
+
+/// This is implemented in order to allow `std::mem::take` and relatives to work.
+/// For most usecases, it is strongly recommmended to use [`SecretBuf::with_capacity`] instead
+/// as reallocations are more expensive with this type due to needing to zero the buffer each time.
+impl Default for SecretBuf {
+    fn default() -> Self {
+        Self::with_capacity(0)
+    }
 }
 
 impl From<Vec<u8>> for SecretBuf {
@@ -90,6 +119,24 @@ impl From<Vec<u8>> for SecretBuf {
         data.init_capacity(len);
         let data = std::mem::ManuallyDrop::new(data);
         SecretBuf { data, len }
+    }
+}
+
+impl FromIterator<u8> for SecretBuf {
+    fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
+        let mut iter = iter.into_iter();
+        let size = match iter.size_hint() {
+            (min, Some(max)) => std::cmp::max(min, std::cmp::min(u16::MAX as usize, max)),
+            (min, None) => min,
+        };
+        let mut retval = Self::with_capacity(size);
+        while let Some(b) = iter.next() {
+            // Performance can degrade severely here for very long iterators.
+            // Hopefully nobody tries to make a secret that's 66k bytes long
+            // from a filtered iterator.
+            retval.push(b, iter.size_hint().0);
+        }
+        retval
     }
 }
 
@@ -103,5 +150,11 @@ impl Drop for SecretBuf {
     fn drop(&mut self) {
         self.data.reinit_all();
         unsafe { std::mem::ManuallyDrop::drop(&mut self.data) }
+    }
+}
+
+impl AsRef<[u8]> for SecretBuf {
+    fn as_ref(&self) -> &[u8] {
+        unsafe { self.data.as_slice(self.len) }
     }
 }

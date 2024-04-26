@@ -13,6 +13,7 @@ impl<T> OwnedSlice<T> {
     /// Converts a Vec into Self (which owns the data)
     /// and the length of the contents.
     pub fn from_vec(mut value: Vec<T>) -> (Self, usize) {
+        // This could be easily const if as_mut_ptr was.
         // as_mut_ptr returns a dangling pointer if capacity is 0.
         // https://doc.rust-lang.org/std/vec/struct.Vec.html#method.as_mut_ptr
         let data = unsafe { NonNull::new_unchecked(value.as_mut_ptr()) };
@@ -62,6 +63,11 @@ impl<T> OwnedSlice<T> {
             (retval, Some(self))
         }
     }
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.1
+    }
+    #[must_use]
     pub fn write_capacity(&self, len: usize) -> usize {
         self.1 - len
     }
