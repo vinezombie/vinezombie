@@ -1,15 +1,17 @@
 use crate::{
     client::auth::{Clear, Sasl, Secret},
-    string::{Bytes, NoNul},
+    string::{NoNul, SecretBuf},
 };
 
 #[test]
 fn sasl_plain() {
     use super::sasl::Plain;
-    let sasl = Plain::<Clear>::new(NoNul::from_str("foobar"), Secret::new(Bytes::from("12345")));
-    let mut logic = sasl.logic();
-    let reply = logic.reply(b"").expect("SASL auth should not fail");
-    assert_eq!(reply, b"\0foobar\012345");
+    let sasl =
+        Plain::<Clear>::new(NoNul::from_str("foobar"), Secret::new(NoNul::from_str("12345")));
+    let mut logic = sasl.logic().pop().expect("SASL PLAIN should always have logic");
+    let mut buf = SecretBuf::with_capacity(logic.size_hint());
+    logic.reply(b"", &mut buf).expect("SASL auth should not fail");
+    assert_eq!(buf.as_bytes(), b"\0foobar\012345");
 }
 
 #[cfg(feature = "serde")]

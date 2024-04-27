@@ -104,7 +104,7 @@ impl<O> Register<O> {
         let nicks = self.register_msgs(opts, sink);
         let caps = (self.caps)(opts);
         let (auths, mut needs_auth) = (self.auth)(opts);
-        needs_auth &= auths.had_values();
+        needs_auth &= auths.is_empty();
         Handler::new(nicks, caps, needs_auth, auths)
     }
 }

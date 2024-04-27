@@ -1,39 +1,36 @@
-use super::{Sasl, SaslLogic};
+use super::{Sasl, SaslLogic, SaslQueue};
 use crate::{
-    client::ClientMsgSink,
+    client::{auth::msg_abort, ClientMsgSink, NoHandler},
     ircmsg::ClientMsg,
     names::cmd::AUTHENTICATE,
-    string::{Arg, Line},
+    string::{Arg, Line, SecretBuf},
 };
-use std::collections::BTreeSet;
 
 /// Handler for SASL authentication.
 pub struct Handler {
+    queue: SaslQueue,
     logic: Box<dyn SaslLogic>,
     decoder: crate::string::base64::ChunkDecoder,
 }
 
 /// All the possible errors that can occur during SASL authentication.
-#[derive(Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum HandlerError {
-    /// The client requested a mechanism that isn't supported.
-    /// The server supports the inclded mechanisms.
-    WrongMechanism(BTreeSet<Arg<'static>>),
-    /// Authentication failed.
+    /// The last available authenticator was ruled out by a broken server implementation.
+    Broken(Arg<'static>),
+    /// The last available authenticator was ruled out by the server not supporting it.
+    Unsupported,
+    /// The last available authenticator failed, or the account is frozen.
     Fail(Line<'static>),
-    /// The server's implementation of a SASL mechanism is broken.
-    Broken(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl From<HandlerError> for std::io::Error {
     fn from(value: HandlerError) -> Self {
         use std::io::{Error, ErrorKind};
         match value {
-            HandlerError::WrongMechanism(_) => {
-                Error::new(ErrorKind::Unsupported, value.to_string())
-            }
             HandlerError::Fail(e) => Error::new(ErrorKind::PermissionDenied, e.to_utf8_lossy()),
-            HandlerError::Broken(e) => Error::new(ErrorKind::InvalidData, e),
+            HandlerError::Broken(_) => Error::new(ErrorKind::InvalidData, value.to_string()),
+            HandlerError::Unsupported => Error::new(ErrorKind::Unsupported, value.to_string()),
         }
     }
 }
@@ -41,30 +38,47 @@ impl From<HandlerError> for std::io::Error {
 impl std::fmt::Display for HandlerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HandlerError::WrongMechanism(_) => write!(f, "unsupported mechanism"),
-            HandlerError::Fail(reason) => reason.fmt(f),
-            HandlerError::Broken(_) => write!(f, "broken mechanism"),
+            HandlerError::Fail(reason) => write!(f, "login failed: {reason}"),
+            HandlerError::Unsupported => write!(f, "no supported mechanisms"),
+            HandlerError::Broken(m) => write!(f, "server has broken {m} implementation"),
         }
     }
 }
 
-impl std::error::Error for HandlerError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            HandlerError::Broken(brk) => Some(&**brk),
-            _ => None,
-        }
-    }
-}
+impl std::error::Error for HandlerError {}
 
-/// [`MakeHandler`][crate::client::MakeHandler] for any [`Sasl`] implementation.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Authenticate;
-
-impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for &'a Authenticate {
+impl crate::client::MakeHandler<SaslQueue> for crate::names::cmd::AUTHENTICATE {
     type Value = Result<(), HandlerError>;
 
-    type Error = std::io::Error;
+    type Error = crate::client::handler::NoHandler;
+
+    type Receiver<Spec: crate::client::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
+
+    type Handler = Handler;
+
+    fn make_handler(
+        self,
+        mut queue: crate::client::queue::QueueEditGuard<'_>,
+        mut sasl_queue: SaslQueue,
+    ) -> Result<Handler, Self::Error> {
+        let sasl = sasl_queue.pop().ok_or(NoHandler)?;
+        let retval = Handler::new(sasl, sasl_queue);
+        queue.push(retval.auth_msg());
+        Ok(retval)
+    }
+
+    fn make_channel<Spec: crate::client::channel::ChannelSpec>(
+        spec: &Spec,
+    ) -> (Box<dyn crate::client::channel::Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>)
+    {
+        spec.new_oneshot()
+    }
+}
+
+impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for crate::names::cmd::AUTHENTICATE {
+    type Value = Result<(), HandlerError>;
+
+    type Error = crate::client::handler::NoHandler;
 
     type Receiver<Spec: crate::client::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
 
@@ -75,9 +89,11 @@ impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for &'a Authenticate {
         mut queue: crate::client::queue::QueueEditGuard<'_>,
         sasl: &'a T,
     ) -> Result<Handler, Self::Error> {
-        let (msg, handler) = Handler::from_sasl(sasl)?;
-        queue.push(msg);
-        Ok(handler)
+        let mut sasl_queue: SaslQueue = sasl.logic().into();
+        let sasl = sasl_queue.pop().ok_or(NoHandler)?;
+        let retval = Handler::new(sasl, sasl_queue);
+        queue.push(retval.auth_msg());
+        Ok(retval)
     }
 
     fn make_channel<Spec: crate::client::channel::ChannelSpec>(
@@ -89,19 +105,46 @@ impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for &'a Authenticate {
 }
 
 impl Handler {
-    /// Creates a new authenticator from a [`SaslLogic`] implementation.
-    pub fn from_logic(logic: Box<dyn SaslLogic>) -> Self {
-        Handler { logic, decoder: crate::string::base64::ChunkDecoder::new(400) }
+    /// Creates a new authenticator from a [`SaslLogic`] implementation and a
+    /// (potentially empty) queue.
+    /// Additionally returns the message to send to initiate authentication.
+    pub fn new(logic: Box<dyn SaslLogic>, queue: SaslQueue) -> Self {
+        Handler { queue, logic, decoder: crate::string::base64::ChunkDecoder::new(400) }
     }
-    /// Creates a new authenticator from a [`Sasl`] implementation.
+    /// Attempts to create a new authenticator directly from a [`SaslQueue`].
+    /// Returns `None` if the queue is empty.
+    pub fn from_queue(mut queue: SaslQueue) -> Option<Self> {
+        let logic = queue.pop()?;
+        Some(Self::new(logic, queue))
+    }
+    /// Creates an auth message for the current [`SaslLogic`].
     ///
-    /// For convenience, also returns the message to send to initiate authentication.
-    pub fn from_sasl(sasl: &(impl Sasl + ?Sized)) -> std::io::Result<(ClientMsg<'static>, Self)> {
-        let auth =
-            Handler { logic: sasl.logic(), decoder: crate::string::base64::ChunkDecoder::new(400) };
+    /// If you are manually driving this handler, this should typically
+    /// only need to be called once: at the start.
+    pub fn auth_msg(&self) -> ClientMsg<'static> {
         let mut msg = ClientMsg::new(crate::names::cmd::AUTHENTICATE);
-        msg.args.edit().add_word(sasl.name());
-        Ok((msg, auth))
+        msg.args.edit().add_word(self.logic.name().clone());
+        msg
+    }
+
+    /// Constrains SASL authenticators to only support mechanisms whose names return `true`
+    /// when passed to the provided function.
+    ///
+    /// Returns:
+    /// - `Some(true)` if the current authenticator was removed by this function,
+    /// meaning authentication needs to be restarted.
+    /// - `Some(false)` if all authenticators were removed by this function.
+    /// - `None` if authentication can continue normally.
+    pub fn retain(&mut self, supported: &(impl Fn(&Arg<'_>) -> bool + ?Sized)) -> Option<bool> {
+        self.queue.retain(supported);
+        if supported(&self.logic.name()) {
+            None
+        } else if let Some(new_logic) = self.queue.pop() {
+            self.logic = new_logic;
+            Some(true)
+        } else {
+            Some(false)
+        }
     }
     /// Handles a server message sent during SASL authentication.
     ///
@@ -121,9 +164,30 @@ impl Handler {
                     Some(self.decoder.decode())
                 };
                 if let Some(res) = res {
-                    let chal = res.map_err(|e| HandlerError::Broken(e.into()))?;
-                    let reply = self.logic.reply(&chal).map_err(HandlerError::Broken)?;
-                    for chunk in ChunkEncoder::new(reply, 400, true) {
+                    let chal = res.map_err(|_e| {
+                        #[cfg(feature = "tracing")]
+                        tracing::error!("base64 decode error: {_e}");
+                        sink.send(msg_abort());
+                        HandlerError::Broken(Arg::from_str("base64"))
+                    })?;
+                    let mut buf = SecretBuf::with_capacity(self.logic.size_hint());
+                    if let Err(_e) = self.logic.reply(&chal, &mut buf) {
+                        #[cfg(feature = "tracing")]
+                        tracing::error!("server's SASL {} is broken: {_e}", self.logic.name());
+                        sink.send(msg_abort());
+                        // Now to rule out this mechanism from all further auth attempts.
+                        let name = self.logic.name();
+                        self.queue.retain(&|ln| name != *ln);
+                        return if let Some(new_logic) = self.queue.pop() {
+                            self.logic = new_logic;
+                            // We can continue, but we need to wait for the server to
+                            // acknowledge that we're stopping before sending AUTHENTICATE.
+                            Ok(false)
+                        } else {
+                            Err(HandlerError::Broken(name))
+                        };
+                    }
+                    for chunk in ChunkEncoder::new(buf, 400, true) {
                         let mut msg = ClientMsg::new(AUTHENTICATE);
                         msg.args.edit().add_word(chunk);
                         sink.send(msg);
@@ -131,17 +195,53 @@ impl Handler {
                 }
                 Ok(false)
             }
-            // Ignore 901.
-            "900" | "903" | "907" => Ok(true),
-            "902" | "904" | "905" | "906" => {
-                let reason = msg.args.split_last().1.cloned().unwrap_or_default();
-                Err(HandlerError::Fail(reason.owning()))
+            // Auth failed or the account was restricted.
+            "902" | "904" => {
+                // In a more account-aware system, could purge all authenticators that are
+                // meant to log in to the same account on a 902.
+                if let Some(next_logic) = self.queue.pop() {
+                    self.logic = next_logic;
+                    sink.send(self.auth_msg());
+                    Ok(false)
+                } else {
+                    let reason = msg.args.split_last().1.cloned().unwrap_or_default().owning();
+                    Err(HandlerError::Fail(reason))
+                }
             }
+            // Somehow we sent more than 400 bytes in an AUTHENTICATE message?
+            "905" => {
+                // Heresy, it's the server that's wrong!
+                Err(HandlerError::Broken(Arg::from_str("counting")))
+            }
+            // We asked for authentication to stop.
+            "906" => {
+                // Since we're here, we're trying again.
+                // The authenticator was already cycled earlier, so we just send the message.
+                sink.send(self.auth_msg());
+                Ok(false)
+            }
+            // Server is telling us something about the supported mechanisms.
             "908" => {
+                // Let's assume that these apply to all accounts we might try to log in to.
                 #[allow(clippy::mutable_key_type)]
-                let set = msg.args.split_last().0.iter().map(|a| a.clone().owning()).collect();
-                Err(HandlerError::WrongMechanism(set))
+                let set: std::collections::BTreeSet<_> =
+                    msg.args.split_last().0.iter().map(|a| a.clone().owning()).collect();
+                self.queue.retain(&|ln| set.contains(ln));
+                // If the mechanism is NOT supported,
+                // the server needs to error with a 904, which causes this handler to
+                // cycle to the next authenticator.
+                // However, we can short-circuit this if the queue is empty AND
+                // the authenticator is unsupported.
+                if self.queue.is_empty() && !set.contains(&self.logic.name()) {
+                    Err(HandlerError::Unsupported)
+                } else {
+                    Ok(false)
+                }
             }
+            // Various ways of telling us "we're logged in".
+            // Something else should properly parse the 900.
+            "900" | "903" | "907" => Ok(true),
+            // Ignore 901, the "logged out" message.
             _ => Ok(false),
         }
     }

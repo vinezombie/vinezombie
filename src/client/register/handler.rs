@@ -1,7 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    client::{auth::SaslQueue, nick::NickGen, ClientMsgSink},
+    client::{
+        auth::{self, SaslQueue},
+        nick::NickGen,
+        ClientMsgSink,
+    },
     ircmsg::{ClientMsg, ServerMsg, SharedSource, Source, UserHost},
     names::{
         cmd::{CAP, NICK},
@@ -151,22 +155,49 @@ impl From<HandlerError> for std::io::Error {
 pub(super) enum HandlerState {
     #[default]
     Broken,
-    Req(Box<dyn CapFn>),
-    Ack(VecDeque<Key<'static>>),
-    Sasl,
+    Req(Box<dyn CapFn>, SaslQueue),
+    Ack(BTreeSet<Key<'static>>, SaslQueue),
+    #[cfg(feature = "base64")]
+    Sasl(crate::client::auth::Handler),
     CapEnd,
     AwaitWelcome,
     AwaitEnd,
 }
 
 impl HandlerState {
-    pub fn ack(&mut self, caps: &BTreeMap<Key<'_>, Word<'_>>) {
-        if let HandlerState::Ack(ackd) = self {
-            ackd.retain(|cap| caps.get(cap).is_none());
+    /// Handle an ACK, NAK, or DEL.
+    ///
+    /// Also sends the initial AUTHENTICATE message for SASL.
+    pub fn ack(
+        &mut self,
+        ack: bool,
+        caps: &BTreeMap<Key<'_>, Word<'_>>,
+        mut sink: impl ClientMsgSink<'static>,
+    ) -> Result<(), HandlerError> {
+        if let HandlerState::Ack(ackd, queue) = self {
+            let caps = caps.keys().map(|k| k.clone().owning()).collect();
+            if ack {
+                *ackd = ackd.difference(&caps).cloned().collect();
+            } else {
+                let missing: BTreeSet<_> = ackd.intersection(&caps).cloned().collect();
+                if !missing.is_empty() {
+                    // Ooops. If we're here, the server lied to us about what it supports.
+                    return Err(HandlerError::MissingCaps(missing));
+                }
+            };
             if ackd.is_empty() {
-                *self = HandlerState::Sasl;
+                #[cfg(feature = "base64")]
+                if let Some(handler) = auth::Handler::from_queue(std::mem::take(queue)) {
+                    // If we're here, SASL was acked,
+                    // as the queue was nonempty and we request "sasl" when so.
+                    sink.send(handler.auth_msg());
+                    *self = HandlerState::Sasl(handler);
+                    return Ok(());
+                }
+                *self = HandlerState::CapEnd;
             }
         }
+        Ok(())
     }
 }
 
@@ -175,9 +206,6 @@ pub struct Handler {
     pub(super) nicks: Option<Box<dyn NickGen>>,
     pub(super) state: HandlerState,
     pub(super) needs_auth: bool,
-    #[cfg(feature = "base64")]
-    pub(super) auth: Option<crate::client::auth::Handler>,
-    pub(super) auths: SaslQueue,
     pub(super) reg: Registration,
 }
 
@@ -191,11 +219,8 @@ impl Handler {
         let (nick, nicks) = nicks;
         Handler {
             nicks,
-            state: HandlerState::Req(caps),
+            state: HandlerState::Req(caps, auths),
             needs_auth,
-            #[cfg(feature = "base64")]
-            auth: None,
-            auths,
             reg: Registration::new(nick),
         }
     }
@@ -214,36 +239,22 @@ impl Handler {
         if crate::client::handlers::pong(msg, sink.borrow_mut()) {
             return Ok(None);
         }
+        // Ignore errors related to SASL.
+        let mut ignore_sasl = false;
         #[cfg(feature = "base64")]
-        if let Some(auth) = &mut self.auth {
-            use crate::client::auth;
-            match auth.handle(msg, sink.borrow_mut()) {
-                Ok(true) => {
-                    self.auth = None;
-                    self.state = HandlerState::CapEnd;
-                }
+        if let HandlerState::Sasl(sasl) = &mut self.state {
+            ignore_sasl = true;
+            match sasl.handle(msg, sink.borrow_mut()) {
                 Ok(false) => (),
-                Err(auth::HandlerError::Fail(_)) => {
-                    // TODO: Probably should log the failure.
+                Ok(true) => {
                     self.state = HandlerState::CapEnd;
-                    self.next_sasl(sink.borrow_mut())?;
-                    self.cap_end(sink.borrow_mut())?;
-                    return Ok(None);
                 }
-                Err(auth::HandlerError::WrongMechanism(set)) => {
-                    self.auths.retain(&set);
+                Err(_e) => {
+                    // Auth failed irrecoverably.
+                    // May still be able to continue depending on needs_auth.
+                    #[cfg(feature = "tracing")]
+                    tracing::error!("{_e}");
                     self.state = HandlerState::CapEnd;
-                    self.next_sasl(sink.borrow_mut())?;
-                    self.cap_end(sink.borrow_mut())?;
-                    return Ok(None);
-                }
-                Err(auth::HandlerError::Broken(_)) => {
-                    // TODO: Probably should log the breakage.
-                    sink.send(crate::client::auth::msg_abort());
-                    self.state = HandlerState::CapEnd;
-                    self.next_sasl(sink.borrow_mut())?;
-                    self.cap_end(sink.borrow_mut())?;
-                    return Ok(None);
                 }
             }
         }
@@ -393,6 +404,7 @@ impl Handler {
                 }
                 Ok(None)
             }
+            "902" | "904" | "905" | "906" | "907" if ignore_sasl => Ok(None),
             "CAP" => {
                 use crate::client::cap;
                 let cap_msg = cap::ServerMsgArgs::parse(&msg.args.clone().owning())
@@ -405,22 +417,30 @@ impl Handler {
                         }
                         std::mem::drop(caps);
                         let state = std::mem::take(&mut self.state);
-                        if let HandlerState::Req(reqs) = state {
+                        if let HandlerState::Req(reqs, mut auths) = state {
+                            use crate::names::cap::{SASL, STS};
+                            // Filter SASL mechanisms.
+                            match self.reg.caps.get_parsed(SASL) {
+                                Some(Ok(mechs)) => {
+                                    auths.retain(&|mech| mechs.contains(mech.as_bytes()));
+                                }
+                                Some(_) => (),
+                                None => auths.clear(),
+                            }
+                            // Check the set of capabilities.
                             let avail = self.reg.caps.keys().cloned().collect();
                             let mut reqs = reqs.require(&avail);
-                            if self.needs_auth {
-                                reqs.insert(crate::names::cap::SASL::NAME);
+                            if !auths.is_empty() {
+                                reqs.insert(SASL::NAME);
+                            } else if self.needs_auth {
+                                return Err(HandlerError::NoLogin);
                             }
                             let diff: BTreeSet<_> = reqs.difference(&avail).cloned().collect();
                             if !diff.is_empty() {
                                 return Err(HandlerError::MissingCaps(diff));
                             }
-                            // Add "sasl" if we didn't add it earlier but need it.
-                            if !self.needs_auth && !self.auths.is_empty() {
-                                reqs.insert(crate::names::cap::SASL::NAME);
-                            }
                             // "sts" is purely informative and must never be requested.
-                            reqs.remove(&crate::names::cap::STS::NAME);
+                            reqs.remove(&STS::NAME);
                             self.state = if reqs.is_empty() {
                                 HandlerState::CapEnd
                             } else {
@@ -430,7 +450,7 @@ impl Handler {
                                     self.reg.source.as_ref(),
                                     sink.borrow_mut(),
                                 );
-                                HandlerState::Ack(reqs.into_iter().collect())
+                                HandlerState::Ack(reqs, auths)
                             };
                         } else {
                             self.state = state;
@@ -444,35 +464,23 @@ impl Handler {
                     }
                     cap::SubCmd::Ack => {
                         let mut caps = self.reg.caps.edit();
-                        self.state.ack(&cap_msg.caps);
+                        self.state.ack(true, &cap_msg.caps, sink.borrow_mut())?;
                         // Assume that every ACK is a positive ACK without actually checking.
                         for (key, value) in cap_msg.caps {
                             caps.insert_or_update((key, value), true);
                         }
                     }
                     cap::SubCmd::Nak => {
-                        self.state.ack(&cap_msg.caps);
+                        self.state.ack(false, &cap_msg.caps, sink.borrow_mut())?;
                     }
                     cap::SubCmd::Del => {
                         let mut caps = self.reg.caps.edit();
-                        for cap in cap_msg.caps.keys() {
+                        cap_msg.caps.keys().for_each(|cap| {
                             caps.remove_raw(cap);
-                        }
-                        self.state.ack(&cap_msg.caps);
+                        });
+                        self.state.ack(false, &cap_msg.caps, sink.borrow_mut())?;
                     }
                     cap::SubCmd::List => return Err(HandlerError::broken("unexpected CAP LIST")),
-                }
-                if matches!(self.state, HandlerState::Sasl) {
-                    if let Some(Ok(names)) = self.reg.caps.get_parsed(crate::names::cap::SASL) {
-                        if !names.is_empty() {
-                            self.auths.retain(&names);
-                        }
-                    } else {
-                        self.auths.clear();
-                    }
-                    self.state = HandlerState::CapEnd;
-                    #[cfg(feature = "base64")]
-                    self.next_sasl(sink.borrow_mut())?;
                 }
                 Ok(None)
             }
@@ -483,7 +491,15 @@ impl Handler {
                 Ok(None)
             }
         }?;
-        self.cap_end(sink)?;
+        if matches!(self.state, HandlerState::CapEnd) {
+            if self.needs_auth && self.reg.account.is_none() {
+                return Err(HandlerError::NoLogin);
+            }
+            let mut msg = crate::ircmsg::ClientMsg::new(CAP);
+            msg.args.edit().add_literal("END");
+            sink.send(msg);
+            self.state = HandlerState::AwaitWelcome;
+        }
         Ok(retval)
     }
     fn next_nick(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
@@ -495,33 +511,6 @@ impl Handler {
         self.reg.nick = nick;
         self.nicks = nicks;
         Ok(())
-    }
-    #[cfg(feature = "base64")]
-    fn next_sasl(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<(), HandlerError> {
-        use crate::names::cmd::AUTHENTICATE;
-        let Some((name, logic)) = self.auths.pop() else {
-            return Ok(());
-        };
-        let mut msg = ClientMsg::new(AUTHENTICATE);
-        msg.args.edit().add_word(name);
-        sink.send(msg);
-        self.auth = Some(crate::client::auth::Handler::from_logic(logic));
-        self.state = HandlerState::Sasl;
-        Ok(())
-    }
-    fn cap_end(&mut self, mut sink: impl ClientMsgSink<'static>) -> Result<bool, HandlerError> {
-        if matches!(self.state, HandlerState::CapEnd) {
-            if self.needs_auth && self.reg.account.is_none() {
-                return Err(HandlerError::NoLogin);
-            }
-            let mut msg = crate::ircmsg::ClientMsg::new(CAP);
-            msg.args.edit().add_literal("END");
-            sink.send(msg);
-            self.state = HandlerState::AwaitWelcome;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
     }
 }
 

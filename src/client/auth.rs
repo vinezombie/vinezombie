@@ -9,13 +9,14 @@ mod secret;
 #[cfg(test)]
 mod tests;
 
-use std::borrow::Borrow;
-
 #[cfg(feature = "base64")]
 pub use handler::*;
 pub use secret::*;
 
-use crate::{ircmsg::ClientMsg, string::Arg};
+use crate::{
+    ircmsg::ClientMsg,
+    string::{Arg, SecretBuf},
+};
 
 /// Returns the [`ClientMsg`] for aborting authentication.
 pub fn msg_abort() -> ClientMsg<'static> {
@@ -25,104 +26,103 @@ pub fn msg_abort() -> ClientMsg<'static> {
     msg
 }
 
-/// The logic of a SASL mechanism.
-pub trait SaslLogic: Send {
+/// The logic of one SASL mechanism.
+pub trait SaslLogic: Send + 'static {
+    /// The name of the mechanism.
+    fn name(&self) -> Arg<'static>;
+
     /// Handles data sent by the server.
-    fn reply<'a>(
-        &'a mut self,
-        data: &[u8],
-    ) -> Result<&'a [u8], Box<dyn std::error::Error + Send + Sync>>;
+    ///
+    /// Errors to indicate that the server's implementation of a given mechanism is broken.
+    /// This type is not responsible for validating the server; that should be handled by
+    /// TLS or other secure connection system.
+    fn reply(
+        &mut self,
+        input: &[u8],
+        output: &mut SecretBuf,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Returns a hint for how large the output buffer should be.
+    fn size_hint(&self) -> usize {
+        0
+    }
 }
 
-/// SASL mechanisms.
+/// Configuration for doing SASL authentication.
+///
+/// This is separate from [`SaslLogic`] with the idea that these types may be
+/// (de)serializeable, where the actual state for implementing these mechanisms may be
+/// significantly more complex.
+/// Additionally, the construction of these types is meant to be responsible for
+/// loading the necessary secrets into memory, so that the actual authenticator logic
+/// doesn't have to worry about it.
 pub trait Sasl {
-    /// The name of this mechanism, as the client requests it.
-    fn name(&self) -> Arg<'static>;
     /// Returns the logic for this mechanism as a [`SaslLogic`].
-    fn logic(&self) -> Box<dyn SaslLogic>;
+    ///
+    /// Some `Sasl` implementations represent configuration for a collection of mechanisms,
+    fn logic(&self) -> Vec<Box<dyn SaslLogic>>;
 }
 
 /// A queue of SASL authenticators to try in order.
 #[derive(Default)]
 pub struct SaslQueue {
-    seq: std::collections::VecDeque<(Arg<'static>, Box<dyn SaslLogic>)>,
-    had_values: bool,
+    queue: std::collections::VecDeque<Box<dyn SaslLogic>>,
 }
 
 impl SaslQueue {
     /// Creates a new, empty list of SASL authenticators.
     pub const fn new() -> Self {
-        SaslQueue { seq: std::collections::VecDeque::new(), had_values: false }
-    }
-
-    /// Returns `true` if this queue has or had values in it.
-    ///
-    /// This is also `true` if this queue was constructed from a non-empty iterator.
-    pub const fn had_values(&self) -> bool {
-        self.had_values
+        SaslQueue { queue: std::collections::VecDeque::new() }
     }
 
     /// Returns `true` if the queue is empty.
     pub fn is_empty(&self) -> bool {
-        self.seq.is_empty()
+        self.queue.is_empty()
     }
 
     /// Returns the number of SASL authenticators in `self.`
     pub fn len(&self) -> usize {
-        self.seq.len()
+        self.queue.len()
     }
 
     /// Adds a SASL authenticator to the end of the list.
     pub fn push(&mut self, sasl: &(impl Sasl + ?Sized)) {
-        let logic = sasl.logic();
-        let name = sasl.name();
-        self.seq.push_back((name, logic));
-        self.had_values = true;
+        let mut vec_deque: std::collections::VecDeque<_> = sasl.logic().into();
+        self.queue.append(&mut vec_deque);
     }
 
-    /// Returns a pair containing the name and logic of a SASL authenticator.
-    pub fn pop(&mut self) -> Option<(Arg<'static>, Box<dyn SaslLogic>)> {
-        self.seq.pop_front()
+    /// Returns the next SASL authenticator to attempt.
+    pub fn pop(&mut self) -> Option<Box<dyn SaslLogic>> {
+        self.queue.pop_front()
     }
 
-    /// Removes all SASL authenticators with a protocol name matching `name`.
-    pub fn remove(&mut self, name: &Arg<'_>) {
-        self.seq.retain(|(k, _)| *k != *name);
-    }
-
-    /// Removes all SASL authenticators except those with a protocol name in `names`.
-    pub fn retain(&mut self, names: &std::collections::BTreeSet<impl Borrow<[u8]> + Ord>) {
-        self.seq.retain(|(k, _)| names.contains(k.borrow()));
+    /// Retains only SASL authenticators for which
+    /// the provided function returns `true` when passed their names.
+    pub fn retain(&mut self, supported: &(impl Fn(&Arg<'_>) -> bool + ?Sized)) {
+        self.queue.retain(|l| supported(&l.name()));
     }
 
     /// Cleares the queue.
     pub fn clear(&mut self) {
-        self.seq.clear();
+        self.queue.clear();
     }
 }
 
 impl<'a, S: Sasl + ?Sized> std::iter::FromIterator<&'a S> for SaslQueue {
     fn from_iter<T: IntoIterator<Item = &'a S>>(iter: T) -> Self {
         let iter = iter.into_iter();
-        let mut seq = std::collections::VecDeque::with_capacity(iter.size_hint().0);
-        let mut had_values = false;
+        let mut retval = Self::new();
+        retval.queue.reserve(iter.size_hint().0);
         for sasl in iter {
-            had_values = true;
-            let logic = sasl.logic();
-            let name = sasl.name();
-            seq.push_back((name, logic));
+            retval.push(sasl);
         }
-        SaslQueue { seq, had_values }
+        retval
     }
 }
 
-impl std::fmt::Debug for SaslQueue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_list();
-        for (arg, _) in self.seq.iter() {
-            f.entry(arg);
-        }
-        f.finish()
+impl From<Vec<Box<dyn SaslLogic>>> for SaslQueue {
+    fn from(value: Vec<Box<dyn SaslLogic>>) -> Self {
+        SaslQueue { queue: value.into() }
     }
 }
 
@@ -137,30 +137,23 @@ impl std::fmt::Debug for SaslQueue {
 #[non_exhaustive]
 pub enum AnySasl<S: LoadSecret> {
     External(sasl::External),
-    Plain(sasl::Plain<S>),
+    Password(sasl::Password<S>),
 }
 
 impl<S: LoadSecret + std::fmt::Debug> std::fmt::Debug for AnySasl<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AnySasl::External(s) => s.fmt(f),
-            AnySasl::Plain(s) => s.fmt(f),
+            AnySasl::Password(s) => s.fmt(f),
         }
     }
 }
 
 impl<S: LoadSecret + 'static> Sasl for AnySasl<S> {
-    fn name(&self) -> Arg<'static> {
-        match self {
-            AnySasl::External(s) => s.name(),
-            AnySasl::Plain(s) => s.name(),
-        }
-    }
-
-    fn logic(&self) -> Box<dyn SaslLogic> {
+    fn logic(&self) -> Vec<Box<dyn SaslLogic>> {
         match self {
             AnySasl::External(s) => s.logic(),
-            AnySasl::Plain(s) => s.logic(),
+            AnySasl::Password(s) => s.logic(),
         }
     }
 }
@@ -171,8 +164,8 @@ impl<S: LoadSecret> From<sasl::External> for AnySasl<S> {
     }
 }
 
-impl<S: LoadSecret> From<sasl::Plain<S>> for AnySasl<S> {
-    fn from(value: sasl::Plain<S>) -> Self {
-        AnySasl::Plain(value)
+impl<S: LoadSecret> From<sasl::Password<S>> for AnySasl<S> {
+    fn from(value: sasl::Password<S>) -> Self {
+        AnySasl::Password(value)
     }
 }

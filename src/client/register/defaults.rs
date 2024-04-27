@@ -47,8 +47,9 @@ impl<S, A: Sasl> Options<S, A> {
     /// Returns a [`SaslQueue`] and whether SASL is required,
     /// as used by [`Register`][super::Register].
     pub fn auths(&self) -> (SaslQueue, bool) {
-        let require_sasl = !self.allow_sasl_fail;
-        (self.sasl.iter().collect(), require_sasl)
+        let queue: SaslQueue = self.sasl.iter().collect();
+        let require_sasl = !(self.allow_sasl_fail || queue.is_empty());
+        (queue, require_sasl)
     }
 }
 
