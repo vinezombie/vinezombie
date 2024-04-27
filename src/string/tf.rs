@@ -2,10 +2,25 @@
 
 mod casemap;
 mod escape;
+mod trim;
 
-pub use {casemap::*, escape::*};
+pub use {casemap::*, escape::*, trim::*};
 
 use super::{Transformation, Utf8Policy};
+
+/// Which side of the string to perform an operation on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(missing_docs)]
+pub enum StringSide {
+    /// Perform only at the start of the string.
+    Start,
+    /// Perform only at the end of the string.
+    End,
+    /// Perform on both ends, starting at the start.
+    StartFirst,
+    /// Perform on both ends, starting at the end.
+    EndFirst,
+}
 
 pub(super) unsafe fn map_bytes(
     bytes: &[u8],
