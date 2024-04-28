@@ -3,10 +3,30 @@
 //!
 //! No relation to IRC channels.
 
+use std::ops::ControlFlow;
+
 pub mod oneshot;
 pub mod parker;
 #[cfg(test)]
 mod tests;
+
+/// Whether a value successfully sent over a channel.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum Sent {
+    /// The channel is closed and the value was lost.
+    Closed,
+    /// The value was sent successfully.
+    Ok,
+}
+
+impl From<ControlFlow<Sent>> for Sent {
+    fn from(value: ControlFlow<Sent>) -> Self {
+        match value {
+            ControlFlow::Continue(_) => Sent::Ok,
+            ControlFlow::Break(v) => v,
+        }
+    }
+}
 
 /// Send halves of non-blocking channels.
 pub trait Sender {
@@ -14,9 +34,12 @@ pub trait Sender {
     type Value;
 
     /// Attempts to send a value over the channel.
+    /// Returns [`ControlFlow::Continue`] on successful send and if more values can be sent.
+    /// Returns [`ControlFlow::Break`] if the channel is closed after the send.
     ///
-    /// This function must never block, as if may be called from async contexts.
-    fn send(&mut self, value: Self::Value) -> SendCont;
+    /// This function must not block while waiting for the receiving end to get values,
+    /// as it may be called from async contexts.
+    fn send(&mut self, value: Self::Value) -> ControlFlow<Sent>;
 
     /// Returns whether attempting to send a value may succeed.
     ///
@@ -27,18 +50,6 @@ pub trait Sender {
     }
 }
 
-/// The outcome of attempting to send a message via a [`Sender`].
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[repr(u8)]
-pub enum SendCont {
-    /// The message was not sent and the channel accepts no further messages.
-    Closed,
-    /// The message was sent, but the channel accepts no further messages.
-    SentClosed,
-    /// The message was sent.
-    Sent,
-}
-
 /// The sender half of channel as provided to a handler.
 pub struct SenderRef<'a, T> {
     pub(super) sender: &'a mut dyn Sender<Value = T>,
@@ -46,15 +57,19 @@ pub struct SenderRef<'a, T> {
 }
 
 impl<'a, T> SenderRef<'a, T> {
+    /// Returns `true` if at least one send occurred.
+    pub fn did_send(&self) -> bool {
+        *self.flag
+    }
     /// Sends one value to the underlying channel.
     ///
-    /// Returns `true` if the value sent successfully, otherwise returns `false`.
+    /// Returns [`ControlFlow::Continue`] if more values can be sent,
+    /// otherwise returns [`ControlFlow::Break`].
     /// This return value can often be safely ignored.
-    pub fn send(&mut self, value: T) -> bool {
+    pub fn send(&mut self, value: T) -> ControlFlow<Sent> {
         let result = self.sender.send(value);
-        let success = !matches!(result, SendCont::Closed);
-        *self.flag |= success;
-        success
+        *self.flag |= !matches!(result, ControlFlow::Break(Sent::Closed));
+        result
     }
     /// Returns `false` if a later send operation is guaranteed to fail.
     pub fn may_send(&self) -> bool {
@@ -69,8 +84,8 @@ pub struct ClosedSender<T>(std::marker::PhantomData<fn(T)>);
 impl<T> Sender for ClosedSender<T> {
     type Value = T;
 
-    fn send(&mut self, _value: T) -> SendCont {
-        SendCont::Closed
+    fn send(&mut self, _value: T) -> ControlFlow<Sent> {
+        ControlFlow::Break(Sent::Closed)
     }
 
     fn may_send(&self) -> bool {
@@ -81,11 +96,11 @@ impl<T> Sender for ClosedSender<T> {
 impl<T> Sender for std::sync::mpsc::Sender<T> {
     type Value = T;
 
-    fn send(&mut self, value: T) -> SendCont {
+    fn send(&mut self, value: T) -> ControlFlow<Sent> {
         if std::sync::mpsc::Sender::send(&*self, value).is_ok() {
-            SendCont::Sent
+            ControlFlow::Continue(())
         } else {
-            SendCont::Closed
+            ControlFlow::Break(Sent::Closed)
         }
     }
 }
@@ -94,13 +109,13 @@ impl<T> Sender for std::sync::mpsc::Sender<T> {
 impl<T> Sender for Option<tokio::sync::oneshot::Sender<T>> {
     type Value = T;
 
-    fn send(&mut self, value: Self::Value) -> SendCont {
+    fn send(&mut self, value: Self::Value) -> ControlFlow<Sent> {
         if let Some(sender) = self.take() {
             if sender.send(value).is_ok() {
-                return SendCont::SentClosed;
+                return ControlFlow::Break(Sent::Ok);
             }
         }
-        SendCont::Closed
+        ControlFlow::Break(Sent::Closed)
     }
 }
 
@@ -108,11 +123,11 @@ impl<T> Sender for Option<tokio::sync::oneshot::Sender<T>> {
 impl<T> Sender for tokio::sync::mpsc::UnboundedSender<T> {
     type Value = T;
 
-    fn send(&mut self, value: T) -> SendCont {
+    fn send(&mut self, value: T) -> ControlFlow<Sent> {
         if tokio::sync::mpsc::UnboundedSender::send(&*self, value).is_ok() {
-            SendCont::Sent
+            ControlFlow::Continue(())
         } else {
-            SendCont::Closed
+            ControlFlow::Break(Sent::Closed)
         }
     }
 }
@@ -121,13 +136,13 @@ impl<T> Sender for tokio::sync::mpsc::UnboundedSender<T> {
 impl<T> Sender for tokio::sync::mpsc::WeakUnboundedSender<T> {
     type Value = T;
 
-    fn send(&mut self, value: T) -> SendCont {
+    fn send(&mut self, value: T) -> ControlFlow<Sent> {
         if let Some(sender) = self.upgrade() {
             if sender.send(value).is_ok() {
-                return SendCont::Sent;
+                return ControlFlow::Continue(());
             }
         }
-        SendCont::Closed
+        ControlFlow::Break(Sent::Closed)
     }
 }
 

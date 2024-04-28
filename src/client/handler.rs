@@ -1,5 +1,7 @@
 pub mod channel;
 
+use std::ops::ControlFlow;
+
 use super::{
     queue::{Queue, QueueEditGuard},
     ClientState,
@@ -15,14 +17,14 @@ pub trait Handler: 'static + Send {
     type Value: 'static;
     /// Processes one message.
     ///
-    /// Returns `true` if this handler is finished processing messages.
+    /// Returns [`ControlFlow::Break`] if this handler is finished processing messages.
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
         state: &mut ClientState,
         queue: QueueEditGuard<'_>,
         channel: SenderRef<'_, Self::Value>,
-    ) -> bool;
+    ) -> ControlFlow<()>;
 
     /// Returns `true` if this handler wants an owning message.
     ///
@@ -64,16 +66,13 @@ pub trait MakeHandler<T> {
     /// The type of the receiver half of the preferred channel type.
     type Receiver<Spec: ChannelSpec>;
 
-    /// The type of handler produced by `self`.
-    type Handler: Handler<Value = Self::Value>;
-
     /// Converts `T` into a [`Handler`] and queues messages.
     fn make_handler(
         self,
         state: &ClientState,
         queue: QueueEditGuard<'_>,
         value: T,
-    ) -> Result<Self::Handler, Self::Error>;
+    ) -> Result<Box<dyn Handler<Value = Self::Value>>, Self::Error>;
 
     /// Creates an instance of the preferred channel type for a given channel spec.
     ///
@@ -106,16 +105,14 @@ impl<T: SelfMadeHandler> MakeHandler<T> for () {
 
     type Receiver<Spec: ChannelSpec> = T::Receiver<Spec>;
 
-    type Handler = T;
-
     fn make_handler(
         self,
         state: &ClientState,
         queue: QueueEditGuard<'_>,
         handler: T,
-    ) -> Result<T, Self::Error> {
+    ) -> Result<Box<dyn Handler<Value = T::Value>>, Self::Error> {
         handler.queue_msgs(state, queue);
-        Ok(handler)
+        Ok(Box::new(handler))
     }
 
     fn make_channel<Spec: ChannelSpec>(
@@ -135,13 +132,13 @@ enum HandlerStatus {
 }
 
 fn box_handler<T: 'static>(
-    mut handler: impl Handler<Value = T>,
+    mut handler: Box<dyn Handler<Value = T>>,
     mut sender: Box<dyn Sender<Value = T> + Send>,
 ) -> BoxHandler {
     Box::new(move |msg, state, queue| {
         let mut yielded = false;
         let sr = SenderRef { sender: &mut *sender, flag: &mut yielded };
-        if handler.handle(msg, state, queue, sr) {
+        if handler.handle(msg, state, queue, sr).is_break() {
             HandlerStatus::Done { yielded }
         } else {
             HandlerStatus::Keep { yielded, wants_owning: handler.wants_owning() }
@@ -159,8 +156,10 @@ pub(crate) struct Handlers {
 impl Default for Handlers {
     fn default() -> Self {
         Handlers {
-            handlers: Vec::with_capacity(1),
+            // 2 handlers minimum in most cases: AutoPong, and whatever else.
+            handlers: Vec::with_capacity(2),
             yielded: Vec::new(),
+            // Registration handler finishes, and will be used in most cases.
             finished: Vec::with_capacity(1),
             wants_owning: false,
         }
@@ -170,7 +169,7 @@ impl Default for Handlers {
 impl Handlers {
     pub fn add<T: 'static>(
         &mut self,
-        handler: impl Handler<Value = T>,
+        handler: Box<dyn Handler<Value = T>>,
         sender: Box<dyn Sender<Value = T> + Send>,
     ) -> usize {
         self.wants_owning |= handler.wants_owning();
@@ -245,5 +244,18 @@ impl Handlers {
             }
         }
         finished_at
+    }
+}
+
+/// Helper function to strip the data from a [`ControlFlow`].
+///
+/// The `Try` impl of `ControlFlow` does not perform any conversions as of Rust 1.70.
+/// This function serves as boilerplate reduction to make it easier to use the `?` operator
+/// in handlers.
+#[inline]
+pub fn cf_discard<A, B>(cf: ControlFlow<A, B>) -> ControlFlow<()> {
+    match cf {
+        ControlFlow::Continue(_) => ControlFlow::Continue(()),
+        ControlFlow::Break(_) => ControlFlow::Break(()),
     }
 }

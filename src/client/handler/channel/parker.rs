@@ -61,9 +61,9 @@ impl<S> Unparker<S> {
 impl<S: super::Sender> super::Sender for Unparker<S> {
     type Value = <S as super::Sender>::Value;
 
-    fn send(&mut self, value: Self::Value) -> super::SendCont {
+    fn send(&mut self, value: Self::Value) -> std::ops::ControlFlow<super::Sent> {
         let result = self.0.send(value);
-        if result != super::SendCont::Closed {
+        if result != std::ops::ControlFlow::Break(super::Sent::Closed) {
             self.unpark();
         }
         result

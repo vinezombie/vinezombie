@@ -533,17 +533,17 @@ impl crate::client::Handler for Handler {
         state: &mut crate::client::ClientState,
         mut queue: crate::client::queue::QueueEditGuard<'_>,
         mut channel: crate::client::channel::SenderRef<'_, Self::Value>,
-    ) -> bool {
+    ) -> std::ops::ControlFlow<()> {
         match self.handle(msg, &mut queue) {
             Ok(Some(v)) => {
                 v.save(state);
                 channel.send(Ok(()));
-                true
+                std::ops::ControlFlow::Break(())
             }
-            Ok(None) => false,
+            Ok(None) => std::ops::ControlFlow::Continue(()),
             Err(e) => {
                 channel.send(Err(e));
-                true
+                std::ops::ControlFlow::Break(())
             }
         }
     }

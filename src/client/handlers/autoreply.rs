@@ -40,15 +40,15 @@ impl Handler for CtcpVersion {
         _: &mut ClientState,
         mut queue: QueueEditGuard<'_>,
         _: crate::client::channel::SenderRef<'_, Self::Value>,
-    ) -> bool {
+    ) -> std::ops::ControlFlow<()> {
         // TODO: Should probably consider length limits.
         let Ok(msg) = msg.parse_as(PRIVMSG) else {
-            return false;
+            return std::ops::ControlFlow::Continue(());
         };
         let msg = msg.map(MaybeCtcp::from);
         let Some(source) = msg.source else {
             // Wat?
-            return false;
+            return std::ops::ControlFlow::Continue(());
         };
         match msg.value.cmd.as_bytes() {
             b"VERSION" if !self.version.is_empty() => {
@@ -67,7 +67,7 @@ impl Handler for CtcpVersion {
             }
             _ => (),
         }
-        false
+        std::ops::ControlFlow::Continue(())
     }
 }
 

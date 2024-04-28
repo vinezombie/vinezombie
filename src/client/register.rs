@@ -121,15 +121,13 @@ impl<'a, O> MakeHandler<&'a O> for &'a Register<O> {
 
     type Receiver<Spec: super::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
 
-    type Handler = Handler;
-
     fn make_handler(
         self,
         _: &crate::client::ClientState,
         mut queue: super::queue::QueueEditGuard<'_>,
         opts: &'a O,
-    ) -> Result<Handler, Self::Error> {
-        Ok(self.handler(opts, &mut queue))
+    ) -> Result<Box<dyn crate::client::Handler<Value = Self::Value>>, Self::Error> {
+        Ok(Box::new(self.handler(opts, &mut queue)))
     }
 
     fn make_channel<Spec: super::channel::ChannelSpec>(

@@ -54,18 +54,16 @@ impl crate::client::MakeHandler<SaslQueue> for crate::names::cmd::AUTHENTICATE {
 
     type Receiver<Spec: crate::client::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
 
-    type Handler = Handler;
-
     fn make_handler(
         self,
         _: &crate::client::ClientState,
         mut queue: crate::client::queue::QueueEditGuard<'_>,
         mut sasl_queue: SaslQueue,
-    ) -> Result<Handler, Self::Error> {
+    ) -> Result<Box<dyn crate::client::Handler<Value = Self::Value>>, Self::Error> {
         let sasl = sasl_queue.pop().ok_or(NoHandler)?;
         let retval = Handler::new(sasl, sasl_queue);
         queue.push(retval.auth_msg());
-        Ok(retval)
+        Ok(Box::new(retval))
     }
 
     fn make_channel<Spec: crate::client::channel::ChannelSpec>(
@@ -83,19 +81,17 @@ impl<'a, T: Sasl> crate::client::MakeHandler<&'a T> for crate::names::cmd::AUTHE
 
     type Receiver<Spec: crate::client::channel::ChannelSpec> = Spec::Oneshot<Self::Value>;
 
-    type Handler = Handler;
-
     fn make_handler(
         self,
         _: &crate::client::ClientState,
         mut queue: crate::client::queue::QueueEditGuard<'_>,
         sasl: &'a T,
-    ) -> Result<Handler, Self::Error> {
+    ) -> Result<Box<dyn crate::client::Handler<Value = Self::Value>>, Self::Error> {
         let mut sasl_queue: SaslQueue = sasl.logic().into();
         let sasl = sasl_queue.pop().ok_or(NoHandler)?;
         let retval = Handler::new(sasl, sasl_queue);
         queue.push(retval.auth_msg());
-        Ok(retval)
+        Ok(Box::new(retval))
     }
 
     fn make_channel<Spec: crate::client::channel::ChannelSpec>(
@@ -258,12 +254,12 @@ impl crate::client::Handler for Handler {
         _: &mut crate::client::ClientState,
         mut queue: crate::client::queue::QueueEditGuard<'_>,
         mut channel: crate::client::channel::SenderRef<'_, Self::Value>,
-    ) -> bool {
+    ) -> std::ops::ControlFlow<()> {
         match self.handle(msg, &mut queue) {
-            Ok(false) => false,
+            Ok(false) => std::ops::ControlFlow::Continue(()),
             v => {
                 channel.send(v.and(Ok(())));
-                true
+                std::ops::ControlFlow::Break(())
             }
         }
     }

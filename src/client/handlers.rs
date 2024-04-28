@@ -3,6 +3,8 @@
 mod autoreply;
 mod ping;
 
+use std::ops::ControlFlow;
+
 pub use autoreply::*;
 pub use ping::*;
 
@@ -27,9 +29,8 @@ impl Handler for YieldAll {
         _: &mut ClientState,
         _: QueueEditGuard<'_>,
         mut channel: super::channel::SenderRef<'_, Self::Value>,
-    ) -> bool {
-        channel.send(msg.clone().owning());
-        !channel.may_send()
+    ) -> ControlFlow<()> {
+        crate::client::cf_discard(channel.send(msg.clone().owning()))
     }
 
     fn wants_owning(&self) -> bool {
@@ -112,15 +113,14 @@ impl<T: 'static + Send> Handler for YieldParsed<T> {
         _: &mut ClientState,
         _: QueueEditGuard<'_>,
         mut channel: super::channel::SenderRef<'_, Self::Value>,
-    ) -> bool {
+    ) -> ControlFlow<()> {
         let msg = msg.clone().owning();
-        let Some((_, parser)) = self.0.get_mut(&msg.kind) else {
-            return false;
+        if let Some((_, parser)) = self.0.get_mut(&msg.kind) {
+            if let Some(parsed) = parser(msg) {
+                crate::client::cf_discard(channel.send(parsed))?;
+            }
         };
-        let Some(parsed) = parser(msg) else {
-            return false;
-        };
-        !channel.send(parsed)
+        ControlFlow::Continue(())
     }
 
     fn wants_owning(&self) -> bool {

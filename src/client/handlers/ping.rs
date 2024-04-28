@@ -30,14 +30,14 @@ impl Handler for Ping {
         _: &mut ClientState,
         _: QueueEditGuard<'_>,
         mut channel: SenderRef<'_, Self::Value>,
-    ) -> bool {
+    ) -> std::ops::ControlFlow<()> {
         if msg.kind == PONG {
             if let Some(last) = msg.args.split_last().1 {
                 let hash = crate::util::mangle(&self.0);
                 let mut value: u32 = 0;
                 for byte in last.as_bytes().iter().cloned() {
                     if !(b'0'..=b'7').contains(&byte) {
-                        return false;
+                        return std::ops::ControlFlow::Continue(());
                     }
                     value <<= 3;
                     value |= (byte - b'0') as u32;
@@ -46,11 +46,11 @@ impl Handler for Ping {
                     let duration = Instant::now().saturating_duration_since(self.0);
                     let source = msg.source.clone().map(crate::ircmsg::SharedSource::owning_merged);
                     channel.send((source, duration));
-                    return true;
+                    return std::ops::ControlFlow::Break(());
                 }
             }
         }
-        false
+        std::ops::ControlFlow::Continue(())
     }
 }
 
@@ -104,9 +104,9 @@ impl Handler for AutoPong {
         _: &mut ClientState,
         mut queue: QueueEditGuard<'_>,
         _: SenderRef<'_, Self::Value>,
-    ) -> bool {
+    ) -> std::ops::ControlFlow<()> {
         pong(msg, &mut queue);
-        false
+        std::ops::ControlFlow::Continue(())
     }
 }
 

@@ -178,14 +178,14 @@ impl<T> Sender<T> {
 impl<T> super::Sender for Option<Sender<T>> {
     type Value = T;
 
-    fn send(&mut self, value: Self::Value) -> super::SendCont {
+    fn send(&mut self, value: Self::Value) -> std::ops::ControlFlow<super::Sent> {
         let Some(sender) = self.take() else {
-            return super::SendCont::Closed;
+            return std::ops::ControlFlow::Break(super::Sent::Closed);
         };
         if sender.send(value).is_ok() {
-            super::SendCont::SentClosed
+            std::ops::ControlFlow::Break(super::Sent::Ok)
         } else {
-            super::SendCont::Closed
+            std::ops::ControlFlow::Break(super::Sent::Closed)
         }
     }
 
