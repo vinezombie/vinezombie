@@ -27,10 +27,12 @@ async fn main() -> std::io::Result<()> {
     // but instead we run it using a run_tokio function.
     let (_id, reg_result) = client.add(&register_as_bot(), &options).unwrap();
     client.run_tokio().await?;
-    let reg = reg_result.await.unwrap()?;
-    let network_name = reg.isupport.get_parsed(vinezombie::names::isupport::NETWORK).transpose()?;
-    tracing::info!("{} connected to {}!", reg.nick, network_name.unwrap_or(Word::from_str("IRC")));
-    // As with the earlier example, let's just quit here.
+    reg_result.await.unwrap()?;
+    // Almost everything past this point is the same as the sync example.
+    let nick = &client.state().get::<vinezombie::client::state::ClientSource>().unwrap().nick;
+    let isupport = client.state().get::<vinezombie::client::state::ISupport>().unwrap();
+    let network_name = isupport.get_parsed(vinezombie::names::isupport::NETWORK).transpose()?;
+    tracing::info!("{} connected to {}!", nick, network_name.unwrap_or(Word::from_str("IRC")));
     let msg = ClientMsg::new(vinezombie::names::cmd::QUIT);
     client.queue_mut().edit().push(msg);
     client.run_tokio().await?;

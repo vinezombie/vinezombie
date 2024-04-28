@@ -47,14 +47,17 @@ fn main() -> std::io::Result<()> {
     // so we can ignore it.
     client.run()?;
     // If we're here, the handler finished and gave us a value back.
-    // Let's fetch it and see what it is!
-    let reg = reg_result.0.recv_now().unwrap()?;
+    // The registration handler only tells us what the error was, if it failed.
+    // So, let's check to see if we made it.
+    reg_result.0.recv_now().unwrap()?;
     // Connection registration is done!
-    // But how does the network we connected to choose to name itself?
-    // ISUPPORT is vital for understanding the capabilities of the target network,
-    // and vinezombie eagerly parses it during registration. Let's print the network name.
-    let network_name = reg.isupport.get_parsed(vinezombie::names::isupport::NETWORK).transpose()?;
-    tracing::info!("{} connected to {}!", reg.nick, network_name.unwrap_or(Word::from_str("IRC")));
+    // Now, what is our nick? `Client` can store information about the current session
+    // for use by other handlers. We can access that information through the `state` method.
+    // While we're at it, let's get the network name from ISUPPORT.
+    let nick = &client.state().get::<vinezombie::client::state::ClientSource>().unwrap().nick;
+    let isupport = client.state().get::<vinezombie::client::state::ISupport>().unwrap();
+    let network_name = isupport.get_parsed(vinezombie::names::isupport::NETWORK).transpose()?;
+    tracing::info!("{} connected to {}!", nick, network_name.unwrap_or(Word::from_str("IRC")));
     // From here, we can keep reading messages (including 004 and 005)
     // but we don't care about any of that, so let's just quit.
     // We create the message, push it onto the internal message queue,

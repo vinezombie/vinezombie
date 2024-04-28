@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::CapFn;
 use crate::{
     client::{
         auth::{self, SaslQueue},
@@ -14,9 +15,7 @@ use crate::{
     string::{Arg, Key, Line, Nick, Splitter, Word},
 };
 
-use super::CapFn;
-
-/// The result of successful registration.
+/// A useful subset of information yielded by client registration.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Registration {
     /// The nickname used for this connection.
@@ -53,6 +52,21 @@ impl Registration {
             caps: NameMap::new(),
             version: None,
             isupport: NameMap::new(),
+        }
+    }
+    /// Saves registration to a [`ClientState`][crate::client::ClientState].
+    pub fn save(self, state: &mut crate::client::ClientState) {
+        use crate::client::state::*;
+        let source = Source { nick: self.nick, userhost: self.userhost };
+        state.insert::<ClientSource>(source);
+        state.insert::<Account>(self.account);
+        state.insert::<Caps>(self.caps);
+        state.insert::<ISupport>(self.isupport);
+        if let Some(server_source) = self.source {
+            state.insert::<ServerSource>(server_source);
+        }
+        if let Some(version) = self.version {
+            state.insert::<ServerVersion>(version);
         }
     }
 }
@@ -224,11 +238,7 @@ impl Handler {
             reg: Registration::new(nick),
         }
     }
-    /// Handles a server message sent during connection registration.
-    ///
-    /// It is a logic error to call `handle` after
-    /// it errors or returns `Ok(Done)`.
-    pub fn handle(
+    fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
         mut sink: impl ClientMsgSink<'static>,
@@ -515,18 +525,19 @@ impl Handler {
 }
 
 impl crate::client::Handler for Handler {
-    type Value = Result<Registration, HandlerError>;
+    type Value = Result<(), HandlerError>;
 
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
-        _: &mut crate::client::ClientState,
+        state: &mut crate::client::ClientState,
         mut queue: crate::client::queue::QueueEditGuard<'_>,
         mut channel: crate::client::channel::SenderRef<'_, Self::Value>,
     ) -> bool {
         match self.handle(msg, &mut queue) {
             Ok(Some(v)) => {
-                channel.send(Ok(v));
+                v.save(state);
+                channel.send(Ok(()));
                 true
             }
             Ok(None) => false,

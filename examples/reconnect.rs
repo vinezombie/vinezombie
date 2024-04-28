@@ -7,6 +7,7 @@ use vinezombie::{
         conn::{ServerAddr, Stream},
         handlers::{AutoPong, YieldParsed},
         register::{register_as_bot, Options},
+        state::ClientSource,
         tls::TlsConfig,
         Client,
     },
@@ -49,7 +50,7 @@ fn main() -> std::io::Result<()> {
     loop {
         let (_, reg_result) = client.add(&register_as_bot(), &options).unwrap();
         client.run()?;
-        let nick = reg_result.0.recv_now().unwrap()?.nick;
+        reg_result.0.recv_now().unwrap()?;
         let _ = client.add((), AutoPong);
         // As we can interact with this bot, let's add a handler to auto-reply to
         // CTCP VERSION and CTCP SOURCE.
@@ -61,7 +62,7 @@ fn main() -> std::io::Result<()> {
         // This time we're actually going to use that information,
         // starting by saving the id of the message handler.
         let (id, msgs) = client.add((), YieldParsed::just(PRIVMSG)).unwrap();
-        tracing::info!("bot {nick} ready for 'q'~");
+        tracing::info!("bot {} ready for 'q'~", client.state().get::<ClientSource>().unwrap().nick);
         loop {
             let Ok(result) = client.run() else {
                 tracing::info!("connection broke, making new connection");

@@ -1,14 +1,19 @@
 use std::{io::Cursor, time::Duration};
 
+use super::{register_as_bot, HandlerError, Options};
 use crate::{
-    client::{auth::Clear, channel::SyncChannels, conn::Bidir, Client},
+    client::{
+        auth::Clear,
+        channel::SyncChannels,
+        conn::Bidir,
+        state::{Caps, ISupport},
+        Client, ClientState,
+    },
     string::{Key, Nick},
 };
 
-use super::{register_as_bot, HandlerError, Options, Registration};
-
 /// Test registration while ignoring the messages the handler sends.
-fn static_register(msg: &[u8]) -> Result<Registration, HandlerError> {
+fn static_register(msg: &[u8]) -> Result<ClientState, HandlerError> {
     let mut options: Options<Clear> = Options::new();
     options.nicks = vec![Nick::from_str("Me")];
     let reg = register_as_bot(); // Somewhat more deterministic.
@@ -17,7 +22,8 @@ fn static_register(msg: &[u8]) -> Result<Registration, HandlerError> {
     client.queue_mut().set_rate_limit(Duration::ZERO, 1);
     let (_, reg) = client.add(&reg, &options).unwrap();
     client.run().unwrap();
-    reg.0.recv_now().unwrap()
+    reg.0.recv_now().expect("Handler should send on channel after success")?;
+    Ok(std::mem::take(client.state_mut()))
 }
 
 #[test]
@@ -45,7 +51,7 @@ fn ircv3_reg_simple() {
     // TODO: Test more thoroughly.
     // We should be able to handle any values for messages 001 through 003,
     // so we're just going to put silliness here.
-    let reg = static_register(
+    let state = static_register(
         concat!(
             ":example.com CAP * LS :quickbrownfox/lazydogjumping labeled-response\r\n",
             ":example.com CAP * ACK :labeled-response\r\n",
@@ -61,12 +67,14 @@ fn ircv3_reg_simple() {
         .as_bytes(),
     )
     .expect("ircv3 reg failed");
-    assert_eq!(reg.caps.get_extra(LABELED_RESPONSE).copied(), Some(true));
+    let caps = state.get::<Caps>().expect("Handler should set Caps on success");
+    let isupport = state.get::<ISupport>().expect("Handler should set ISupport on success");
+    assert_eq!(caps.get_extra(LABELED_RESPONSE).copied(), Some(true));
     assert_eq!(
-        reg.caps.get_extra_raw(&Key::from_str("quickbrownfox/lazydogjumping")).copied(),
+        caps.get_extra_raw(&Key::from_str("quickbrownfox/lazydogjumping")).copied(),
         Some(false)
     );
-    let netname = reg.isupport.get_parsed(NETWORK).expect("NETWORK should have a value").unwrap();
+    let netname = isupport.get_parsed(NETWORK).expect("NETWORK should have a value").unwrap();
     assert_eq!(netname, b"example.com");
 }
 

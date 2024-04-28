@@ -21,6 +21,11 @@ use crate::{
 ///
 /// Consider using the [`register_as_bot()`], [`register_as_client()`],
 /// or [`register_as_custom()`] functions to instantiate one of these.
+///
+/// The handler returned by using this type signals completion over its channel.
+/// Most of the useful data about client registration is added to the client as shared state.
+/// In particular, connection statistics and the MOTD are NOT stored,
+/// and should be read using a different handler.
 #[derive(Clone)]
 pub struct Register<O> {
     /// Returns the server password, if any.
@@ -110,7 +115,7 @@ impl<O> Register<O> {
 }
 
 impl<'a, O> MakeHandler<&'a O> for &'a Register<O> {
-    type Value = Result<Registration, HandlerError>;
+    type Value = Result<(), HandlerError>;
 
     type Error = std::convert::Infallible;
 

@@ -6,6 +6,7 @@ use vinezombie::{
         conn::ServerAddr,
         handlers::{AutoPong, YieldParsed},
         register::{register_as_bot, Options},
+        state::ClientSource,
         Client,
     },
     ircmsg::ClientMsg,
@@ -30,8 +31,9 @@ async fn main() -> std::io::Result<()> {
     let mut client = Client::new(sock, TokioChannels);
     let (_id, reg_result) = client.add(&register_as_bot(), &options).unwrap();
     client.run_tokio().await?;
+    reg_result.await.unwrap()?;
     // The only piece of reg info we care about for this example is our nick.
-    let nick = reg_result.await.unwrap()?.nick;
+    let nick = client.state().get::<ClientSource>().unwrap().nick.clone();
     tracing::info!("nick: {}", nick);
     // Let's add a handler to auto-reply to PING messages for us. Most IRC networks need this.
     // Do this before anything else.

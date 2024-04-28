@@ -5,6 +5,7 @@ use vinezombie::{
         auth::{sasl::Password, Clear, Secret},
         channel::TokioChannels,
         register::{register_as_bot, Options},
+        state::Account,
         Client,
     },
     string::{tf::TrimAscii, Line, NoNul},
@@ -46,9 +47,9 @@ async fn main() -> std::io::Result<()> {
     let mut client = Client::new(sock, TokioChannels);
     let (_id, reg_result) = client.add(&register_as_bot(), &options).unwrap();
     client.run_tokio().await?;
-    let reg = reg_result.await.unwrap()?;
+    reg_result.await.unwrap()?;
     // Who'd we log in as?
-    if let Some(account) = reg.account {
+    if let Some(account) = client.state().get::<Account>().unwrap() {
         tracing::info!("Logged in as {account}");
     } else {
         // We should never get here unless `options.allow_sasl_fail` is set to `true`.
