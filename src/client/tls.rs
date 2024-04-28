@@ -106,9 +106,7 @@ fn load_pem(path: &Path, certs: &mut RootCertStore) -> std::io::Result<()> {
     let mut file = std::io::BufReader::new(std::fs::File::open(path)?);
     for cert in rustls_pemfile::certs(&mut file) {
         let cert = cert?;
-        certs
-            .add(CertificateDer::from(cert))
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        certs.add(cert).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     }
     Ok(())
 }
@@ -121,9 +119,7 @@ fn load_client_cert(
     let mut file = std::io::BufReader::new(std::fs::File::open(path)?);
     while let Some(item) = rustls_pemfile::read_one(&mut file)? {
         match item {
-            rustls_pemfile::Item::X509Certificate(c) => {
-                certs.push(CertificateDer::from(c));
-            }
+            rustls_pemfile::Item::X509Certificate(c) => certs.push(c),
             rustls_pemfile::Item::Pkcs8Key(k) => {
                 key = Some(PrivateKeyDer::from(k));
             }

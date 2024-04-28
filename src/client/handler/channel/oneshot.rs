@@ -51,9 +51,7 @@ unsafe impl<T> Sync for Sender<T> {}
 
 impl<T> Clone for Sender<T> {
     fn clone(&self) -> Self {
-        unsafe {
-            self.0.as_ref().sender_count.fetch_add(1, Ordering::Relaxed);
-        }
+        unsafe { self.0.as_ref().sender_count.fetch_add(1, Ordering::Relaxed) };
         Self(self.0)
     }
 }

@@ -117,7 +117,6 @@ impl<'a> Args<'a> {
         let mut words = words.into();
         let mut long = None;
         if let Some(last) = last {
-            // Optimiz
             add_impl(words.to_mut(), &mut long, last);
         }
         Args { words, long }
@@ -262,13 +261,17 @@ impl<'a, 'de> serde::Deserialize<'de> for Args<'a> {
         use serde::de::Error;
         let mut args = Vec::<Bytes<'a>>::deserialize(de)?;
         let Some(last) = args.pop() else { return Ok(Args::empty()) };
-        for (idx, arg) in args.iter().enumerate() {
-            if let Some(e) = Arg::find_invalid(arg) {
+        // Safety: Arg is a transparent newtype over Bytes.
+        // However, even though it would be absurd for Vec to change layout
+        // between two types with identical layout, Rust doesn't promise it won't happen.
+        // Ergo, we're forced to copy the whole Vec out of caution.
+        let mut words = Vec::with_capacity(args.len());
+        for (idx, arg) in args.into_iter().enumerate() {
+            if let Some(e) = Arg::find_invalid(&arg) {
                 return Err(D::Error::custom(format!("invalid arg @ index {idx}: {e}")));
             }
+            words.push(unsafe { Arg::from_unchecked(arg) });
         }
-        // Safety: Arg is a transparent newtype over Bytes.
-        let mut words = unsafe { std::mem::transmute(args) };
         let mut long = None;
         match last.try_into() {
             Ok(last) => add_impl(&mut words, &mut long, last),
