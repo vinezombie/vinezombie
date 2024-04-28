@@ -9,6 +9,7 @@ pub mod nick;
 pub mod queue;
 pub mod register;
 mod sink;
+pub mod state;
 #[cfg(feature = "tls")]
 pub mod tls;
 
@@ -33,6 +34,8 @@ pub struct Client<C, S> {
     handlers: Handlers,
     /// Limit on how long reading one message can take.
     timeout: Box<conn::TimeLimits>,
+    /// Shared state.
+    state: ClientState,
 }
 
 impl<C, S: ChannelSpec> Client<C, S> {
@@ -50,6 +53,7 @@ impl<C, S: ChannelSpec> Client<C, S> {
             buf_o: Vec::new(),
             handlers: Handlers::default(),
             timeout: Box::default(),
+            state: ClientState::new(),
         }
     }
     /// Adds a handler. Creates a new channel using the internal [`ChannelSpec`].
@@ -76,15 +80,15 @@ impl<C, S> Client<C, S> {
     /// requiring an update of the connection's IO timeouts.
     /// Additionally use [`reset`][Client::reset] if you want to reset the state.
     pub fn with_conn<C2>(self, conn: C2) -> Client<C2, S> {
-        let Self { spec, queue, buf_i, buf_o, handlers, mut timeout, .. } = self;
+        let Self { spec, queue, buf_i, buf_o, handlers, mut timeout, state, .. } = self;
         timeout.require_update();
-        Client { conn, spec, queue, buf_i, buf_o, timeout, handlers }
+        Client { conn, spec, queue, buf_i, buf_o, timeout, handlers, state }
     }
     /// Uses the provided [`ChannelSpec`] for `self`.
     /// This changes the type of channels returned by [`add`][Client::add].
     pub fn with_spec<S2: ChannelSpec>(self, spec: S2) -> Client<C, S2> {
-        let Self { conn, queue, buf_i, buf_o, handlers, timeout, .. } = self;
-        Client { conn, spec, queue, buf_i, buf_o, timeout, handlers }
+        let Self { conn, queue, buf_i, buf_o, handlers, timeout, state, .. } = self;
+        Client { conn, spec, queue, buf_i, buf_o, timeout, handlers, state }
     }
     /// Returns a shared reference to the internal [`Queue`].
     pub fn queue(&self) -> &Queue {
@@ -92,9 +96,17 @@ impl<C, S> Client<C, S> {
     }
     /// Returns a mutable reference to the internal [`Queue`].
     ///
-    /// This reference should not be used to alter the queue's contents, only its settings.
+    /// Removing items from the queue may confuse handlers.
     pub fn queue_mut(&mut self) -> &mut Queue {
         &mut self.queue
+    }
+    /// Returns a shared reference to the internal [shared state][ClientState].
+    pub fn state(&self) -> &ClientState {
+        &self.state
+    }
+    /// Returns a mutable reference to the internal [shared state][ClientState].
+    pub fn state_mut(&mut self) -> &mut ClientState {
+        &mut self.state
     }
     /// Changes the upper limit on how long an I/O operation may take to receive one message.
     /// A timeout of `None` means no limit.
@@ -135,19 +147,20 @@ impl<C, S> Client<C, S> {
         make_handler: M,
         value: T,
     ) -> Result<usize, M::Error> {
-        let handler = make_handler.make_handler(self.queue.edit(), value)?;
+        let handler = make_handler.make_handler(&self.state, self.queue.edit(), value)?;
         Ok(self.handlers.add(handler, sender))
     }
 
     /// Resets client state to when the connection was just opened.
     ///
-    /// Cancels all handlers and resets the [queue][Queue]
-    /// including removing the [queue's labeler][Queue::use_labeler].
+    /// Cancels all handlers, removes all [shared state][ClientState],
+    /// and resets the [queue][Queue] including removing the [queue's labeler][Queue::use_labeler].
     /// Does not reset any state that is considered configuration,
     /// such as what the queue's rate limits are.
     pub fn reset(&mut self) {
         self.handlers.cancel();
         self.queue.reset();
+        self.state.clear();
     }
 
     /// Uses the provided connection instead of the current one
@@ -165,3 +178,46 @@ impl<C, S> Client<C, S> {
 
 // Implementations of other Client methods can be found in `conn`,
 // specifically the submodules depending on I/O flavor.
+
+/// A collection of heterogenous client state shared between handlers.
+///
+/// There are many pieces of client state that need to be shared between handlers,
+/// such as the client's source string for accurate message length calculations.
+/// This type facilitates that in an extensible manner, allowing handlers to
+/// add new elements of state at runtime.
+///
+/// This type intentionally offers no way for state to be removed.
+pub struct ClientState {
+    state: crate::util::FlatMap<(std::any::TypeId, Box<dyn std::any::Any + Send + Sync>)>,
+}
+
+impl ClientState {
+    /// Returns a new, empty `ClientState`.
+    pub const fn new() -> ClientState {
+        ClientState { state: crate::util::FlatMap::new() }
+    }
+    /// Gets a shared reference to the state denoted by `K`, if any.
+    pub fn get<K: state::ClientStateKey>(&self) -> Option<&K::Value> {
+        self.state.get(&K::default().type_id()).and_then(|v| v.1.downcast_ref())
+    }
+    /// Gets a mutable reference to the state denoted by `K`, if any.
+    pub fn get_mut<K: state::ClientStateKey>(&mut self) -> Option<&mut K::Value> {
+        self.state.get_mut(&K::default().type_id()).and_then(|v| v.1.downcast_mut())
+    }
+    /// Sets the state denoted by `K` to `value`.
+    ///
+    /// This should be called infrequently. Prefer [`ClientState::get_mut`] for most updates.
+    pub fn insert<K: state::ClientStateKey>(&mut self, value: K::Value) {
+        self.state.edit().insert((K::default().type_id(), Box::new(value)));
+    }
+    /// Clears all state.
+    pub(super) fn clear(&mut self) {
+        self.state.clear();
+    }
+}
+
+impl Default for ClientState {
+    fn default() -> Self {
+        Self::new()
+    }
+}

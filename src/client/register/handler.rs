@@ -520,6 +520,7 @@ impl crate::client::Handler for Handler {
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
+        _: &mut crate::client::ClientState,
         mut queue: crate::client::queue::QueueEditGuard<'_>,
         mut channel: crate::client::channel::SenderRef<'_, Self::Value>,
     ) -> bool {

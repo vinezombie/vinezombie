@@ -2,7 +2,7 @@ use crate::{
     client::{
         channel::{ChannelSpec, ClosedSender, Sender},
         queue::QueueEditGuard,
-        Handler, SelfMadeHandler,
+        ClientState, Handler, SelfMadeHandler,
     },
     ircmsg::{ClientMsg, MaybeCtcp, ServerMsg},
     names::cmd::{NOTICE, PRIVMSG},
@@ -37,9 +37,11 @@ impl Handler for CtcpVersion {
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
+        _: &mut ClientState,
         mut queue: QueueEditGuard<'_>,
         _: crate::client::channel::SenderRef<'_, Self::Value>,
     ) -> bool {
+        // TODO: Should probably consider length limits.
         let Ok(msg) = msg.parse_as(PRIVMSG) else {
             return false;
         };
@@ -72,7 +74,7 @@ impl Handler for CtcpVersion {
 impl SelfMadeHandler for CtcpVersion {
     type Receiver<Spec: ChannelSpec> = ();
 
-    fn queue_msgs(&self, _: QueueEditGuard<'_>) {}
+    fn queue_msgs(&self, _: &ClientState, _: QueueEditGuard<'_>) {}
 
     fn make_channel<Spec: ChannelSpec>(
         _: &Spec,

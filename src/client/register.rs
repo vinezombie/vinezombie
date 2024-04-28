@@ -120,6 +120,7 @@ impl<'a, O> MakeHandler<&'a O> for &'a Register<O> {
 
     fn make_handler(
         self,
+        _: &crate::client::ClientState,
         mut queue: super::queue::QueueEditGuard<'_>,
         opts: &'a O,
     ) -> Result<Handler, Self::Error> {

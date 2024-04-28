@@ -1,6 +1,9 @@
 pub mod channel;
 
-use super::queue::{Queue, QueueEditGuard};
+use super::{
+    queue::{Queue, QueueEditGuard},
+    ClientState,
+};
 use crate::ircmsg::ServerMsg;
 
 use channel::*;
@@ -16,6 +19,7 @@ pub trait Handler: 'static + Send {
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
+        state: &mut ClientState,
         queue: QueueEditGuard<'_>,
         channel: SenderRef<'_, Self::Value>,
     ) -> bool;
@@ -66,6 +70,7 @@ pub trait MakeHandler<T> {
     /// Converts `T` into a [`Handler`] and queues messages.
     fn make_handler(
         self,
+        state: &ClientState,
         queue: QueueEditGuard<'_>,
         value: T,
     ) -> Result<Self::Handler, Self::Error>;
@@ -84,7 +89,7 @@ pub trait SelfMadeHandler: Handler {
     type Receiver<Spec: ChannelSpec>;
 
     /// Queues initial messages.
-    fn queue_msgs(&self, queue: QueueEditGuard<'_>);
+    fn queue_msgs(&self, state: &ClientState, queue: QueueEditGuard<'_>);
 
     /// Creates an instance of the preferred channel type for a given channel spec.
     ///
@@ -103,8 +108,13 @@ impl<T: SelfMadeHandler> MakeHandler<T> for () {
 
     type Handler = T;
 
-    fn make_handler(self, queue: QueueEditGuard<'_>, handler: T) -> Result<T, Self::Error> {
-        handler.queue_msgs(queue);
+    fn make_handler(
+        self,
+        state: &ClientState,
+        queue: QueueEditGuard<'_>,
+        handler: T,
+    ) -> Result<T, Self::Error> {
+        handler.queue_msgs(state, queue);
         Ok(handler)
     }
 
@@ -115,7 +125,8 @@ impl<T: SelfMadeHandler> MakeHandler<T> for () {
     }
 }
 
-type BoxHandler = Box<dyn FnMut(&ServerMsg<'_>, QueueEditGuard<'_>) -> HandlerStatus + Send>;
+type BoxHandler =
+    Box<dyn FnMut(&ServerMsg<'_>, &mut ClientState, QueueEditGuard<'_>) -> HandlerStatus + Send>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum HandlerStatus {
@@ -127,10 +138,10 @@ fn box_handler<T: 'static>(
     mut handler: impl Handler<Value = T>,
     mut sender: Box<dyn Sender<Value = T> + Send>,
 ) -> BoxHandler {
-    Box::new(move |msg, queue| {
+    Box::new(move |msg, state, queue| {
         let mut yielded = false;
         let sr = SenderRef { sender: &mut *sender, flag: &mut yielded };
-        if handler.handle(msg, queue, sr) {
+        if handler.handle(msg, state, queue, sr) {
             HandlerStatus::Done { yielded }
         } else {
             HandlerStatus::Keep { yielded, wants_owning: handler.wants_owning() }
@@ -205,13 +216,18 @@ impl Handlers {
         (self.yielded.as_slice(), finished)
     }
 
-    pub fn handle(&mut self, msg: &ServerMsg<'_>, queue: &mut Queue) -> usize {
+    pub fn handle(
+        &mut self,
+        msg: &ServerMsg<'_>,
+        state: &mut ClientState,
+        queue: &mut Queue,
+    ) -> usize {
         self.wants_owning = false;
         self.yielded.clear();
         let finished_at = self.finished.len();
         let mut i = 0usize;
         while let Some((handler, id)) = self.handlers.get_mut(i) {
-            match (handler)(msg, queue.edit()) {
+            match (handler)(msg, state, queue.edit()) {
                 HandlerStatus::Keep { yielded, wants_owning } => {
                     if yielded {
                         self.yielded.push(*id);

@@ -316,7 +316,7 @@ impl<C: Connection, S> crate::client::Client<C, S> {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(target: "vinezombie::recv", "{}", msg);
                 self.queue.adjust(&msg);
-                self.handlers.handle(&msg, &mut self.queue)
+                self.handlers.handle(&msg, &mut self.state, &mut self.queue)
             } else {
                 let msg = ServerMsg::read_borrowing_from(&mut conn, &mut self.buf_i);
                 let Some(msg) = filter_time_error(msg)? else {
@@ -328,7 +328,7 @@ impl<C: Connection, S> crate::client::Client<C, S> {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(target: "vinezombie::recv", "{}", msg);
                 self.queue.adjust(&msg);
-                let fa = self.handlers.handle(&msg, &mut self.queue);
+                let fa = self.handlers.handle(&msg, &mut self.state, &mut self.queue);
                 self.buf_i.clear();
                 fa
             };

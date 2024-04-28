@@ -1,4 +1,5 @@
 use super::{Handler, SelfMadeHandler};
+use crate::client::ClientState;
 use crate::names::cmd::{PING, PONG};
 use crate::{
     client::{
@@ -26,6 +27,7 @@ impl Handler for Ping {
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
+        _: &mut ClientState,
         _: QueueEditGuard<'_>,
         mut channel: SenderRef<'_, Self::Value>,
     ) -> bool {
@@ -55,7 +57,7 @@ impl Handler for Ping {
 impl SelfMadeHandler for Ping {
     type Receiver<Spec: ChannelSpec> = Spec::Oneshot<Self::Value>;
 
-    fn queue_msgs(&self, mut queue: QueueEditGuard<'_>) {
+    fn queue_msgs(&self, _: &ClientState, mut queue: QueueEditGuard<'_>) {
         let mut msg = ClientMsg::new(PING);
         let hash = crate::util::mangle(&self.0);
         let hash: Arg<'static> = format!("{hash:o}").try_into().unwrap();
@@ -99,6 +101,7 @@ impl Handler for AutoPong {
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
+        _: &mut ClientState,
         mut queue: QueueEditGuard<'_>,
         _: SenderRef<'_, Self::Value>,
     ) -> bool {
@@ -110,7 +113,7 @@ impl Handler for AutoPong {
 impl SelfMadeHandler for AutoPong {
     type Receiver<Spec: ChannelSpec> = ();
 
-    fn queue_msgs(&self, _: QueueEditGuard<'_>) {}
+    fn queue_msgs(&self, _: &ClientState, _: QueueEditGuard<'_>) {}
 
     fn make_channel<Spec: ChannelSpec>(
         _: &Spec,

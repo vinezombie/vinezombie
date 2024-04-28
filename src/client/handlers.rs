@@ -8,6 +8,7 @@ pub use ping::*;
 
 use super::{queue::QueueEditGuard, Handler, SelfMadeHandler};
 use crate::{
+    client::ClientState,
     ircmsg::{ServerMsg, ServerMsgKindRaw},
     names::{NameValued, ServerMsgKind},
     util::FlatMap,
@@ -23,6 +24,7 @@ impl Handler for YieldAll {
     fn handle(
         &mut self,
         msg: &crate::ircmsg::ServerMsg<'_>,
+        _: &mut ClientState,
         _: QueueEditGuard<'_>,
         mut channel: super::channel::SenderRef<'_, Self::Value>,
     ) -> bool {
@@ -38,7 +40,7 @@ impl Handler for YieldAll {
 impl SelfMadeHandler for YieldAll {
     type Receiver<Spec: super::channel::ChannelSpec> = Spec::Queue<Self::Value>;
 
-    fn queue_msgs(&self, _: QueueEditGuard<'_>) {}
+    fn queue_msgs(&self, _: &ClientState, _: QueueEditGuard<'_>) {}
 
     fn make_channel<Spec: super::channel::ChannelSpec>(
         spec: &Spec,
@@ -107,6 +109,7 @@ impl<T: 'static + Send> Handler for YieldParsed<T> {
     fn handle(
         &mut self,
         msg: &ServerMsg<'_>,
+        _: &mut ClientState,
         _: QueueEditGuard<'_>,
         mut channel: super::channel::SenderRef<'_, Self::Value>,
     ) -> bool {
@@ -128,7 +131,7 @@ impl<T: 'static + Send> Handler for YieldParsed<T> {
 impl<T: 'static + Send> SelfMadeHandler for YieldParsed<T> {
     type Receiver<Spec: super::channel::ChannelSpec> = Spec::Queue<T>;
 
-    fn queue_msgs(&self, _: QueueEditGuard<'_>) {}
+    fn queue_msgs(&self, _: &ClientState, _: QueueEditGuard<'_>) {}
 
     fn make_channel<Spec: super::channel::ChannelSpec>(
         spec: &Spec,

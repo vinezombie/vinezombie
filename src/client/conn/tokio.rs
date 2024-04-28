@@ -186,7 +186,7 @@ impl<C: ConnectionTokio, S> crate::client::Client<C, S> {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(target: "vinezombie::recv", "{}", msg);
                 self.queue.adjust(&msg);
-                self.handlers.handle(&msg, &mut self.queue)
+                self.handlers.handle(&msg, &mut self.state, &mut self.queue)
             } else {
                 let fut = ServerMsg::read_borrowing_from_tokio(&mut conn, &mut self.buf_i);
                 let msg = match timed_io(fut, wait_for, self.timeout.read_timeout()).await? {
@@ -197,7 +197,7 @@ impl<C: ConnectionTokio, S> crate::client::Client<C, S> {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(target: "vinezombie::recv", "{}", msg);
                 self.queue.adjust(&msg);
-                let fa = self.handlers.handle(&msg, &mut self.queue);
+                let fa = self.handlers.handle(&msg, &mut self.state, &mut self.queue);
                 self.buf_i.clear();
                 fa
             };
