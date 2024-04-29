@@ -4,6 +4,8 @@ use std::{io::Write, num::NonZeroU8};
 
 /// A three-digit numeric reply code.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
+#[cfg_attr(feature = "serde", serde(into = "u16"))]
 pub struct Numeric([NonZeroU8; 3]);
 
 impl AsRef<str> for Numeric {
@@ -40,6 +42,23 @@ impl std::fmt::Debug for Numeric {
 impl std::fmt::Display for Numeric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+impl From<Numeric> for u16 {
+    fn from(value: Numeric) -> Self {
+        value.into_int()
+    }
+}
+
+impl TryFrom<u16> for Numeric {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match Self::from_int(value) {
+            Some(v) => Ok(v),
+            None => Err(u8::try_from(value).unwrap_err()),
+        }
     }
 }
 

@@ -8,6 +8,7 @@ use std::io::Write;
 
 /// An IRC message sent by a client.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
 pub struct ClientMsg<'a> {
     /// This message's tags, if any.
     pub tags: Tags<'a>,

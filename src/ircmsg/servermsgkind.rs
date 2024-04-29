@@ -3,6 +3,8 @@ use crate::string::{Arg, Cmd};
 
 /// Either an alphabetic command or a numeric reply.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize, serde_derive::Deserialize))]
+#[cfg_attr(feature = "serde", serde(untagged))]
 pub enum ServerMsgKindRaw<'a> {
     #[allow(missing_docs)]
     Numeric(Numeric),
