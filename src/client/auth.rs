@@ -131,7 +131,7 @@ impl From<Vec<Box<dyn SaslLogic>>> for SaslQueue {
 #[cfg_attr(feature = "serde", derive(serde_derive::Deserialize))]
 #[cfg_attr(
     feature = "serde",
-    serde(bound(deserialize = "'de: 'static, S: LoadSecret + serde::Deserialize<'de>"))
+    serde(bound(deserialize = "S: LoadSecret + serde::Deserialize<'de>"))
 )]
 #[allow(missing_docs)]
 #[non_exhaustive]

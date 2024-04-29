@@ -19,9 +19,7 @@ use std::collections::BTreeSet;
     feature = "serde",
     serde(
         default,
-        bound(
-            deserialize = "'de: 'static, S: LoadSecret + serde::Deserialize<'de>, A: serde::Deserialize<'de>"
-        )
+        bound(deserialize = "S: LoadSecret + serde::Deserialize<'de>, A: serde::Deserialize<'de>")
     )
 )]
 pub struct Options<S, A = AnySasl<S>> {

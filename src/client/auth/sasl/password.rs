@@ -45,7 +45,7 @@ impl PasswordMechanism {
 #[cfg_attr(feature = "serde", derive(serde_derive::Deserialize))]
 #[cfg_attr(
     feature = "serde",
-    serde(bound(deserialize = "'de: 'static, S: LoadSecret + serde::de::Deserialize<'de>"))
+    serde(bound(deserialize = "S: LoadSecret + serde::de::Deserialize<'de>"))
 )]
 pub struct Password<S> {
     /// The set of authentication methods to FORBID.
