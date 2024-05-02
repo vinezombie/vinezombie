@@ -1,5 +1,36 @@
 # 0.x
 
+## 0.3.1 (2024-05-02)
+
+### Summary
+
+Broadens `serde` support, adds support for I/O using `tokio_util::codec`,
+extends `YieldParsed` to support functions returning any iterable.
+
+### Deprecations
+
+These deprecations warn of planned breaking changes in `0.4`.
+
+- `YieldParsed::just_map` and `YieldParsed::with_map`
+will be changed to be actual `map` functions.
+- The functions on `ClientMsg` and `ServerMsg` that have analogues on
+`ClientCodec` and `ServerCode` will be removed.
+
+### Non-Breaking
+
+- Added `ClientCodec` and `ServerCodec` for client-side/server-side
+message encoding/decoding. With the `tokio-codec` feature,
+these types implement `Encoder`/`Decoder`.
+- Added `serde` impls on `ClientMsg`, `ServerMsg`, and `ServerMsgKindRaw`.
+- Added `flat_map` functions to `YieldParsed` to support closures
+that return any `IntoIterator` with an appropriate item type.
+- Added `Client::needs_run`.
+- Broadened several existing `Deserialize` impls that
+only accepted `'static` deserializers.
+- Broadened several `From` impls on the string pseudosubtyes.
+- Fixed the SPDX license identifier.
+This fix was included in the crates.io release of vinezomie 0.3.0.
+
 ## 0.3.0 (2024-04-28)
 
 ### Summary
