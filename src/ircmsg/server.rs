@@ -21,6 +21,7 @@ pub struct ServerMsg<'a> {
 }
 
 impl ServerMsg<'static> {
+    #[deprecated = "Moved to `ClientCodec` in 0.4."]
     /// Reads a `'static` server message from `read`.
     /// This function may block.
     ///
@@ -32,15 +33,9 @@ impl ServerMsg<'static> {
         read: &mut (impl std::io::BufRead + ?Sized),
         buf: &mut Vec<u8>,
     ) -> std::io::Result<Self> {
-        use std::io::{BufRead, Read};
-        read_msg!(
-            ServerMsg::MAX_LEN,
-            buf,
-            read: Read,
-            read.read_until(b'\n', buf),
-            ServerMsg::parse(std::mem::take(buf))
-        )
+        super::ClientCodec::read_owning_from(read, buf)
     }
+    #[deprecated = "Moved to `ClientCodec` in 0.4."]
     /// Asynchronously reads a `'static` server message from `read`.
     ///
     /// `buf` must either be empty or contain a partial message from
@@ -52,14 +47,7 @@ impl ServerMsg<'static> {
         read: &mut (impl tokio::io::AsyncBufReadExt + ?Sized + Unpin),
         buf: &mut Vec<u8>,
     ) -> std::io::Result<Self> {
-        use tokio::io::{AsyncBufReadExt, AsyncReadExt};
-        read_msg!(
-            ServerMsg::MAX_LEN,
-            buf,
-            read: AsyncReadExt,
-            read.read_until(b'\n', buf).await,
-            ServerMsg::parse(std::mem::take(buf))
-        )
+        super::ClientCodec::read_owning_from_tokio(read, buf).await
     }
 }
 
@@ -82,6 +70,7 @@ impl<'a> ServerMsg<'a> {
     {
         N::from_union(self)
     }
+    #[deprecated = "Moved to `ClientCodec` in 0.4."]
     /// Reads a server message from `read`.
     /// This function may block.
     ///
@@ -96,15 +85,9 @@ impl<'a> ServerMsg<'a> {
         read: &mut (impl std::io::BufRead + ?Sized),
         buf: &'a mut Vec<u8>,
     ) -> std::io::Result<Self> {
-        use std::io::{BufRead, Read};
-        read_msg!(
-            ServerMsg::MAX_LEN,
-            buf,
-            read: Read,
-            read.read_until(b'\n', buf),
-            ServerMsg::parse(buf.as_slice())
-        )
+        super::ClientCodec::read_borrowing_from(read, buf)
     }
+    #[deprecated = "Moved to `ClientCodec` in 0.4."]
     /// Asynchronously reads a server message from `read`.
     ///
     /// Consider using [`ServerMsg::read_owning_from_tokio`] instead
@@ -119,14 +102,7 @@ impl<'a> ServerMsg<'a> {
         read: &mut (impl tokio::io::AsyncBufReadExt + ?Sized + Unpin),
         buf: &'a mut Vec<u8>,
     ) -> std::io::Result<ServerMsg<'a>> {
-        use tokio::io::{AsyncBufReadExt, AsyncReadExt};
-        read_msg!(
-            ServerMsg::MAX_LEN,
-            buf,
-            read: AsyncReadExt,
-            read.read_until(b'\n', buf).await,
-            ServerMsg::parse(buf.as_slice())
-        )
+        super::ClientCodec::read_borrowing_from_tokio(read, buf).await
     }
     /// The length of the longest permissible server message, including tags.
     pub const MAX_LEN: usize = 8703;
@@ -170,12 +146,14 @@ impl<'a> ServerMsg<'a> {
     pub fn bytes_left(&self) -> isize {
         super::bytes_left(&self.kind.as_arg(), self.source.as_deref(), &self.args)
     }
+    #[deprecated = "Moved to `ServerCodec` in 0.4."]
     /// Writes self to the provided [`Write`] WITHOUT a trailing CRLF.
     ///
     /// This function makes many small writes. Buffering is strongly recommended.
     pub fn write_to(&self, write: &mut (impl Write + ?Sized)) -> std::io::Result<()> {
-        super::write_to(&self.tags, self.source.as_deref(), &self.kind.as_arg(), &self.args, write)
+        super::ServerCodec::write_to(self, write)
     }
+    #[deprecated = "Moved to `ServerCodec` in 0.4."]
     /// Writes self to `write` WITH a trailing CRLF,
     /// using the provided buffer to minimize the necessary number of writes to `write`.
     ///
@@ -186,12 +164,9 @@ impl<'a> ServerMsg<'a> {
         write: &mut (impl Write + ?Sized),
         buf: &mut Vec<u8>,
     ) -> std::io::Result<()> {
-        self.write_to(buf)?;
-        buf.extend_from_slice(b"\r\n");
-        write.write_all(buf)?;
-        buf.clear();
-        Ok(())
+        super::ServerCodec::send_to(self, write, buf)
     }
+    #[deprecated = "Moved to `ServerCodec` in 0.4."]
     /// Asynchronously writes self to `write` WITH a trailing CRLF,
     /// using the provided buffer to minimize the necessary number of writes to `write`.
     ///
@@ -203,11 +178,7 @@ impl<'a> ServerMsg<'a> {
         write: &mut (impl tokio::io::AsyncWriteExt + ?Sized + Unpin),
         buf: &mut Vec<u8>,
     ) -> std::io::Result<()> {
-        self.write_to(buf)?;
-        buf.extend_from_slice(b"\r\n");
-        write.write_all(buf).await?;
-        buf.clear();
-        Ok(())
+        super::ServerCodec::send_to_tokio(self, write, buf).await
     }
 
     /// Converts `self` into a version that owns its data.

@@ -301,13 +301,13 @@ macro_rules! impl_subtype {
                 Bytes::from(value).try_into()
             }
         }
-        impl TryFrom<Vec<u8>> for $sname<'static> {
+        impl<'a> TryFrom<Vec<u8>> for $sname<'a> {
             type Error = InvalidString;
             fn try_from(value: Vec<u8>) -> Result<$sname<'static>, Self::Error> {
                 Bytes::from(value).try_into()
             }
         }
-        impl TryFrom<String> for $sname<'static> {
+        impl<'a> TryFrom<String> for $sname<'a> {
             type Error = InvalidString;
             fn try_from(value: String) -> Result<$sname<'static>, Self::Error> {
                 Bytes::from(value).try_into()

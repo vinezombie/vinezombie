@@ -174,6 +174,10 @@ impl<C, S> Client<C, S> {
         self.reset();
         retval
     }
+    /// Returns `true` if the client has handlers or queued messages.
+    pub fn needs_run(&self) -> bool {
+        !self.handlers.is_empty() || !self.queue.is_empty()
+    }
 }
 
 // Implementations of other Client methods can be found in `conn`,

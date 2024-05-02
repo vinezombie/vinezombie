@@ -1,5 +1,5 @@
 use super::{filter_time_error, ReadTimeout, TimeLimitedSync, WriteTimeout};
-use crate::ircmsg::ServerMsg;
+use crate::ircmsg::ClientCodec;
 use std::{
     io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
@@ -306,7 +306,7 @@ impl<C: Connection, S> crate::client::Client<C, S> {
             // Unfortunately not quite DRY,
             // but this is the easiest way to sidestep lifetime issues.
             let finished_at = if self.handlers.wants_owning() {
-                let msg = ServerMsg::read_owning_from(&mut conn, &mut self.buf_i);
+                let msg = ClientCodec::read_owning_from(&mut conn, &mut self.buf_i);
                 let Some(msg) = filter_time_error(msg)? else {
                     if should_continue {
                         continue;
@@ -318,7 +318,7 @@ impl<C: Connection, S> crate::client::Client<C, S> {
                 self.queue.adjust(&msg);
                 self.handlers.handle(&msg, &mut self.state, &mut self.queue)
             } else {
-                let msg = ServerMsg::read_borrowing_from(&mut conn, &mut self.buf_i);
+                let msg = ClientCodec::read_borrowing_from(&mut conn, &mut self.buf_i);
                 let Some(msg) = filter_time_error(msg)? else {
                     if should_continue {
                         continue;
@@ -354,7 +354,7 @@ impl<C: Connection, S> crate::client::Client<C, S> {
         while let Some(popped) = self.queue.pop(|new_timeout| timeout = new_timeout) {
             #[cfg(feature = "tracing")]
             tracing::debug!(target: "vinezombie::send", "{}", popped);
-            let _ = popped.write_to(&mut self.buf_o);
+            let _ = ClientCodec::write_to(&popped, &mut self.buf_o);
             self.buf_o.extend_from_slice(b"\r\n");
         }
         let result = self.conn.as_write().write_all(&self.buf_o);

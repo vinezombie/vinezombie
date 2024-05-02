@@ -39,6 +39,8 @@ Adds logging to a few locations in the library.
 If your application uses `log`,
 [this](https://docs.rs/tracing/0.1/tracing/#emitting-log-records)
 explains how to get `log` events from this library.
+* `tokio-codec`:
+Adds support for parsing and writing IRC messages with `tokio_util`.
 * `whoami`:
 Enables functions for creating strings from local user info.
 

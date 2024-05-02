@@ -1,11 +1,8 @@
 #![doc = include_str!("../doc/rustdoc/ircmsg.md")]
 
-// Placing this here for macros.
-#[macro_use]
-mod common;
-
 mod args;
 mod client;
+mod codec;
 mod ctcp;
 mod numeric;
 mod server;
@@ -17,7 +14,6 @@ mod targeted;
 mod tests;
 
 pub use self::{
-    args::*, client::*, ctcp::*, numeric::*, server::*, servermsgkind::*, source::*, tags::*,
-    targeted::*,
+    args::*, client::*, codec::*, ctcp::*, numeric::*, server::*, servermsgkind::*, source::*,
+    tags::*, targeted::*,
 };
-use common::*;

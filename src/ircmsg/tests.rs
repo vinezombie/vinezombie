@@ -147,3 +147,32 @@ pub fn ctcp() {
         assert_eq!(ctcp.cmd, expected);
     }
 }
+
+#[cfg(feature = "tokio-codec")]
+mod tokio_codec {
+    #[test]
+    fn split() {
+        // There's really only one piece of functionality in the tokio codec vs the above,
+        // and that's the line splitter. Test only that.
+        let cases = [
+            ("foo bar\r\n", true),
+            ("foo bar", false),
+            ("   foo bar\r\n", true),
+            ("\n\n\n\nfoo bar\r\n", true),
+            ("foo bar\r", false),
+            ("     ", false),
+        ];
+        let mut case_id = 0;
+        for (case, expected) in cases {
+            let mut buf = tokio_util::bytes::BytesMut::from(case);
+            let idx = crate::ircmsg::codec::tokio_codec::scroll_buf(&mut buf, 16);
+            case_id += 1;
+            assert_eq!(idx.is_some(), expected, "newline disagreement on case {case_id}");
+            let Some(idx) = idx else {
+                continue;
+            };
+            let line_raw = buf.split_to(idx.get());
+            assert_eq!(line_raw.as_ref(), b"foo bar\r\n", "partial split on case {case_id}");
+        }
+    }
+}

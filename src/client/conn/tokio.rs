@@ -1,5 +1,5 @@
 use super::{timed_io, Bidir, TimeLimitedTokio};
-use crate::ircmsg::ServerMsg;
+use crate::ircmsg::ClientCodec;
 use std::{pin::Pin, time::Duration};
 use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader},
@@ -177,7 +177,7 @@ impl<C: ConnectionTokio, S> crate::client::Client<C, S> {
             // Unfortunately not quite DRY,
             // but this is the easiest way to sidestep lifetime issues.
             let finished_at = if self.handlers.wants_owning() {
-                let fut = ServerMsg::read_owning_from_tokio(&mut conn, &mut self.buf_i);
+                let fut = ClientCodec::read_owning_from_tokio(&mut conn, &mut self.buf_i);
                 let msg = match timed_io(fut, wait_for, self.timeout.read_timeout()).await? {
                     Ok(m) => m,
                     Err(true) => continue,
@@ -188,7 +188,7 @@ impl<C: ConnectionTokio, S> crate::client::Client<C, S> {
                 self.queue.adjust(&msg);
                 self.handlers.handle(&msg, &mut self.state, &mut self.queue)
             } else {
-                let fut = ServerMsg::read_borrowing_from_tokio(&mut conn, &mut self.buf_i);
+                let fut = ClientCodec::read_borrowing_from_tokio(&mut conn, &mut self.buf_i);
                 let msg = match timed_io(fut, wait_for, self.timeout.read_timeout()).await? {
                     Ok(m) => m,
                     Err(true) => continue,
@@ -224,7 +224,7 @@ impl<C: ConnectionTokio, S> crate::client::Client<C, S> {
         while let Some(popped) = self.queue.pop(|new_timeout| timeout = new_timeout) {
             #[cfg(feature = "tracing")]
             tracing::debug!(target: "vinezombie::send", "{}", popped);
-            let _ = popped.write_to(&mut self.buf_o);
+            let _ = ClientCodec::write_to(&popped, &mut self.buf_o);
             self.buf_o.extend_from_slice(b"\r\n");
         }
         let mut conn = TimeLimitedTokio::new(&mut self.conn, &self.timeout);
