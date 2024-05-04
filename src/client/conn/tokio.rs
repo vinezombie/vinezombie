@@ -166,48 +166,40 @@ impl<C: ConnectionTokio, S> crate::client::Client<C, S> {
     pub async fn run_tokio(&mut self) -> std::io::Result<Option<(&[usize], &[usize])>> {
         let finished_at = loop {
             let wait_for = self.flush_partial_tokio().await?;
-            if self.handlers.is_empty() {
+            if self.logic.handlers.is_empty() {
                 if let Some(wait_for) = wait_for {
                     tokio::time::sleep(wait_for).await;
                     continue;
                 }
                 return Ok(Some((Default::default(), Default::default())));
             }
-            let mut conn = TimeLimitedTokio::new(&mut self.conn, &self.timeout);
-            // Unfortunately not quite DRY,
-            // but this is the easiest way to sidestep lifetime issues.
-            let finished_at = if self.handlers.wants_owning() {
-                let fut = ClientCodec::read_owning_from_tokio(&mut conn, &mut self.buf_i);
-                let msg = match timed_io(fut, wait_for, self.timeout.read_timeout()).await? {
-                    Ok(m) => m,
-                    Err(true) => continue,
-                    Err(false) => return Ok(None),
-                };
-                #[cfg(feature = "tracing")]
-                tracing::debug!(target: "vinezombie::recv", "{}", msg);
-                self.queue.adjust(&msg);
-                self.handlers.handle(&msg, &mut self.state, &mut self.queue)
+            let mut conn = TimeLimitedTokio::new(&mut self.conn.conn, &self.logic.timeout);
+            let msg_result = if self.logic.handlers.wants_owning() {
+                let fut = ClientCodec::read_owning_from_tokio(&mut conn, &mut self.conn.buf_i);
+                timed_io(fut, wait_for, self.logic.timeout.read_timeout()).await?
             } else {
-                let fut = ClientCodec::read_borrowing_from_tokio(&mut conn, &mut self.buf_i);
-                let msg = match timed_io(fut, wait_for, self.timeout.read_timeout()).await? {
-                    Ok(m) => m,
-                    Err(true) => continue,
-                    Err(false) => return Ok(None),
-                };
-                #[cfg(feature = "tracing")]
-                tracing::debug!(target: "vinezombie::recv", "{}", msg);
-                self.queue.adjust(&msg);
-                let fa = self.handlers.handle(&msg, &mut self.state, &mut self.queue);
-                self.buf_i.clear();
-                fa
+                let fut = ClientCodec::read_borrowing_from_tokio(&mut conn, &mut self.conn.buf_i);
+                timed_io(fut, wait_for, self.logic.timeout.read_timeout()).await?
             };
-            if self.handlers.has_results(finished_at) {
+            let msg = match msg_result {
+                Ok(m) => m,
+                Err(true) => continue,
+                Err(false) => {
+                    // TODO: Handle read timeout.
+                    return Ok(None);
+                }
+            };
+            #[cfg(feature = "tracing")]
+            tracing::debug!(target: "vinezombie::recv", "{}", msg);
+            let finished_at = self.logic.run_once(&msg);
+            self.conn.buf_i.clear();
+            if self.logic.handlers.has_results(finished_at) {
                 self.flush_partial_tokio().await?;
                 // You give me conniptions, borrowck.
                 break finished_at;
             }
         };
-        Ok(Some(self.handlers.last_run_results(finished_at)))
+        Ok(Some(self.logic.handlers.last_run_results(finished_at)))
     }
     /// Flushes the queue until it's empty or hits rate limits.
     ///
@@ -217,19 +209,19 @@ impl<C: ConnectionTokio, S> crate::client::Client<C, S> {
     /// If the `tracing` feature is enabled, logs messages at the debug level.
     pub async fn flush_partial_tokio(&mut self) -> std::io::Result<Option<Duration>> {
         use tokio::io::AsyncWriteExt;
-        if self.queue.is_empty() {
+        if self.logic.queue.is_empty() {
             return Ok(None);
         }
         let mut timeout = None;
-        while let Some(popped) = self.queue.pop(|new_timeout| timeout = new_timeout) {
+        while let Some(popped) = self.logic.queue.pop(|new_timeout| timeout = new_timeout) {
             #[cfg(feature = "tracing")]
             tracing::debug!(target: "vinezombie::send", "{}", popped);
-            let _ = ClientCodec::write_to(&popped, &mut self.buf_o);
-            self.buf_o.extend_from_slice(b"\r\n");
+            let _ = ClientCodec::write_to(&popped, &mut self.conn.buf_o);
+            self.conn.buf_o.extend_from_slice(b"\r\n");
         }
-        let mut conn = TimeLimitedTokio::new(&mut self.conn, &self.timeout);
-        let result = conn.write_all(&self.buf_o).await;
-        self.buf_o.clear();
+        let mut conn = TimeLimitedTokio::new(&mut self.conn.conn, &self.logic.timeout);
+        let result = conn.write_all(&self.conn.buf_o).await;
+        self.conn.buf_o.clear();
         result?;
         conn.flush().await?;
         Ok(timeout)

@@ -294,7 +294,7 @@ impl<C: Connection, S> crate::client::Client<C, S> {
     pub fn run(&mut self) -> std::io::Result<Option<(&[usize], &[usize])>> {
         let finished_at = loop {
             let wait_for = self.flush_partial()?;
-            if self.handlers.is_empty() {
+            if self.logic.handlers.is_empty() {
                 if let Some(wait_for) = wait_for {
                     std::thread::sleep(wait_for);
                     continue;
@@ -302,43 +302,30 @@ impl<C: Connection, S> crate::client::Client<C, S> {
                 return Ok(Some((Default::default(), Default::default())));
             }
             let (mut conn, should_continue) =
-                TimeLimitedSync::new(&mut self.conn, &mut self.timeout, wait_for)?;
-            // Unfortunately not quite DRY,
-            // but this is the easiest way to sidestep lifetime issues.
-            let finished_at = if self.handlers.wants_owning() {
-                let msg = ClientCodec::read_owning_from(&mut conn, &mut self.buf_i);
-                let Some(msg) = filter_time_error(msg)? else {
-                    if should_continue {
-                        continue;
-                    }
-                    return Ok(None);
-                };
-                #[cfg(feature = "tracing")]
-                tracing::debug!(target: "vinezombie::recv", "{}", msg);
-                self.queue.adjust(&msg);
-                self.handlers.handle(&msg, &mut self.state, &mut self.queue)
+                TimeLimitedSync::new(&mut self.conn.conn, &mut self.logic.timeout, wait_for)?;
+            let msg = if self.logic.handlers.wants_owning() {
+                ClientCodec::read_owning_from(&mut conn, &mut self.conn.buf_i)
             } else {
-                let msg = ClientCodec::read_borrowing_from(&mut conn, &mut self.buf_i);
-                let Some(msg) = filter_time_error(msg)? else {
-                    if should_continue {
-                        continue;
-                    }
-                    return Ok(None);
-                };
-                #[cfg(feature = "tracing")]
-                tracing::debug!(target: "vinezombie::recv", "{}", msg);
-                self.queue.adjust(&msg);
-                let fa = self.handlers.handle(&msg, &mut self.state, &mut self.queue);
-                self.buf_i.clear();
-                fa
+                ClientCodec::read_borrowing_from(&mut conn, &mut self.conn.buf_i)
             };
-            if self.handlers.has_results(finished_at) {
+            let Some(msg) = filter_time_error(msg)? else {
+                if should_continue {
+                    continue;
+                }
+                // TODO: Handle read timeout.
+                return Ok(None);
+            };
+            #[cfg(feature = "tracing")]
+            tracing::debug!(target: "vinezombie::recv", "{}", msg);
+            let finished_at = self.logic.run_once(&msg);
+            self.conn.buf_i.clear();
+            if self.logic.handlers.has_results(finished_at) {
                 self.flush_partial()?;
                 // You give me conniptions, borrowck.
                 break finished_at;
             }
         };
-        Ok(Some(self.handlers.last_run_results(finished_at)))
+        Ok(Some(self.logic.handlers.last_run_results(finished_at)))
     }
     /// Flushes the queue until it's empty or hits rate limits.
     ///
@@ -347,20 +334,20 @@ impl<C: Connection, S> crate::client::Client<C, S> {
     ///
     /// If the `tracing` feature is enabled, logs messages at the debug level.
     pub fn flush_partial(&mut self) -> std::io::Result<Option<Duration>> {
-        if self.queue.is_empty() {
+        if self.logic.queue.is_empty() {
             return Ok(None);
         }
         let mut timeout = None;
-        while let Some(popped) = self.queue.pop(|new_timeout| timeout = new_timeout) {
+        while let Some(popped) = self.logic.queue.pop(|new_timeout| timeout = new_timeout) {
             #[cfg(feature = "tracing")]
             tracing::debug!(target: "vinezombie::send", "{}", popped);
-            let _ = ClientCodec::write_to(&popped, &mut self.buf_o);
-            self.buf_o.extend_from_slice(b"\r\n");
+            let _ = ClientCodec::write_to(&popped, &mut self.conn.buf_o);
+            self.conn.buf_o.extend_from_slice(b"\r\n");
         }
-        let result = self.conn.as_write().write_all(&self.buf_o);
-        self.buf_o.clear();
+        let result = self.conn.conn.as_write().write_all(&self.conn.buf_o);
+        self.conn.buf_o.clear();
         result?;
-        self.conn.as_write().flush()?;
+        self.conn.conn.as_write().flush()?;
         Ok(timeout)
     }
 }

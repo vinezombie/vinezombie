@@ -93,3 +93,23 @@ impl<'a> ServerAddr<'a> {
 /// A pair of unidirectional I/O streams, merged to create a bidirectional stream.
 #[derive(Clone, Debug, Default)]
 pub struct Bidir<R, W>(pub R, pub W);
+
+#[derive(Default)]
+pub(super) struct MsgIo<C> {
+    pub conn: C,
+    pub buf_i: Vec<u8>,
+    pub buf_o: Vec<u8>,
+}
+
+impl<C> MsgIo<C> {
+    pub fn new(conn: C) -> MsgIo<C> {
+        MsgIo {
+            conn,
+            buf_i: Vec::new(),
+            // Chosen as a power-of-two semi-arbitrarily.
+            // Aside from being the size of the largest IRCv2 message,
+            // this also fits just under 4 old-Twitter-sized messages.
+            buf_o: Vec::with_capacity(512)
+        }
+    }
+}
