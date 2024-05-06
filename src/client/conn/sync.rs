@@ -301,7 +301,7 @@ impl<C: Connection, S> crate::client::Client<C, S> {
                 }
                 return Ok(Some((Default::default(), Default::default())));
             }
-            let (mut conn, should_continue) =
+            let (mut conn, rto_from_queue) =
                 TimeLimitedSync::new(&mut self.conn.conn, &mut self.logic.timeout, wait_for)?;
             let msg = if self.logic.handlers.wants_owning() {
                 ClientCodec::read_owning_from(&mut conn, &mut self.conn.buf_i)
@@ -309,11 +309,19 @@ impl<C: Connection, S> crate::client::Client<C, S> {
                 ClientCodec::read_borrowing_from(&mut conn, &mut self.conn.buf_i)
             };
             let Some(msg) = filter_time_error(msg)? else {
-                if should_continue {
+                if rto_from_queue {
+                    // If we're here, the actual read timeout was determined by the queue,
+                    // not the configured read timeout, and we're ready to write another message.
                     continue;
                 }
-                // TODO: Handle read timeout.
-                return Ok(None);
+                return if let Some(timeout_fn) = &mut self.on_timeout {
+                    if timeout_fn(&mut self.logic).is_continue() {
+                        continue;
+                    }
+                    Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "read timeout"))
+                } else {
+                    Ok(None)
+                };
             };
             #[cfg(feature = "tracing")]
             tracing::debug!(target: "vinezombie::recv", "{}", msg);

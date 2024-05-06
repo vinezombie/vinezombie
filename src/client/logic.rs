@@ -1,4 +1,9 @@
-use super::{channel::{ChannelSpec, Sender}, conn::TimeLimits, state::ClientStateKey, Handlers, MakeHandler, Queue};
+use super::{
+    channel::{ChannelSpec, Sender},
+    conn::TimeLimits,
+    state::ClientStateKey,
+    Handlers, MakeHandler, Queue,
+};
 
 /// The parts of client logic that are not dependent on the type of connection or channel spec.
 #[derive(Default)]

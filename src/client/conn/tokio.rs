@@ -185,8 +185,14 @@ impl<C: ConnectionTokio, S> crate::client::Client<C, S> {
                 Ok(m) => m,
                 Err(true) => continue,
                 Err(false) => {
-                    // TODO: Handle read timeout.
-                    return Ok(None);
+                    return if let Some(timeout_fn) = &mut self.on_timeout {
+                        if timeout_fn(&mut self.logic).is_continue() {
+                            continue;
+                        }
+                        Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "read timeout"))
+                    } else {
+                        Ok(None)
+                    }
                 }
             };
             #[cfg(feature = "tracing")]

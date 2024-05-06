@@ -17,6 +17,7 @@ pub mod tls;
 pub use {handler::*, logic::*, sink::*};
 
 use self::{channel::ChannelSpec, queue::Queue};
+use std::ops::ControlFlow;
 
 /// A client connection.
 #[derive(Default)]
@@ -27,9 +28,9 @@ pub struct Client<C, S> {
     spec: S,
     /// This client's internal logic.
     logic: Box<ClientLogic>,
-    // /// Logic for handling read timeouts.
-    // #[allow(clippy::type_complexity)]
-    // on_timeout: Option<Box<dyn FnMut(&mut ClientLogic) -> std::ops::ControlFlow<()> + Send>>,
+    /// Logic for handling read timeouts.
+    #[allow(clippy::type_complexity)]
+    on_timeout: Option<Box<dyn FnMut(&mut ClientLogic) -> ControlFlow<()> + Send>>,
 }
 
 impl<C, S: ChannelSpec> Client<C, S> {
@@ -44,11 +45,7 @@ impl<C, S: ChannelSpec> Client<C, S> {
     }
     /// Creates a new `Client` from the provided connection and [`Queue`].
     pub fn new_with_logic(conn: C, spec: S, logic: ClientLogic) -> Self {
-        Client {
-            conn: conn::MsgIo::new(conn),
-            spec,
-            logic: Box::new(logic),
-        }
+        Client { conn: conn::MsgIo::new(conn), spec, logic: Box::new(logic), on_timeout: None }
     }
     /// Adds a handler. Creates a new channel using the internal [`ChannelSpec`].
     ///
@@ -74,16 +71,16 @@ impl<C, S> Client<C, S> {
     /// requiring an update of the connection's IO timeouts.
     /// Additionally use [`reset`][Client::reset] if you want to reset the state.
     pub fn with_conn<C2>(self, conn: C2) -> Client<C2, S> {
-        let Self { conn: old, spec, mut logic } = self;
+        let Self { conn: old, spec, mut logic, on_timeout } = self;
         logic.timeout.require_update();
         let conn = conn::MsgIo { conn, buf_i: old.buf_i, buf_o: old.buf_o };
-        Client { conn, logic, spec }
+        Client { conn, logic, spec, on_timeout }
     }
     /// Uses the provided [`ChannelSpec`] for `self`.
     /// This changes the type of channels returned by [`add`][Client::add].
     pub fn with_spec<S2: ChannelSpec>(self, spec: S2) -> Client<C, S2> {
-        let Self { conn, logic, .. } = self;
-        Client { conn, spec, logic }
+        let Self { conn, logic, on_timeout, .. } = self;
+        Client { conn, spec, logic, on_timeout }
     }
     /// Returns a shared reference to the internal [`Queue`].
     pub fn queue(&self) -> &Queue {
@@ -102,6 +99,23 @@ impl<C, S> Client<C, S> {
     /// Returns a mutable reference to the internal [shared state][ClientState].
     pub fn state_mut(&mut self) -> &mut ClientState {
         self.logic.state_mut()
+    }
+    /// Sets the closure that is used to handle **read** timeouts.
+    ///
+    /// When this function is specified, the `run` methods call it instead
+    /// of exiting immediately if a read timeout occurs.
+    /// If this function returns [`ControlFlow::Continue`], the `run` method will attempt to read
+    /// another message and continue. Otherwise, the method will error instead of returning `None`.
+    pub fn set_timeout_fn(
+        &mut self,
+        f: Option<impl FnMut(&mut ClientLogic) -> ControlFlow<()> + 'static + Send>,
+    ) {
+        // Need the manual map for coersion into dyn.
+        if let Some(f) = f {
+            self.on_timeout = Some(Box::new(f));
+        } else {
+            self.on_timeout = None;
+        }
     }
     /// Changes the upper limit on how long an I/O operation may take to receive one message.
     /// A timeout of `None` means no limit.
@@ -131,7 +145,6 @@ impl<C, S> Client<C, S> {
     ) -> Result<(usize, M::Receiver<S2>), M::Error> {
         self.logic.add_with_spec(chanspec, make_handler, value)
     }
-
     /// Adds a handler using an existing channel.
     ///
     /// Returns the handler id.
@@ -151,9 +164,9 @@ impl<C, S> Client<C, S> {
     /// Does not reset any state that is considered configuration,
     /// such as what the queue's rate limits are.
     pub fn reset(&mut self) {
+        self.conn.reset();
         self.logic.reset();
     }
-
     /// Uses the provided connection instead of the current one
     /// and resets the client state as [`reset`][Client::reset].
     /// Returns the old connection.
@@ -165,6 +178,7 @@ impl<C, S> Client<C, S> {
         self.reset();
         retval
     }
+
     /// Returns `true` if the client has handlers or queued messages.
     pub fn needs_run(&self) -> bool {
         self.logic.needs_run()

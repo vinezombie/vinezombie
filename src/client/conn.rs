@@ -109,7 +109,11 @@ impl<C> MsgIo<C> {
             // Chosen as a power-of-two semi-arbitrarily.
             // Aside from being the size of the largest IRCv2 message,
             // this also fits just under 4 old-Twitter-sized messages.
-            buf_o: Vec::with_capacity(512)
+            buf_o: Vec::with_capacity(512),
         }
+    }
+    pub fn reset(&mut self) {
+        self.buf_i.clear();
+        self.buf_o.clear();
     }
 }
