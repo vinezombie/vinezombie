@@ -58,6 +58,7 @@ impl Registration {
     pub fn save(self, state: &mut crate::client::ClientState) {
         use crate::client::state::*;
         let source = Source { nick: self.nick, userhost: self.userhost };
+        state.update_source_len_from(Some(&source), true);
         state.insert::<ClientSource>(source);
         state.insert::<Account>(self.account);
         state.insert::<Caps>(self.caps);

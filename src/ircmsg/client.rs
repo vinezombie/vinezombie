@@ -124,7 +124,7 @@ impl<'a> ClientMsg<'a> {
     /// If either of the returned values are negative, this message is too long
     /// to guarantee that it will be processed whole.
     pub fn bytes_left(&self, source: Option<&Source>) -> isize {
-        super::bytes_left(&self.cmd, source, &self.args)
+        super::bytes_left(&self.cmd, source.map(Source::len_nonzero), &self.args)
     }
     #[deprecated = "Moved to `ClientCodec` in 0.4."]
     /// Writes self to the provided [`Write`] WITHOUT a trailing CRLF.

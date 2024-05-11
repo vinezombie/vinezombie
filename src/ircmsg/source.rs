@@ -2,7 +2,7 @@ use crate::{
     error::ParseError,
     string::{Builder, Nick, Splitter, User, Word},
 };
-use std::io::Write;
+use std::{io::Write, num::NonZeroUsize};
 
 /// The sender of a message, also known as a message's "prefix".
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -56,11 +56,17 @@ impl<'a> Source<'a> {
     }
     /// Returns the length of `self`'s textual representaiton in bytes.
     pub fn len(&self) -> usize {
+        let mut len = self.nick.len();
         if let Some(address) = self.userhost.as_ref() {
-            self.nick.len() + 1 + address.len()
-        } else {
-            self.nick.len()
-        }
+            len = len
+                .saturating_add(1) // '@'
+                .saturating_add(address.len())
+        };
+        len
+    }
+    /// As [`len`][Self::len] but returns a [`NonZeroUsize`].
+    pub fn len_nonzero(&self) -> NonZeroUsize {
+        unsafe { NonZeroUsize::new_unchecked(self.len()) }
     }
     /// Writes `self` to the provided [`Write`].
     ///

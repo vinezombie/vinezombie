@@ -1,3 +1,10 @@
+use std::{
+    any::Any,
+    num::{NonZeroU16, NonZeroUsize},
+};
+
+use crate::ircmsg::Source;
+
 use super::{
     channel::{ChannelSpec, Sender},
     conn::TimeLimits,
@@ -130,6 +137,9 @@ impl ClientLogic {
     }
 }
 
+// 9 bytes for nick, 10 for uname, 64 for the hostname, and 2 separators.
+const DEFAULT_SOURCE_LEN: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(85) };
+
 /// A collection of heterogenous client state shared between handlers.
 ///
 /// There are many pieces of client state that need to be shared between handlers,
@@ -139,21 +149,72 @@ impl ClientLogic {
 ///
 /// This type intentionally offers no way for state to be removed.
 pub struct ClientState {
-    state: crate::util::FlatMap<(std::any::TypeId, Box<dyn std::any::Any + Send + Sync>)>,
+    source_len: NonZeroUsize,
+    state: crate::util::FlatMap<(std::any::TypeId, Box<dyn Any + Send + Sync>)>,
+}
+
+macro_rules! lookup {
+    ($this:ident.$getter:ident::<$key:ty>().$downcast:ident()) => {{
+        $this.state.$getter(&<$key>::default().type_id()).and_then(|v| v.1.$downcast())
+    }};
+}
+
+fn calc_source_len(cs: &ClientState, source: Option<&Source>, trust_notilde: bool) -> NonZeroUsize {
+    let ln = source.map(|v| v.nick.len());
+    let (lu, lh) = if let Some(uh) = source.and_then(|v| v.userhost.as_ref()) {
+        let host = uh.host.len();
+        (
+            uh.user.as_ref().map(|u| if trust_notilde { u.len() } else { u.len_with_tilde() }),
+            Some(host),
+        )
+    } else {
+        (None, None)
+    };
+    if let (Some(ln), Some(lu), Some(lh)) = (ln, lu, lh) {
+        let len = ln.saturating_add(lu).saturating_add(lh);
+        unsafe { NonZeroUsize::new_unchecked(len.saturating_add(2)) }
+    } else if let Some(isupport) = cs.get::<super::state::ISupport>() {
+        let mut len = ln
+            .or_else(|| {
+                isupport
+                    .get_parsed(crate::names::isupport::NICKLEN)
+                    .and_then(|v| v.ok().map(|v| v.get() as usize))
+            })
+            .unwrap_or(9);
+        len = len.saturating_add(
+            lu.or_else(|| {
+                isupport
+                    .get_parsed(crate::names::isupport::USERLEN)
+                    .and_then(|v| v.ok().map(|v| v.get() as usize))
+            })
+            .unwrap_or(10),
+        );
+        len = len.saturating_add(
+            lh.or_else(|| {
+                isupport
+                    .get_parsed(crate::names::isupport::HOSTLEN)
+                    .and_then(|v| v.ok().map(|v| v.get() as usize))
+            })
+            .unwrap_or(64),
+        );
+        unsafe { NonZeroUsize::new_unchecked(len.saturating_add(2)) }
+    } else {
+        DEFAULT_SOURCE_LEN
+    }
 }
 
 impl ClientState {
     /// Returns a new, empty `ClientState`.
     pub const fn new() -> ClientState {
-        ClientState { state: crate::util::FlatMap::new() }
+        ClientState { source_len: DEFAULT_SOURCE_LEN, state: crate::util::FlatMap::new() }
     }
     /// Gets a shared reference to the state denoted by `K`, if any.
     pub fn get<K: ClientStateKey>(&self) -> Option<&K::Value> {
-        self.state.get(&K::default().type_id()).and_then(|v| v.1.downcast_ref())
+        lookup!(self.get::<K>().downcast_ref())
     }
     /// Gets a mutable reference to the state denoted by `K`, if any.
     pub fn get_mut<K: ClientStateKey>(&mut self) -> Option<&mut K::Value> {
-        self.state.get_mut(&K::default().type_id()).and_then(|v| v.1.downcast_mut())
+        lookup!(self.get_mut::<K>().downcast_mut())
     }
     /// Sets the state denoted by `K` to `value`.
     ///
@@ -164,6 +225,38 @@ impl ClientState {
     /// Clears all state.
     pub(super) fn clear(&mut self) {
         self.state.clear();
+    }
+    /// Returns the length that clients should assume for the length of their `source` fields.
+    pub fn source_len(&self) -> NonZeroUsize {
+        self.source_len
+    }
+    /// Set the length that clients should assume for the length of their `source` fields.
+    ///
+    /// Use [`update_source_len`][Self::update_source_len] instead
+    /// unless you are implementing custom logic for setting the assumed source length.
+    pub fn set_source_len(&mut self, len: NonZeroUsize) {
+        self.source_len = len;
+    }
+    /// Calculates the assumed source length from the provided source.
+    ///
+    /// `add_tilde` exists to allow RPL_LOGGEDIN (900) to be used to infer a usable
+    /// source length value, as ident parameter of that message is known to omit the tilde.
+    pub fn update_source_len_from(
+        &mut self,
+        source: Option<&Source>,
+        add_tilde: bool,
+    ) -> NonZeroUsize {
+        self.source_len = calc_source_len(self, source, !add_tilde);
+        self.source_len
+    }
+    /// Recalculates the assumed source length and returns the new value.
+    ///
+    /// This should be called whenever something updates the
+    /// [`ClientSource`][super::state::ClientSource] state.
+    pub fn update_source_len(&mut self) -> NonZeroUsize {
+        let source = lookup!(self.get::<super::state::ClientSource>().downcast_ref());
+        self.source_len = calc_source_len(self, source, false);
+        self.source_len
     }
 }
 

@@ -22,6 +22,18 @@ impl Key<'_> {
     }
 }
 
+impl User<'_> {
+    /// Returns true if `self` does NOT begin with a tilde.
+    pub fn no_tilde(&self) -> bool {
+        self.get(0).copied() != Some(b'~')
+    }
+
+    /// Returns `self`'s length including a tilde at the front if one was not already added.
+    pub fn len_with_tilde(&self) -> usize {
+        self.len() + self.no_tilde() as usize
+    }
+}
+
 impl User<'static> {
     /// Returns the username of the local user running this program.
     ///

@@ -144,7 +144,11 @@ impl<'a> ServerMsg<'a> {
     /// If either of the returned values are negative, this message is too long
     /// to guarantee that it will be delivered whole.
     pub fn bytes_left(&self) -> isize {
-        super::bytes_left(&self.kind.as_arg(), self.source.as_deref(), &self.args)
+        super::bytes_left(
+            &self.kind.as_arg(),
+            self.source.as_deref().map(Source::len_nonzero),
+            &self.args,
+        )
     }
     #[deprecated = "Moved to `ServerCodec` in 0.4."]
     /// Writes self to the provided [`Write`] WITHOUT a trailing CRLF.

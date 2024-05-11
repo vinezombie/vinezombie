@@ -2,6 +2,7 @@ use super::{Args, ClientMsg, ServerMsg, Source, Tags};
 use crate::error::{InvalidString, ParseError};
 use crate::string::{Line, Splitter, Word};
 use std::io::Write;
+use std::num::NonZeroUsize;
 
 macro_rules! read_msg {
     (
@@ -96,16 +97,17 @@ pub(crate) fn parse<'a, S: 'a, K: 'a>(
 }
 
 #[inline(always)]
-pub(crate) fn bytes_left(kind: &[u8], source: Option<&Source>, args: &Args) -> isize {
-    let mut size = kind.len() + 2; // Newline.
+pub(crate) fn bytes_left(kind: &[u8], source: Option<NonZeroUsize>, args: &Args) -> isize {
+    let mut size = kind.len();
     if let Some(src) = source {
-        size += 2 + src.len();
+        size += 2 + src.get();
     }
     if !args.is_empty() {
         size += args.len_bytes() + 1;
     }
     let size: isize = size.try_into().unwrap_or(isize::MAX);
-    512 - size
+    // 512 minus newline.
+    510 - size
 }
 
 #[inline(always)]

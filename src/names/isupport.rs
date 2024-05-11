@@ -158,6 +158,7 @@ isupport_strparse! {
     MODES: NonZeroU16
     NICKLEN: NonZeroU16
     TOPICLEN: NonZeroU16
+    USERLEN: NonZeroU16
 }
 
 isupport_strparse_option! {
