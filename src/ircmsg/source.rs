@@ -1,6 +1,6 @@
 use crate::{
     error::ParseError,
-    string::{Builder, Nick, Splitter, User, Word},
+    string::{Arg, Builder, Nick, Splitter, User, Word},
 };
 use std::{io::Write, num::NonZeroUsize};
 
@@ -89,26 +89,17 @@ impl<'a> Source<'a> {
     /// The provided word should NOT contain the leading ':'.
     ///
     /// # Errors
-    /// This function can return only either
-    /// [`InvalidNick`][crate::error::ParseError::InvalidNick] or
-    /// [`InvalidUser`][crate::error::ParseError::InvalidUser].
+    /// This function can return
+    /// [`InvalidNick`][crate::error::ParseError::InvalidNick],
+    /// [`InvalidUser`][crate::error::ParseError::InvalidUser], or
+    /// [`InvalidHost`][crate::error::ParseError::InvalidHost], or
     pub fn parse(word: impl Into<Word<'a>>) -> Result<Self, ParseError> {
         let mut word = Splitter::new(word.into());
         let nick = word.string::<Nick>(false).map_err(ParseError::InvalidNick)?;
         match word.next_byte() {
             Some(b'!') => {
-                let user = word
-                    .save_end()
-                    .until_byte_eq(b'@')
-                    .string::<User>(true)
-                    .map_err(ParseError::InvalidUser)?;
-                word.next_byte();
-                let host: Word = word.rest_or_default();
-                if host.is_empty() {
-                    Err(ParseError::InvalidHost(crate::error::InvalidString::Empty))
-                } else {
-                    Ok(Source { nick, userhost: Some(UserHost { user: Some(user), host }) })
-                }
+                let userhost = UserHost::parse(word.rest_or_default::<Word>())?;
+                Ok(Source { nick, userhost: Some(userhost) })
             }
             Some(b'@') => {
                 let host: Word = word.rest_or_default();
@@ -162,7 +153,28 @@ impl<'a> Source<'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl UserHost<'_> {
+impl<'a> UserHost<'a> {
+    /// Parses the provided userhost.
+    ///
+    /// # Errors
+    /// This function can return
+    /// [`InvalidUser`][crate::error::ParseError::InvalidUser] or
+    /// [`InvalidHost`][crate::error::ParseError::InvalidHost].
+    pub fn parse(string: impl Into<Word<'a>>) -> Result<Self, ParseError> {
+        let mut splitter = Splitter::new(string.into());
+        let user = splitter
+            .save_end()
+            .until_byte_eq(b'@')
+            .string::<User>(true)
+            .map_err(ParseError::InvalidUser)?;
+        splitter.next_byte();
+        let host: Word = splitter.rest_or_default();
+        if host.is_empty() {
+            Err(ParseError::InvalidHost(crate::error::InvalidString::Empty))
+        } else {
+            Ok(UserHost { user: Some(user), host })
+        }
+    }
     /// Converts `self` into a version that owns its data.
     pub fn owning(self) -> UserHost<'static> {
         UserHost { host: self.host.owning(), user: self.user.map(User::owning) }
