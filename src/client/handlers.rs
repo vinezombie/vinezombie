@@ -2,11 +2,11 @@
 
 mod autoreply;
 mod ping;
+mod track;
 
 use std::ops::ControlFlow;
 
-pub use autoreply::*;
-pub use ping::*;
+pub use {autoreply::*, ping::*, track::*};
 
 use super::{cf_discard, channel::SenderRef, queue::QueueEditGuard, Handler, SelfMadeHandler};
 use crate::{
