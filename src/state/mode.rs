@@ -377,7 +377,7 @@ impl ModeTypes {
         for value in [3u8, 0u8, 1u8, 2u8] {
             if self.0[value as usize].contains(mode) {
                 // Safety: The values are a subset of valid values for ModeType.
-                return Some(unsafe { std::mem::transmute(value) });
+                return Some(unsafe { std::mem::transmute::<u8, ModeType>(value) });
             }
         }
         None

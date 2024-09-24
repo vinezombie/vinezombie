@@ -1,6 +1,6 @@
 use crate::{
     error::ParseError,
-    string::{Arg, Builder, Nick, Splitter, User, Word},
+    string::{Builder, Nick, Splitter, User, Word},
 };
 use std::{io::Write, num::NonZeroUsize};
 
@@ -60,7 +60,7 @@ impl<'a> Source<'a> {
         if let Some(address) = self.userhost.as_ref() {
             len = len
                 .saturating_add(1) // '@'
-                .saturating_add(address.len())
+                .saturating_add(address.len());
         };
         len
     }

@@ -176,7 +176,7 @@ impl<'a> ServerMsgArgs<'a> {
     }
     /// Returns `true` if `self.caps` contains a capability.
     pub fn contains(&self, cap: impl AsRef<[u8]>) -> bool {
-        return self.caps.get(cap.as_ref()).is_some();
+        self.caps.contains_key(cap.as_ref())
     }
 }
 
@@ -191,7 +191,7 @@ mod tests {
         let mut args1 = ServerMsgArgs::parse(&msg.args).unwrap();
         assert!(!args1.is_last);
         assert_eq!(args1.caps["foo".as_bytes()], "bar");
-        assert!(args1.caps.get("bar".as_bytes()).is_none());
+        assert!(!args1.caps.contains_key("bar".as_bytes()));
         let msg = ServerMsg::parse("CAP * LS :bar baz").unwrap();
         let args2 = ServerMsgArgs::parse(&msg.args).unwrap();
         assert!(args2.is_last);

@@ -79,7 +79,7 @@ impl Numeric {
             i += 1;
         }
         // Safety: if we left the loop, retval is 3 ASCII digits.
-        Some(Numeric(unsafe { std::mem::transmute(retval) }))
+        Some(unsafe { Self::from_bytes_unchecked(retval) })
     }
     /// Converts the provided byte array into a `Numeric`.
     ///
@@ -87,7 +87,7 @@ impl Numeric {
     /// The three bytes must be ASCII digits,
     /// or else undefined behavior may result from calling other functions on this type.
     pub const unsafe fn from_bytes_unchecked(bytes: [u8; 3]) -> Numeric {
-        Numeric(std::mem::transmute(bytes))
+        Numeric(std::mem::transmute::<[u8; 3], [std::num::NonZero<u8>; 3]>(bytes))
     }
     /// Attempts to convert the provided integer into a `Numeric`.
     /// Returns `None` if the integer is not less than `1000`.
@@ -108,7 +108,7 @@ impl Numeric {
         let h = (int / 100) as u8 + b'0';
         let t = ((int / 10) % 10) as u8 + b'0';
         let o = (int % 10) as u8 + b'0';
-        Numeric(std::mem::transmute([h, t, o]))
+        unsafe { Self::from_bytes_unchecked([h, t, o]) }
     }
     /// Returns a reference to `self`'s value as a three-byte slice.
     pub const fn as_bytes(&self) -> &[u8; 3] {

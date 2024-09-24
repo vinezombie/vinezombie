@@ -42,7 +42,7 @@ macro_rules! impl_subtype {
                 if let Some(e) = check(sup.as_ref()) {
                     Err(e)
                 } else {
-                    Ok(unsafe { std::mem::transmute(sup) })
+                    Ok(unsafe { std::mem::transmute::<$ssuper<'a>, Self>(sup) })
                 }
             }
             /// Cheaply converts `self` into the next more-general type in the string hierarchy.

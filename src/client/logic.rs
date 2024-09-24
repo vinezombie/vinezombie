@@ -1,7 +1,4 @@
-use std::{
-    any::Any,
-    num::{NonZeroU16, NonZeroUsize},
-};
+use std::{any::Any, num::NonZeroUsize};
 
 use crate::ircmsg::Source;
 

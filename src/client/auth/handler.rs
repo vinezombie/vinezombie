@@ -130,7 +130,7 @@ impl Handler {
     ///
     /// Returns:
     /// - `Some(true)` if the current authenticator was removed by this function,
-    /// meaning authentication needs to be restarted.
+    ///   meaning authentication needs to be restarted.
     /// - `Some(false)` if all authenticators were removed by this function.
     /// - `None` if authentication can continue normally.
     pub fn retain(&mut self, supported: &(impl Fn(&Arg<'_>) -> bool + ?Sized)) -> Option<bool> {

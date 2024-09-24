@@ -21,6 +21,7 @@ use crate::{
 /// If the client's nick is known,
 /// this handler begins by sending a [`USERHOST`] message to query the client's [`UserHost`].
 /// Otherwise, it remains in the background and updates state.
+#[derive(Default)]
 pub struct TrackClientSource {}
 
 impl TrackClientSource {
@@ -30,7 +31,7 @@ impl TrackClientSource {
     }
 }
 
-fn get_client_source<'a>(state: &'a mut ClientState) -> ControlFlow<(), &'a mut Source<'static>> {
+fn get_client_source(state: &mut ClientState) -> ControlFlow<(), &mut Source<'static>> {
     match state.get_mut::<ClientSource>() {
         Some(v) => ControlFlow::Continue(v),
         None => ControlFlow::Break(()),
@@ -159,7 +160,7 @@ impl SelfMadeHandler for TrackClientSource {
     }
 
     fn make_channel<Spec: ChannelSpec>(
-        spec: &Spec,
+        _spec: &Spec,
     ) -> (Box<dyn Sender<Value = Self::Value> + Send>, Self::Receiver<Spec>) {
         (Box::<ClosedSender<_>>::default(), ())
     }

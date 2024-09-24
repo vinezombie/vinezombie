@@ -25,7 +25,7 @@ impl Key<'_> {
 impl User<'_> {
     /// Returns true if `self` does NOT begin with a tilde.
     pub fn no_tilde(&self) -> bool {
-        self.get(0).copied() != Some(b'~')
+        self.first().copied() != Some(b'~')
     }
 
     /// Returns `self`'s length including a tilde at the front if one was not already added.
