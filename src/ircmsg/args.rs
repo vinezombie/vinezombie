@@ -207,6 +207,29 @@ impl<'a> Args<'a> {
             (&[], None)
         }
     }
+    /// Sets `self` to the provided arguments.
+    pub fn set(
+        &mut self,
+        args: impl IntoIterator<Item = Arg<'a>>,
+        last: Option<Line<'a>>,
+    ) -> &mut Self {
+        let (words, long) = if let Some(last) = last {
+            if let Ok(word) = last.clone().try_into() {
+                let iter = args.into_iter();
+                let mut vec = Vec::with_capacity(1 + iter.size_hint().0);
+                vec.extend(iter);
+                vec.push(word);
+                (vec, None)
+            } else {
+                (args.into_iter().collect(), Some(last))
+            }
+        } else {
+            (args.into_iter().collect(), None)
+        };
+        self.words = words.into();
+        self.long = long;
+        self
+    }
 }
 
 impl<'a> From<Vec<Arg<'a>>> for Args<'a> {

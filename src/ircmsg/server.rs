@@ -61,6 +61,15 @@ impl<'a> ServerMsg<'a> {
             args: Args::empty(),
         }
     }
+    /// Uses the provided message arguments for `self`.
+    pub fn with_args(
+        mut self,
+        args: impl IntoIterator<Item = crate::string::Arg<'a>>,
+        last: Option<Line<'a>>,
+    ) -> Self {
+        self.args.set(args, last);
+        self
+    }
     /// Attempts to parse this message further into a higher-level message type.
     ///
     /// Does not check if the message kind matches, assuming such a check has been done earlier.
