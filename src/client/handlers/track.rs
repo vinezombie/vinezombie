@@ -39,6 +39,9 @@ fn get_client_source(state: &mut ClientState) -> ControlFlow<(), &mut Source<'st
 }
 
 // TODO: Would be nice to extract RPL_USERHOST parsing.
+/// Attempts to parse out the UserHost for `nick` from the args for a RPL_USERHOST.
+///
+/// Returns `Err(None)` if the provided nick was not found in the reply's arguments.
 fn parse_userhost_item<'a>(
     item: Arg<'a>,
     nick: &Nick<'_>,
@@ -105,6 +108,7 @@ impl Handler for TrackClientSource {
                         break;
                     }
                 }
+                // TODO: Log warning on invalid argument structure?
             }
             "NICK" => {
                 if let Some([nick]) = msg.args.all() {
@@ -121,6 +125,7 @@ impl Handler for TrackClientSource {
                         _ => (),
                     }
                 }
+                // TODO: Log warning on invalid argument structure?
             }
             "CHGHOST" => {
                 if let Some([user, host]) = msg.args.all() {
@@ -141,6 +146,7 @@ impl Handler for TrackClientSource {
                         _ => (),
                     }
                 }
+                // TODO: Log warning on invalid argument structure?
             }
             _ => (),
         }
