@@ -24,8 +24,14 @@ pub unsafe trait DynSized {
 unsafe impl<T: Sized> DynSized for T {
     type Metadata = ();
     const ALIGN: usize = std::mem::align_of::<T>();
-    type Ref<'a> = &'a T where Self: 'a;
-    type RefMut<'a> = &'a mut T where Self: 'a;
+    type Ref<'a>
+        = &'a T
+    where
+        Self: 'a;
+    type RefMut<'a>
+        = &'a mut T
+    where
+        Self: 'a;
     unsafe fn layout(_: &Self::Metadata) -> Layout {
         std::alloc::Layout::new::<T>()
     }
@@ -43,8 +49,14 @@ unsafe impl<T: Sized> DynSized for T {
 unsafe impl<T: Sized> DynSized for [T] {
     type Metadata = usize;
     const ALIGN: usize = std::mem::align_of::<T>();
-    type Ref<'a> = &'a [T] where Self: 'a;
-    type RefMut<'a> = &'a mut [T] where Self: 'a;
+    type Ref<'a>
+        = &'a [T]
+    where
+        Self: 'a;
+    type RefMut<'a>
+        = &'a mut [T]
+    where
+        Self: 'a;
     unsafe fn layout(meta: &Self::Metadata) -> Layout {
         std::alloc::Layout::array::<T>(*meta).unwrap()
     }

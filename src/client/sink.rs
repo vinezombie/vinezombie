@@ -25,7 +25,10 @@ impl<'a, F: FnMut(ClientMsg<'a>)> ClientMsgSink<'a> for F {
         self(msg);
     }
 
-    type Borrowed<'b> = &'b mut F where F: 'b;
+    type Borrowed<'b>
+        = &'b mut F
+    where
+        F: 'b;
 
     fn borrow_mut(&mut self) -> Self::Borrowed<'_> {
         self
@@ -37,7 +40,10 @@ impl<'a> ClientMsgSink<'static> for &mut QueueEditGuard<'a> {
         self.push(msg);
     }
 
-    type Borrowed<'b> = &'b mut QueueEditGuard<'a> where Self: 'b;
+    type Borrowed<'b>
+        = &'b mut QueueEditGuard<'a>
+    where
+        Self: 'b;
 
     fn borrow_mut(&mut self) -> Self::Borrowed<'_> {
         self
