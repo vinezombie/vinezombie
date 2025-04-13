@@ -1,5 +1,11 @@
 # 0.x
 
+## 0.4.0 (Next)
+
+### Breaking
+
+- Added `Target`, a string type between `Arg` and `Nick` that forbids commas.
+
 ## 0.3.1 (2024-05-02)
 
 ### Summary

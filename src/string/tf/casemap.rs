@@ -1,14 +1,14 @@
 use crate::string::{
-    ArgSafe, Bytes, CmdSafe, KeySafe, LineSafe, NickSafe, NoNulSafe, Transform, Transformation,
-    UserSafe, Utf8Policy, WordSafe,
+    ArgSafe, Bytes, CmdSafe, KeySafe, LineSafe, NickSafe, NoNulSafe, TargetSafe, Transform,
+    Transformation, UserSafe, Utf8Policy, WordSafe,
 };
 
 /// ASCII casemapping, generic over whether it's uppercase or lowercase.
 ///
 /// Although this transform is safe to use for
-/// [`Nick`][crate::string::Nick] and [`User`][crate::string::User],
+/// [`Target`][crate::string::Target] and [`User`][crate::string::User],
 /// it is likely the result of a logic error to use this instead of [`IrcCasemap::Ascii`].
-/// As such, it does not implement [`NickSafe`] or [`UserSafe`].
+/// As such, it does not implement [`TargetSafe`] or [`UserSafe`].
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct AsciiCasemap<const UPPERCASE: bool>;
 
@@ -96,6 +96,7 @@ unsafe impl NoNulSafe for IrcCasemap {}
 unsafe impl LineSafe for IrcCasemap {}
 unsafe impl WordSafe for IrcCasemap {}
 unsafe impl ArgSafe for IrcCasemap {}
+unsafe impl TargetSafe for IrcCasemap {}
 unsafe impl NickSafe for IrcCasemap {}
 unsafe impl UserSafe for IrcCasemap {}
 unsafe impl KeySafe for IrcCasemap {}

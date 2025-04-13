@@ -173,19 +173,35 @@ conversions!(Key: Word);
 conversions!(Key: Arg);
 
 #[inline(always)]
-const fn is_invalid_for_nick<const CHAIN: bool>(byte: &u8) -> bool {
-    matches!(*byte, b'!' | b'@') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
+const fn is_invalid_for_target<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(*byte, b',') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
 }
 
 #[inline(always)]
-const fn is_invalid_for_user<const CHAIN: bool>(byte: &u8) -> bool {
-    matches!(*byte, b'@' | b'%') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
+const fn is_invalid_for_nick<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(*byte, b'!' | b'@') || if CHAIN { is_invalid_for_target::<true>(byte) } else { false }
 }
 
 impl_subtype! {
-    "An [`Arg`] that does not contain `!` or `@`.\nIntended for use with nicknames."
-    Nick: Arg
-    NickSafe: ArgSafe
+    "An [`Arg`] that does not contain `,`.\nNeeded for channel names. \
+    Although not explicitly required by the spec, this is needed to secure multi-target commands."
+    Target: Arg
+    TargetSafe: ArgSafe
+    is_invalid_for_target::<true>;
+    arg_first_check;
+    |bytes| {
+        check_bytes!(bytes, is_invalid_for_target::<false>)
+    }
+}
+conversions!(Target: NoNul);
+conversions!(Target: Line);
+conversions!(Target: Word);
+conversions!(Target: Arg);
+
+impl_subtype! {
+    "A [`Target`] that does not contain `!` or `@`.\nIntended for use with nicknames."
+    Nick: Target
+    NickSafe: TargetSafe
     is_invalid_for_nick::<true>;
     arg_first_check;
     |bytes| {
@@ -196,6 +212,12 @@ conversions!(Nick: NoNul);
 conversions!(Nick: Line);
 conversions!(Nick: Word);
 conversions!(Nick: Arg);
+conversions!(Nick: Target);
+
+#[inline(always)]
+const fn is_invalid_for_user<const CHAIN: bool>(byte: &u8) -> bool {
+    matches!(*byte, b'@' | b'%') || if CHAIN { is_invalid_for_word::<true>(byte) } else { false }
+}
 
 impl_subtype! {
     "An [`Arg`] that does not contain `@` or `%`.\nIntended for use with usernames."

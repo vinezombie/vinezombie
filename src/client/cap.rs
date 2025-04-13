@@ -114,7 +114,7 @@ impl<'a> ServerMsgArgs<'a> {
             return Err(ParseError::MissingField("caps".into()));
         };
         let (nick, args) = args.split_first().ok_or(ParseError::MissingField("nick".into()))?;
-        let nick = Nick::from_super(nick.clone()).map_err(ParseError::InvalidNick)?;
+        let nick = Nick::from_arg(nick.clone()).map_err(ParseError::InvalidNick)?;
         let (subcmd, args) = args.split_first().ok_or(ParseError::MissingField("subcmd".into()))?;
         let mut subcmd = subcmd.clone();
         // Does the spec actually mandate that this match be case-insensitive?

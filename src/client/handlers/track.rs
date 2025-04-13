@@ -113,7 +113,7 @@ impl Handler for TrackClientSource {
             "NICK" => {
                 if let Some([nick]) = msg.args.all() {
                     let src = get_client_source(state)?;
-                    let Ok(nick) = Nick::from_super(nick.clone()) else {
+                    let Ok(nick) = Nick::from_arg(nick.clone()) else {
                         // TODO: Log warning?
                         return ControlFlow::Continue(());
                     };

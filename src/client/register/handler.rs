@@ -280,7 +280,7 @@ impl Handler {
                     .words()
                     .first()
                     .filter(|n| *n != crate::names::STAR.as_bytes())
-                    .and_then(|n| Nick::from_super(n.clone().owning()).ok());
+                    .and_then(|n| Nick::from_arg(n.clone().owning()).ok());
                 if let Some(nick) = nick {
                     self.reg.nick = nick;
                 }
@@ -457,7 +457,7 @@ impl Handler {
                             } else {
                                 cap::req(
                                     reqs.iter().cloned(),
-                                    Some(self.reg.nick.clone().into_super()),
+                                    Some(self.reg.nick.clone().into()),
                                     self.reg.source.as_ref(),
                                     sink.borrow_mut(),
                                 );

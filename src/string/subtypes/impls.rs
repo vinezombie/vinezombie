@@ -22,6 +22,17 @@ impl Key<'_> {
     }
 }
 
+impl<'a> Nick<'a> {
+    /// Fallibly converts an [`Arg`] into a `Nick`.
+    pub fn from_arg(arg: impl Into<Arg<'a>>) -> Result<Self, InvalidString> {
+        // This is a common conversion, meaning it should get its own function until
+        // Rust allows implicit chaining other than the Deref sort.
+        // TODO: This loops over the string twice.
+        // The optimizer will probably fix it, but we can do better.
+        Nick::from_super(Target::from_super(arg.into())?)
+    }
+}
+
 impl User<'_> {
     /// Returns true if `self` does NOT begin with a tilde.
     pub fn no_tilde(&self) -> bool {
